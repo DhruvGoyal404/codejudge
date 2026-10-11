@@ -23,6 +23,8 @@ React+Monaco → API (Express+TS) → Postgres; API → Redis Streams → Go wor
 
 Windows 11 + Docker Desktop 4.32 (engine 27.0.3, WSL2, cgroup v2). Docker Desktop is shared with the owner's other work: NEVER modify its settings, and never touch containers/images/volumes not created by this project. All project containers carry label `judge.managed=true`.
 
+Go: system 1.22.5; runner/ pins toolchain go1.27.2 via go.mod (auto-downloaded). CI must use go-version-file: runner/go.mod.
+
 ## Sandbox invariants (never weaken without explicit approval)
 
 - Always: `--network none`, memory+memory-swap equal, `--cpus`, `--pids-limit`, `--read-only` rootfs, `--cap-drop ALL`, `no-new-privileges`, non-root user 65534, explicit seccomp profile `sandbox/seccomp/default.json` (engine default is unconfined on this host), log driver none.
