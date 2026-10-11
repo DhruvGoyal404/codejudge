@@ -1,0 +1,40 @@
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# --- Go ---
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+vendor/
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Judge runtime artifacts ---
+tmp/
+submissions/
+*.log
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
