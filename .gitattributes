@@ -7,3 +7,5 @@ go.mod text eol=lf
 go.sum text eol=lf
 *.cpp text eol=lf
 *.py text eol=lf
+# test data must stay byte-exact on every platform (no CRLF conversion)
+problems/*/tests/* -text
