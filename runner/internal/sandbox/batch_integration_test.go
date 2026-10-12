@@ -1,0 +1,211 @@
+//go:build integration
+
+package sandbox
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/moby/moby/client"
+)
+
+func compileFixture(t *testing.T, file string) *Compiled {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	c, cres, err := sb.Compile(ctx, langOf(t, file), fixture(t, file))
+	if err != nil || c == nil {
+		t.Fatalf("compile %s: %v %+v", file, err, cres)
+	}
+	return c
+}
+
+func startBatch(t *testing.T, c *Compiled, inputs []string, lim Limits) *Batch {
+	t.Helper()
+	maxIn := 0
+	for _, in := range inputs {
+		maxIn = max(maxIn, len(in))
+	}
+	b, err := sb.StartBatch(context.Background(), c, lim, len(inputs), maxIn)
+	if err != nil {
+		t.Fatalf("StartBatch: %v", err)
+	}
+	t.Cleanup(b.Close)
+	return b
+}
+
+// runBatchFixture runs every input through one batch container.
+func runBatchFixture(t *testing.T, file string, inputs []string, lim Limits) []*Result {
+	t.Helper()
+	b := startBatch(t, compileFixture(t, file), inputs, lim)
+	var out []*Result
+	for i, in := range inputs {
+		res, err := b.Run([]byte(in))
+		if err != nil {
+			t.Fatalf("test %d: %v", i+1, err)
+		}
+		t.Logf("%s test %d -> status=%s reason=%q exit=%d sig=%d cpu=%dms rss=%dKB run=%dms stdout=%q stderr=%.200q",
+			file, i+1, res.Status, res.Reason, res.ExitCode, res.Signal, res.CPUMs, res.MaxRSSKB, res.RunMs, trunc(res.Stdout, 300), res.Stderr)
+		out = append(out, res)
+	}
+	b.Close()
+	return out
+}
+
+func TestBatchOK(t *testing.T) {
+	for _, f := range []string{"ok.cpp", "ok.py"} {
+		t.Run(f, func(t *testing.T) {
+			res := runBatchFixture(t, f, []string{"1 2\n", "40 2\n", "-5 5\n"}, std)
+			for i, want := range []string{"3", "42", "0"} {
+				wantStatus(t, res[i], StatusOK)
+				if strings.TrimSpace(res[i].Stdout) != want {
+					t.Fatalf("test %d stdout %q, want %s", i+1, res[i].Stdout, want)
+				}
+			}
+		})
+	}
+}
+
+// The program must not inherit any judge-exec descriptor: only its own input,
+// its stdout/stderr files and the directory it is listing may appear.
+func TestBatchFDs(t *testing.T) {
+	allowed := map[string]bool{"/box/input": true, "/box/.stdout": true, "/box/.stderr": true}
+	for _, f := range []string{"fds.cpp", "fds.py"} {
+		t.Run(f, func(t *testing.T) {
+			for i, res := range runBatchFixture(t, f, []string{"first", "second"}, std) {
+				wantStatus(t, res, StatusOK)
+				seen := map[string]bool{}
+				for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+					_, target, ok := strings.Cut(line, " -> ")
+					if !ok {
+						t.Fatalf("test %d: unparseable line %q", i+1, line)
+					}
+					if !allowed[target] && !strings.HasPrefix(target, "/proc/") {
+						t.Fatalf("test %d: program holds unexpected descriptor %q", i+1, line)
+					}
+					seen[target] = true
+				}
+				for a := range allowed {
+					if !seen[a] {
+						t.Fatalf("test %d: expected %s among descriptors, got %q", i+1, a, res.Stdout)
+					}
+				}
+			}
+		})
+	}
+}
+
+// Reading past the end of its own input must never yield a later test's bytes.
+func TestBatchStdinOverread(t *testing.T) {
+	inputs := []string{"MARK-1", "MARK-2", "MARK-3"}
+	for _, f := range []string{"overread.cpp", "overread.py"} {
+		t.Run(f, func(t *testing.T) {
+			for i, res := range runBatchFixture(t, f, inputs, std) {
+				wantStatus(t, res, StatusOK)
+				want := fmt.Sprintf("own=MARK-%d extra=0 extradata=", i+1)
+				if strings.TrimSpace(res.Stdout) != want {
+					t.Fatalf("test %d: got %q, want %q", i+1, res.Stdout, want)
+				}
+			}
+		})
+	}
+}
+
+// Other tests' inputs are never visible: later ones are not in the container
+// yet, earlier ones (and anything the program left behind) have been wiped.
+func TestBatchHiddenInputs(t *testing.T) {
+	inputs := []string{"SECRET-1", "SECRET-2", "SECRET-3"}
+	for i, res := range runBatchFixture(t, "snoop.py", inputs, std) {
+		wantStatus(t, res, StatusOK)
+		if !strings.Contains(res.Stdout, "own: SECRET-"+fmt.Sprint(i+1)) {
+			t.Fatalf("test %d: own input missing: %q", i+1, res.Stdout)
+		}
+		for j := range inputs {
+			if j != i && strings.Contains(res.Stdout, inputs[j]) {
+				t.Fatalf("test %d saw %s: %q", i+1, inputs[j], res.Stdout)
+			}
+		}
+		if strings.Contains(res.Stdout, "LEFTOVER") {
+			t.Fatalf("test %d found files left by an earlier test: %q", i+1, res.Stdout)
+		}
+	}
+}
+
+// A1 result-integrity tests, in batch mode: verdicts reflect the real
+// program, and the batch stays valid (nonce/seq) for the following test.
+func TestBatchVerdictForgery(t *testing.T) {
+	for _, f := range []string{"forge.cpp", "forge.py"} {
+		t.Run(f, func(t *testing.T) {
+			for i, res := range runBatchFixture(t, f, []string{"", ""}, std) {
+				wantStatus(t, res, StatusRE)
+				if res.ExitCode != 3 {
+					t.Fatalf("test %d exit %d, want 3", i+1, res.ExitCode)
+				}
+				if !strings.Contains(res.Stderr, "open /proc/1/fd/1: Permission denied") ||
+					strings.Contains(res.Stderr, "INJECTED") || strings.Contains(res.Stderr, "child:") {
+					t.Fatalf("test %d: forgery made progress: %q", i+1, res.Stderr)
+				}
+			}
+		})
+	}
+}
+
+func TestBatchLimits(t *testing.T) {
+	t.Run("wall-limit-each-test", func(t *testing.T) {
+		for _, res := range runBatchFixture(t, "sleep.cpp", []string{"", ""}, std) {
+			wantStatus(t, res, StatusTLE)
+		}
+	})
+	t.Run("mle", func(t *testing.T) {
+		res := runBatchFixture(t, "mle.cpp", []string{""}, Limits{TimeLimit: 5 * time.Second, MemoryMB: 64})
+		wantStatus(t, res[0], StatusMLE)
+	})
+}
+
+// If the container dies mid-batch, the current test gets IE (or MLE if it was
+// OOM-killed), the batch is dead and is never reused.
+func TestBatchContainerDeath(t *testing.T) {
+	b := startBatch(t, compileFixture(t, "ok.py"), []string{"1 2\n", "3 4\n", "5 6\n"}, std)
+	res, err := b.Run([]byte("1 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus(t, res, StatusOK)
+
+	if _, err := sb.cli.ContainerKill(context.Background(), b.id, client.ContainerKillOptions{Signal: "KILL"}); err != nil {
+		t.Fatal(err)
+	}
+	res, err = b.Run([]byte("3 4\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("after kill: status=%s reason=%q", res.Status, res.Reason)
+	wantStatus(t, res, StatusIE)
+	if _, err := b.Run([]byte("5 6\n")); err == nil {
+		t.Fatal("dead batch was reused")
+	}
+	if _, err := sb.cli.ContainerInspect(context.Background(), b.id, client.ContainerInspectOptions{}); err == nil {
+		t.Fatal("dead batch container not removed")
+	}
+}
+
+// Inputs larger than the batch was sized for are rejected by judge-exec with
+// an error frame: IE with judge-exec's message, and the batch ends.
+func TestBatchOversizedInput(t *testing.T) {
+	b := startBatch(t, compileFixture(t, "ok.py"), []string{"1 2\n"}, std)
+	res, err := b.Run([]byte("1 2 3 4 5\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("status=%s reason=%q", res.Status, res.Reason)
+	wantStatus(t, res, StatusIE)
+	if !strings.Contains(res.Reason, "exceeds size limit") {
+		t.Fatalf("reason %q", res.Reason)
+	}
+	if _, err := b.Run([]byte("1 2\n")); err == nil {
+		t.Fatal("batch reused after judge-exec error")
+	}
+}

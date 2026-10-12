@@ -136,17 +136,18 @@ func (s *Sandbox) ManagedContainers(ctx context.Context) (int, error) {
 
 // containerSpec is one single-use container run.
 type containerSpec struct {
-	Role        string // "compile" | "run" (label only)
-	ImageKey    string
-	Cmd         []string
-	MemoryBytes int64 // memory == memory-swap (no swap)
-	NanoCPUs    int64
-	PidsLimit   int64
-	BoxMB       int64 // /box tmpfs (exec)
-	TmpMB       int64 // /tmp tmpfs (noexec)
-	StdinTar    []byte
-	StdoutCap   int64         // hard cap on bytes read from container stdout
-	Deadline    time.Duration // outer deadline: create -> result
+	Role          string // "compile" | "run" (label only)
+	ImageKey      string
+	Cmd           []string
+	MemoryBytes   int64 // memory == memory-swap (no swap)
+	NanoCPUs      int64
+	PidsLimit     int64
+	BoxMB         int64 // /box tmpfs (exec)
+	TmpMB         int64 // /tmp tmpfs (noexec)
+	StdinTar      []byte
+	KeepStdinOpen bool          // batch: stdin stays open across many messages (StdinOnce=false)
+	StdoutCap     int64         // hard cap on bytes read from container stdout
+	Deadline      time.Duration // outer deadline: create -> result
 }
 
 func (sp containerSpec) labels() map[string]string {
@@ -197,25 +198,9 @@ func randName() string {
 	return "judge-" + hex.EncodeToString(b)
 }
 
-// runContainer creates, attaches, starts, feeds and drains one container,
-// and always force-removes it before returning — on success, error,
-// deadline, and panic.
-func (s *Sandbox) runContainer(ctx context.Context, sp containerSpec) (res containerResult, err error) {
-	select {
-	case s.sem <- struct{}{}:
-	case <-ctx.Done():
-		return res, ctx.Err()
-	}
-	defer func() { <-s.sem }()
-
-	image, ok := s.images[sp.ImageKey]
-	if !ok {
-		return res, fmt.Errorf("image %q not in lock file (run scripts/build-images.ps1)", sp.ImageKey)
-	}
-	start := time.Now()
-	dctx, cancel := context.WithTimeout(ctx, sp.Deadline)
-	defer cancel()
-
+// containerConfigs builds the hardened container configuration shared by
+// single-run and batch containers (see CLAUDE.md "Sandbox invariants").
+func (s *Sandbox) containerConfigs(image string, sp containerSpec) (*container.Config, *container.HostConfig) {
 	pids := sp.PidsLimit
 	cfg := &container.Config{
 		Image:           image,
@@ -226,7 +211,7 @@ func (s *Sandbox) runContainer(ctx context.Context, sp containerSpec) (res conta
 		AttachStdout:    true,
 		AttachStderr:    true,
 		OpenStdin:       true,
-		StdinOnce:       true,
+		StdinOnce:       !sp.KeepStdinOpen,
 		NetworkDisabled: true,
 		Labels:          sp.labels(),
 	}
@@ -248,6 +233,38 @@ func (s *Sandbox) runContainer(ctx context.Context, sp containerSpec) (res conta
 			Ulimits:    []*container.Ulimit{{Name: "nofile", Soft: 256, Hard: 256}},
 		},
 	}
+	return cfg, hc
+}
+
+// removeContainer force-removes id with a fresh context, so it works even
+// when the caller's context is cancelled.
+func (s *Sandbox) removeContainer(id string) error {
+	rctx, rcancel := context.WithTimeout(context.Background(), removeTimeout)
+	defer rcancel()
+	_, err := s.cli.ContainerRemove(rctx, id, client.ContainerRemoveOptions{Force: true})
+	return err
+}
+
+// runContainer creates, attaches, starts, feeds and drains one container,
+// and always force-removes it before returning — on success, error,
+// deadline, and panic.
+func (s *Sandbox) runContainer(ctx context.Context, sp containerSpec) (res containerResult, err error) {
+	select {
+	case s.sem <- struct{}{}:
+	case <-ctx.Done():
+		return res, ctx.Err()
+	}
+	defer func() { <-s.sem }()
+
+	image, ok := s.images[sp.ImageKey]
+	if !ok {
+		return res, fmt.Errorf("image %q not in lock file (run scripts/build-images.ps1)", sp.ImageKey)
+	}
+	start := time.Now()
+	dctx, cancel := context.WithTimeout(ctx, sp.Deadline)
+	defer cancel()
+
+	cfg, hc := s.containerConfigs(image, sp)
 
 	created, err := s.cli.ContainerCreate(dctx, client.ContainerCreateOptions{Name: randName(), Config: cfg, HostConfig: hc})
 	if err != nil {
