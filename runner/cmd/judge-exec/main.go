@@ -40,27 +40,6 @@ var childEnv = []string{
 	"PYTHONUNBUFFERED=1",
 }
 
-type options struct {
-	mode        string
-	maxTarBytes int64
-	maxFiles    int
-	cpuMs       int64 // RLIMIT_CPU is set to ceil(cpuMs/1000)+1 seconds; 0 = unlimited
-	wallMs      int64
-	fsize       int64 // RLIMIT_FSIZE bytes; 0 = unlimited
-	stack       int64 // RLIMIT_STACK bytes; 0 = inherit
-	memKB       int64 // kill when peak RSS (VmHWM) exceeds this; 0 = off
-	stdoutCap   int64
-	stderrCap   int64
-	stdinFile   string
-	artifacts   []string
-	cmd         []string
-}
-
-type multiFlag []string
-
-func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
-func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
-
 func parse(args []string) (options, error) {
 	var o options
 	if len(args) == 0 {
@@ -82,6 +61,8 @@ func parse(args []string) (options, error) {
 	fs.Int64Var(&o.stdoutCap, "stdout-cap", 64<<10, "")
 	fs.Int64Var(&o.stderrCap, "stderr-cap", 64<<10, "")
 	fs.StringVar(&o.stdinFile, "stdin", "", "")
+	fs.BoolVar(&o.batch, "batch", false, "")
+	fs.Int64Var(&o.maxInput, "max-input-bytes", 16<<20, "")
 	var arts multiFlag
 	fs.Var(&arts, "artifact", "")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -94,6 +75,12 @@ func parse(args []string) (options, error) {
 	}
 	if o.wallMs <= 0 {
 		return o, errors.New("--wall-ms must be > 0")
+	}
+	if o.batch && o.mode != "run" {
+		return o, errors.New("--batch is only valid in run mode")
+	}
+	if o.maxInput < 0 || o.maxInput > 1<<30 || o.maxTarBytes < 0 || o.maxTarBytes > 1<<30 {
+		return o, errors.New("size limits out of range")
 	}
 	return o, nil
 }
@@ -108,6 +95,9 @@ func main() {
 	if err != nil {
 		_ = emitResult(os.Stdout, protocol.Frame{Mode: o.mode, Status: protocol.StatusError, Error: "args: " + err.Error()})
 		os.Exit(2)
+	}
+	if o.batch {
+		os.Exit(runBatch(o, realBatchDeps(o)))
 	}
 	if err := boxtar.Extract(os.Stdin, boxDir, boxtar.Limits{MaxBytes: o.maxTarBytes, MaxFiles: o.maxFiles}); err != nil {
 		_ = emitResult(os.Stdout, protocol.Frame{Mode: o.mode, Status: protocol.StatusError, Error: "input: " + err.Error()})

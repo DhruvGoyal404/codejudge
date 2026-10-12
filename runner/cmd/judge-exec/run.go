@@ -19,12 +19,6 @@ import (
 	"github.com/DhruvGoyal404/codejudge/runner/internal/protocol"
 )
 
-// RunConfig is the per-run configuration (the parsed command-line options).
-type RunConfig = options
-
-// Result is one judge-exec result frame.
-type Result = protocol.Frame
-
 // runOne runs the program once with stdin from inputPath ("" or missing ->
 // /dev/null), enforces limits, kills and reaps every other process, and
 // returns the result. Moved unchanged from main.go (was execute).
