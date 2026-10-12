@@ -281,6 +281,9 @@ func (b *Batch) stopAndInspect() bool {
 	return insp.Container.State.OOMKilled
 }
 
+// Dead reports whether the batch can no longer run tests.
+func (b *Batch) Dead() bool { return b.dead }
+
 // kill marks the batch dead and force-removes the container.
 func (b *Batch) kill() {
 	b.dead = true

@@ -1,7 +1,7 @@
-// Command judge-run compiles and runs one program in the sandbox and prints
-// the result as JSON.
+// Command judge-run runs programs in the sandbox and prints JSON.
 //
-//	judge-run --lang cpp|python --src FILE [--stdin FILE] --time-limit 2s --memory-limit 256
+//	judge-run [run] --lang cpp|python --src FILE [--stdin FILE] --time-limit 2s --memory-limit 256
+//	judge-run judge --problem problems/<slug> --lang cpp|python --src FILE [--run-all] [--mode batch|per-test]
 package main
 
 import (
@@ -13,11 +13,24 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/DhruvGoyal404/codejudge/runner/internal/judge"
 	"github.com/DhruvGoyal404/codejudge/runner/internal/lang"
+	"github.com/DhruvGoyal404/codejudge/runner/internal/problem"
 	"github.com/DhruvGoyal404/codejudge/runner/internal/sandbox"
 )
 
 func main() {
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "judge" {
+		if err := judgeCmd(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "judge-run judge:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "run" {
+		os.Args = append(os.Args[:1], args[1:]...)
+	}
 	var (
 		langName    = flag.String("lang", "", "language: cpp | python")
 		srcPath     = flag.String("src", "", "source file")
@@ -76,6 +89,59 @@ func run(langName, srcPath, stdinPath, seccompPath, lockPath string, lim sandbox
 	defer sb.Close()
 
 	res, err := sb.Execute(ctx, l, src, stdin, lim)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(res)
+}
+
+func judgeCmd(args []string) error {
+	fs := flag.NewFlagSet("judge", flag.ContinueOnError)
+	probDir := fs.String("problem", "", "problem package directory (problems/<slug>)")
+	langName := fs.String("lang", "", "language: cpp | python")
+	srcPath := fs.String("src", "", "source file")
+	runAll := fs.Bool("run-all", false, "run every test instead of stopping at the first non-AC")
+	mode := fs.String("mode", judge.ModeBatch, "batch | per-test")
+	seccompPath := fs.String("seccomp", "", "seccomp profile (default: find sandbox/seccomp/default.json)")
+	lockPath := fs.String("images", "", "image lock (default: find sandbox/images/images.lock.json)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *probDir == "" || *srcPath == "" {
+		return fmt.Errorf("--problem and --src are required")
+	}
+	l, err := lang.Get(*langName)
+	if err != nil {
+		return err
+	}
+	p, err := problem.Load(*probDir)
+	if err != nil {
+		return err
+	}
+	src, err := os.ReadFile(*srcPath)
+	if err != nil {
+		return err
+	}
+	if *seccompPath == "" {
+		if *seccompPath, err = sandbox.FindRepoFile("sandbox/seccomp/default.json"); err != nil {
+			return err
+		}
+	}
+	if *lockPath == "" {
+		if *lockPath, err = sandbox.FindRepoFile("sandbox/images/images.lock.json"); err != nil {
+			return err
+		}
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	sb, err := sandbox.New(ctx, sandbox.Options{SeccompPath: *seccompPath, ImagesLockPath: *lockPath})
+	if err != nil {
+		return err
+	}
+	defer sb.Close()
+	res, err := judge.Judge(ctx, sb, p, l, src, judge.Options{RunAll: *runAll, Mode: *mode})
 	if err != nil {
 		return err
 	}
