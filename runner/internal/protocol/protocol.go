@@ -8,6 +8,8 @@
 //     in the container has been killed and reaped.
 //   - compile mode: a tar stream on stdout whose first entry is ResultEntry
 //     (a JSON Frame), followed by the compiled artifacts on success.
+//   - batch mode: length-prefixed messages in, length-prefixed frames out;
+//     see framing.go and docs/PROTOCOL.md.
 package protocol
 
 // ResultEntry is the name of the Frame entry in a compile-mode output tar.
@@ -20,6 +22,7 @@ const (
 	StatusWallKilled = "wall_killed" // judge-exec killed it at the wall-clock limit
 	StatusMemKilled  = "mem_killed"  // judge-exec killed it when peak RSS exceeded the memory limit
 	StatusError      = "error"       // judge-exec itself failed; see Frame.Error
+	StatusReady      = "ready"       // batch: program files received, ready for the first test
 )
 
 // Frame is the single result record produced by judge-exec.
@@ -27,6 +30,8 @@ const (
 // (non-UTF-8) program output intact.
 type Frame struct {
 	Mode            string   `json:"mode"`
+	Seq             int      `json:"seq,omitempty"`   // batch: test number (1-based); 0 = ready frame
+	Nonce           string   `json:"nonce,omitempty"` // batch: hex of the MsgProgram nonce, echoed in every frame
 	Status          string   `json:"status"`
 	ExitCode        int      `json:"exit_code"`
 	Signal          int      `json:"signal"`
