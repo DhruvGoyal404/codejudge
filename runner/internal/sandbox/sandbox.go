@@ -28,8 +28,8 @@ const sandboxUser = "65534:65534"
 
 // Options configures a Sandbox.
 type Options struct {
-	SeccompPath    string        // sandbox/seccomp/default.json
-	ImagesLockPath string        // sandbox/images/images.lock.json
+	SeccompPath    string // sandbox/seccomp/default.json
+	ImagesLockPath string // sandbox/images/images.lock.json
 	Concurrency    int    // max containers in flight; default 2
 }
 

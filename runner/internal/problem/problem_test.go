@@ -104,7 +104,7 @@ func TestLoadRejects(t *testing.T) {
 		"time too big":       {sub("time_limit: 1s", "time_limit: 6s"), goodTests, "time_limit"},
 		"bad duration":       {sub("time_limit: 1s", "time_limit: fast"), goodTests, "time_limit"},
 		"memory too big":     {sub("memory_limit: 256", "memory_limit: 4096"), goodTests, "memory_limit"},
-		"effective too big":  {sub("python: 3", "python: 5\n  cpp: 1") + "", goodTests, ""}, // 1s*5 = 5s: ok
+		"max multiplier ok":  {sub("python: 3", "python: 5\n  cpp: 1"), goodTests, ""}, // 1s*5 = 5s: allowed
 		"multiplier too big": {sub("python: 3", "python: 6"), goodTests, "time_multiplier"},
 		"unknown language":   {sub("python: 3", "rust: 1"), goodTests, "unsupported language"},
 		"unknown field":      {goodYAML + "memory_limt: 5\n", goodTests, "field memory_limt not found"},

@@ -299,7 +299,9 @@ func TestReaperInstances(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _, _ = sb.cli.ContainerRemove(context.Background(), cr.ID, client.ContainerRemoveOptions{Force: true}) })
+		t.Cleanup(func() {
+			_, _ = sb.cli.ContainerRemove(context.Background(), cr.ID, client.ContainerRemoveOptions{Force: true})
+		})
 		return cr.ID
 	}
 	exists := func(id string) bool {
@@ -312,7 +314,7 @@ func TestReaperInstances(t *testing.T) {
 	dead[LabelPID] = "999999" // no such process
 	live := self.labels()
 	live[LabelInstance] = "liveinstance0001" // another runner in this (live) process identity
-	legacy := map[string]string{}             // Phase 1 container: no instance labels
+	legacy := map[string]string{}            // Phase 1 container: no instance labels
 
 	deadID, liveID, legacyID := mk(dead), mk(live), mk(legacy)
 	n, err := sb.Reap(ctx)
