@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/DhruvGoyal404/codejudge/runner/internal/lang"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 )
 
 var sb *Sandbox
@@ -259,5 +261,72 @@ func TestConcurrencyIsolation(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Error(err)
+	}
+}
+
+// A program (and a delayed forked child) trying to forge an OK result frame
+// must not change the verdict: the real program exits 3 => RE.
+func TestVerdictForgery(t *testing.T) {
+	for _, f := range []string{"forge.cpp", "forge.py"} {
+		t.Run(f, func(t *testing.T) {
+			res := execute(t, f, "", std)
+			wantStatus(t, res, StatusRE)
+			if res.ExitCode != 3 {
+				t.Fatalf("exit = %d, want 3", res.ExitCode)
+			}
+			if !strings.Contains(res.Stderr, "open /proc/1/fd/1: Permission denied") {
+				t.Fatalf("expected /proc/1/fd/1 to be denied, stderr=%q", res.Stderr)
+			}
+			if strings.Contains(res.Stderr, "INJECTED") || strings.Contains(res.Stderr, "child:") {
+				t.Fatalf("forger made progress: %q", res.Stderr)
+			}
+		})
+	}
+}
+
+// The reaper removes containers of dead instances and leaves those of live
+// instances alone. Uses never-started containers with crafted labels.
+func TestReaperInstances(t *testing.T) {
+	ctx := context.Background()
+	mk := func(labels map[string]string) string {
+		labels[LabelManaged] = "true"
+		labels["judge.role"] = "reaper-test"
+		cr, err := sb.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+			Name:       randName(),
+			Config:     &container.Config{Image: sb.images["cpp-run"], Cmd: []string{"run", "--", "/none"}, Labels: labels, NetworkDisabled: true},
+			HostConfig: &container.HostConfig{NetworkMode: "none", ReadonlyRootfs: true, CapDrop: []string{"ALL"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = sb.cli.ContainerRemove(context.Background(), cr.ID, client.ContainerRemoveOptions{Force: true}) })
+		return cr.ID
+	}
+	exists := func(id string) bool {
+		_, err := sb.cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+		return err == nil
+	}
+
+	dead := self.labels()
+	dead[LabelInstance] = "deadinstance0001"
+	dead[LabelPID] = "999999" // no such process
+	live := self.labels()
+	live[LabelInstance] = "liveinstance0001" // another runner in this (live) process identity
+	legacy := map[string]string{}             // Phase 1 container: no instance labels
+
+	deadID, liveID, legacyID := mk(dead), mk(live), mk(legacy)
+	n, err := sb.Reap(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("reaped %d", n)
+	if exists(deadID) {
+		t.Error("container of dead instance was not reaped")
+	}
+	if exists(legacyID) {
+		t.Error("unlabelled legacy container was not reaped")
+	}
+	if !exists(liveID) {
+		t.Error("container of a live instance was reaped")
 	}
 }

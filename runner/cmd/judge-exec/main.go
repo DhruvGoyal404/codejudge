@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -107,6 +108,7 @@ func main() {
 		childMain(os.Args[2:])
 		return
 	}
+	harden()
 	o, err := parse(os.Args[1:])
 	if err != nil {
 		emit(o, protocol.Frame{Mode: o.mode, Status: protocol.StatusError, Error: "args: " + err.Error()})
@@ -118,6 +120,32 @@ func main() {
 	}
 	f := execute(o)
 	emit(o, f)
+}
+
+// harden protects judge-exec (PID 1) from the program it supervises, which
+// runs as the same uid:
+//   - PR_SET_DUMPABLE=0 makes /proc/1/* (fd, mem, environ, ...) root-owned and
+//     denies ptrace/process_vm_* access to non-CAP_SYS_PTRACE processes, so a
+//     program cannot write forged frames into our stdout via /proc/1/fd/1 or
+//     tamper with our memory. execve resets dumpable for the re-exec child and
+//     the program, so measurements via /proc/<child>/status still work.
+//   - Catching and dropping terminating signals: in a PID namespace the kernel
+//     only delivers signals to init for which a handler is installed, and the
+//     Go runtime installs exit-on-signal handlers by default. A handler (not
+//     SIG_IGN) is used so children get default dispositions after execve.
+func harden() {
+	const prSetDumpable = 4
+	if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, prSetDumpable, 0, 0); errno != 0 {
+		fmt.Fprintln(os.Stderr, "judge-exec: prctl(PR_SET_DUMPABLE, 0):", errno)
+		os.Exit(3)
+	}
+	ch := make(chan os.Signal, 16)
+	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP, syscall.SIGQUIT,
+		syscall.SIGUSR1, syscall.SIGUSR2, syscall.SIGALRM, syscall.SIGVTALRM, syscall.SIGPROF)
+	go func() {
+		for range ch {
+		}
+	}()
 }
 
 // childMain runs in the re-executed child: apply rlimits, then exec the

@@ -164,6 +164,9 @@ func (s *Sandbox) Run(ctx context.Context, c *Compiled, stdin []byte, lim Limits
 	if len(stdin) > maxInputBytes {
 		return &Result{Status: StatusIE, Reason: "input too large"}, nil
 	}
+	if lim.TimeLimit <= 0 || lim.TimeLimit > MaxEffectiveTimeLimit {
+		return nil, fmt.Errorf("time limit %v outside (0, %v]", lim.TimeLimit, MaxEffectiveTimeLimit)
+	}
 	files := append(append([]boxtar.File{}, c.Files...), boxtar.File{Name: "input", Data: stdin})
 	in, err := boxtar.Build(files)
 	if err != nil {

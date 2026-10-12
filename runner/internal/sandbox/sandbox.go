@@ -30,8 +30,7 @@ const sandboxUser = "65534:65534"
 type Options struct {
 	SeccompPath    string        // sandbox/seccomp/default.json
 	ImagesLockPath string        // sandbox/images/images.lock.json
-	Concurrency    int           // max containers in flight; default 2
-	StaleAfter     time.Duration // reaper removes managed containers older than this; default 10m
+	Concurrency    int    // max containers in flight; default 2
 }
 
 // Sandbox owns a Docker client, the pinned images, the seccomp profile and
@@ -50,9 +49,6 @@ type Sandbox struct {
 func New(ctx context.Context, o Options) (*Sandbox, error) {
 	if o.Concurrency <= 0 {
 		o.Concurrency = 2
-	}
-	if o.StaleAfter <= 0 {
-		o.StaleAfter = 10 * time.Minute
 	}
 	raw, err := os.ReadFile(o.SeccompPath)
 	if err != nil {
@@ -92,10 +88,13 @@ func (s *Sandbox) Close() error { return s.cli.Close() }
 // APIVersion reports the negotiated Docker API version.
 func (s *Sandbox) APIVersion() string { return s.cli.ClientVersion() }
 
-// Reap force-removes stale judge.managed containers: any that are not running,
-// plus running ones older than Options.StaleAfter (longer than any legitimate
-// run). Fresh running containers are left alone so concurrent runner
-// processes do not destroy each other's work. Returns how many were removed.
+// Reap force-removes stale judge.managed containers: those whose owning
+// runner instance is dead (judge.instance/judge.pid/judge.pid_start labels,
+// pid liveness + start time to defeat pid reuse), and any older than
+// ReaperThreshold, which exceeds MaxContainerLifetime. Containers of live
+// instances (including this one) are never touched, so concurrent runner
+// processes cannot destroy each other's work, and a container that has just
+// exited is not removed before its owner reads State.OOMKilled.
 func (s *Sandbox) Reap(ctx context.Context) (int, error) {
 	list, err := s.cli.ContainerList(ctx, client.ContainerListOptions{
 		All:     true,
@@ -105,12 +104,15 @@ func (s *Sandbox) Reap(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	n := 0
-	cutoff := time.Now().Add(-s.opts.StaleAfter).Unix()
+	cutoff := time.Now().Add(-ReaperThreshold).Unix()
 	for _, c := range list.Items {
 		if c.Labels[LabelManaged] != "true" {
 			continue // defensive: never touch anything not ours
 		}
-		if c.State == container.StateRunning && c.Created > cutoff {
+		if c.Labels[LabelInstance] == self.ID {
+			continue
+		}
+		if !ownerDead(c.Labels) && c.Created > cutoff {
 			continue
 		}
 		if _, err := s.cli.ContainerRemove(ctx, c.ID, client.ContainerRemoveOptions{Force: true}); err == nil {
@@ -145,6 +147,13 @@ type containerSpec struct {
 	StdinTar    []byte
 	StdoutCap   int64         // hard cap on bytes read from container stdout
 	Deadline    time.Duration // outer deadline: create -> result
+}
+
+func (sp containerSpec) labels() map[string]string {
+	l := self.labels()
+	l[LabelManaged] = "true"
+	l["judge.role"] = sp.Role
+	return l
 }
 
 type containerResult struct {
@@ -219,7 +228,7 @@ func (s *Sandbox) runContainer(ctx context.Context, sp containerSpec) (res conta
 		OpenStdin:       true,
 		StdinOnce:       true,
 		NetworkDisabled: true,
-		Labels:          map[string]string{LabelManaged: "true", "judge.role": sp.Role},
+		Labels:          sp.labels(),
 	}
 	hc := &container.HostConfig{
 		NetworkMode:    "none",

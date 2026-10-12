@@ -11,9 +11,9 @@ React+Monaco → API (Express+TS) → Postgres; API → Redis Streams → Go wor
 | Phase | Scope |
 |---|---|
 | 0 | env ✅ |
-| 1 | Go sandbox runner (CLI) |
-| 2 | judging + Postgres schema |
-| 3 | API + Redis Streams + worker |
+| 1 | Go sandbox runner (CLI) ✅ |
+| 2 | judge engine (problem format, checker, batch mode, submission verdicts) |
+| 3 | API + Postgres schema + Redis Streams + worker |
 | 4 | frontend |
 | 5 | auth/rate-limit/history |
 | 6 | deploy EC2 + gVisor (runsc) + CI |
