@@ -38,3 +38,6 @@ submissions/
 Thumbs.db
 .vscode/
 .idea/
+
+# machine-local image IDs written by scripts/build-images.ps1
+sandbox/images/images.lock.json
