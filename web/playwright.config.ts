@@ -6,7 +6,15 @@ import { defineConfig } from "@playwright/test";
 import { STATE_FILE } from "./e2e/global-setup.ts";
 import { stackEnv } from "./e2e/stack.ts";
 
-const env = { ...stackEnv(), LOG_LEVEL: "warn" };
+const env = {
+  ...stackEnv(),
+  LOG_LEVEL: "warn",
+  // TEST ONLY: POST /test/login (the API refuses to start with it unless NODE_ENV=test).
+  NODE_ENV: "test",
+  TEST_AUTH_SHORTCUT: "1",
+  // Specs share few users and submit several times within a minute.
+  SUBMIT_LIMIT_PER_MIN: "60",
+};
 
 export default defineConfig({
   testDir: "e2e",
@@ -20,12 +28,15 @@ export default defineConfig({
   globalTeardown: "./e2e/global-teardown.ts",
   use: {
     baseURL: "http://localhost:5173",
-    storageState: STATE_FILE, // written by global-setup: a logged-in test user
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { browserName: "chromium" } }],
+  projects: [
+    // Logs in once through the test-only shortcut and saves the browser state.
+    { name: "setup", testMatch: /auth\.setup\.ts/ },
+    { name: "chromium", use: { browserName: "chromium", storageState: STATE_FILE }, dependencies: ["setup"] },
+  ],
   webServer: [
     {
       command: "npx tsx src/server.ts",

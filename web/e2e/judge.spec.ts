@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { enterCode as pasteCode } from "./helpers.ts";
 import { REPO } from "./stack.ts";
 
 // range-ledger: its wrong solution (off-by-one) fails on SAMPLE 01, so the WA
@@ -14,19 +15,7 @@ const shot = async (page: Page, name: string) => {
   if (SHOTS) await page.screenshot({ path: join(REPO, "docs", "img", `phase4-${name}.png`) });
 };
 
-/**
- * Puts code into Monaco by pasting it: typing character by character would
- * trigger auto-indent and bracket auto-closing and corrupt the source.
- */
-async function enterCode(page: Page, code: string) {
-  const editor = page.locator(".monaco-editor").first();
-  await editor.waitFor();
-  await editor.click();
-  await page.evaluate((text) => navigator.clipboard.writeText(text), code);
-  await page.keyboard.press("ControlOrMeta+A");
-  await page.keyboard.press("ControlOrMeta+V");
-  await expect(page.locator(".view-lines")).toContainText("prefix");
-}
+const enterCode = (page: Page, code: string) => pasteCode(page, code, "prefix");
 
 test.beforeEach(async ({ context, page }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);

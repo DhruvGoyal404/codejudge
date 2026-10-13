@@ -1,6 +1,6 @@
 import { readFileSync, rmSync } from "node:fs";
 
-import { deleteTestUser, PID_FILE, STATE_FILE, USER_FILE } from "./global-setup.ts";
+import { deleteShortcutUsers, PID_FILE, STATE_FILE } from "./global-setup.ts";
 
 export default async function globalTeardown() {
   try {
@@ -10,11 +10,6 @@ export default async function globalTeardown() {
     /* already gone */
   }
   rmSync(PID_FILE, { force: true });
-  try {
-    deleteTestUser(readFileSync(USER_FILE, "utf8").trim());
-  } catch {
-    /* setup never created one */
-  }
-  rmSync(USER_FILE, { force: true });
+  deleteShortcutUsers();
   rmSync(STATE_FILE, { force: true });
 }
