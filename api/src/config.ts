@@ -45,6 +45,10 @@ const Env = z
     // Length of the "per minute" windows; overridden only by tests.
     RATE_LIMIT_MINUTE_S: z.coerce.number().int().min(1).default(60),
     RATE_LIMIT_PREFIX: z.string().min(1).default("rl"),
+    // TEST ONLY: mounts POST /test/login (browser E2E). Allowed only with
+    // NODE_ENV=test; any other NODE_ENV makes the config invalid, so the
+    // server refuses to start.
+    TEST_AUTH_SHORTCUT: z.enum(["0", "1"]).default("0").transform((v) => v === "1"),
     // Express "trust proxy": how req.ip (the per-IP limit key) is derived.
     // false = the socket peer. Set it (e.g. 1 or "loopback") behind a reverse
     // proxy, or every client shares the proxy's address.
@@ -54,6 +58,13 @@ const Env = z
       .transform((v): boolean | number | string => (v === "false" ? false : v === "true" ? true : /^\d+$/.test(v) ? Number(v) : v)),
   })
   .superRefine((c, ctx) => {
+    if (c.TEST_AUTH_SHORTCUT && c.NODE_ENV !== "test") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["TEST_AUTH_SHORTCUT"],
+        message: `the test auth shortcut is only allowed with NODE_ENV=test (got ${c.NODE_ENV}); refusing to start`,
+      });
+    }
     if (c.NODE_ENV !== "production") return;
     for (const k of ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"] as const) {
       if (!c[k]) ctx.addIssue({ code: "custom", path: [k], message: "required in production" });

@@ -5,8 +5,9 @@ import { createApp } from "../src/app.ts";
 import { createTestUser, deleteTestUsers, ORIGIN, testDeps, type TestDeps, type TestUser } from "./helpers.ts";
 
 // Production limits (6/min and 200/day per user, 20/min per IP on /auth/*),
-// with the "minute" shortened to 2 s so the reset is observable.
-const WINDOW_S = 2;
+// with the "minute" shortened to 5 s so the reset is observable. (2 s was
+// too short: on a busy machine a burst of requests could outlast the window.)
+const WINDOW_S = 5;
 let d: TestDeps;
 let app: ReturnType<typeof createApp>;
 const users: number[] = [];

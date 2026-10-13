@@ -11,6 +11,7 @@ import type { Hub } from "./hub.ts";
 import { Limits } from "./limits.ts";
 import type { Queue } from "./queue.ts";
 import { requireUser, Sessions } from "./sessions.ts";
+import { testAuthRouter } from "./testAuth.ts";
 
 export const LANGUAGES = ["cpp", "python"] as const;
 export const MAX_SOURCE_BYTES = 64 * 1024;
@@ -84,6 +85,11 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
 
   app.use(sessions.middleware);
 
+  if (config.TEST_AUTH_SHORTCUT) {
+    // TEST ONLY (throws unless NODE_ENV=test). See testAuth.ts.
+    log.warn("TEST AUTH SHORTCUT ENABLED: POST /test/login logs in without GitHub");
+    app.use(testAuthRouter({ db, sessions, config }));
+  }
   app.use("/auth", limits.auth);
   app.use(authRouter({ db, redis: queue.redis, sessions, config, log }));
 
