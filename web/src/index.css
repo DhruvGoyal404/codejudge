@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* Dark mode follows a class on <html> (toggle in the header, default = OS preference). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+html,
+body,
+#root {
+  height: 100%;
+}
