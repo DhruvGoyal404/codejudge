@@ -14,6 +14,8 @@ import { requireUser, Sessions } from "./sessions.ts";
 
 export const LANGUAGES = ["cpp", "python"] as const;
 export const MAX_SOURCE_BYTES = 64 * 1024;
+/** At most this many of a user's submissions may be queued|running at once. */
+export const MAX_ACTIVE_PER_USER = 2;
 
 const Slug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
 const SubmissionId = z.uuid();
@@ -102,7 +104,10 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
     // Simplified transactional outbox: the row is the source of truth. If
     // XADD fails after the INSERT, the submission stays queued with
     // enqueued_at NULL and the sweeper enqueues it later.
-    const id = await db.insertSubmission(problemId, language, source, user.id);
+    const id = await db.insertSubmission(problemId, language, source, user.id, MAX_ACTIVE_PER_USER);
+    if (id === null) {
+      throw new HttpError(409, `at most ${MAX_ACTIVE_PER_USER} submissions may be queued or running at once`);
+    }
     try {
       await db.markEnqueued(id, await queue.enqueue(id));
     } catch (err) {

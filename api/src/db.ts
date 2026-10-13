@@ -48,12 +48,37 @@ export class Db {
     return r.rows[0] ? Number(r.rows[0].id) : null;
   }
 
-  async insertSubmission(problemId: number, language: string, source: string, userId: number | null): Promise<string> {
-    const r = await this.pool.query(
-      `INSERT INTO submissions (problem_id, language, source, user_id) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [problemId, language, source, userId],
-    );
-    return r.rows[0].id as string;
+  /**
+   * Inserts a queued submission unless the user already has `maxActive`
+   * queued|running ones (then returns null). Atomic: the user's row is locked
+   * FOR UPDATE for the count + insert, so concurrent requests from one user
+   * are serialized and can never exceed the cap together.
+   */
+  async insertSubmission(problemId: number, language: string, source: string, userId: number, maxActive: number): Promise<string | null> {
+    const c = await this.pool.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query(`SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, [userId]);
+      const n = await c.query(
+        `SELECT count(*)::int AS n FROM submissions WHERE user_id = $1 AND status IN ('queued', 'running')`,
+        [userId],
+      );
+      if (n.rows[0].n >= maxActive) {
+        await c.query("ROLLBACK");
+        return null;
+      }
+      const r = await c.query(
+        `INSERT INTO submissions (problem_id, language, source, user_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [problemId, language, source, userId],
+      );
+      await c.query("COMMIT");
+      return r.rows[0].id as string;
+    } catch (err) {
+      await c.query("ROLLBACK").catch(() => {});
+      throw err;
+    } finally {
+      c.release();
+    }
   }
 
   /** Records a successful XADD: its stream entry id and when it happened. */

@@ -10,6 +10,7 @@ import { createTestUser, deleteTestUsers, ORIGIN, testDeps, type TestDeps, type 
 let d: TestDeps;
 let app: ReturnType<typeof createApp>;
 let user: TestUser;
+const others: number[] = [];
 const created: string[] = [];
 /** Authenticated, same-origin POST. */
 const post = (path: string) => request(app).post(path).set("Origin", ORIGIN).set("Cookie", user.cookie);
@@ -24,7 +25,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (created.length) await d.db.pool.query(`DELETE FROM submissions WHERE id = ANY($1::uuid[])`, [created]);
-  await deleteTestUsers(d.db, [user.userId]);
+  await deleteTestUsers(d.db, [user.userId, ...others]);
   await d.close();
 });
 
@@ -152,7 +153,9 @@ describe("sweeper (simplified transactional outbox)", () => {
 
   it("does not re-enqueue a submission still waiting in the stream (backlog), however old", async () => {
     const sweepCfg = { ...d, config: { ...d.config, SWEEP_AFTER_MS: 60_000 } };
-    const r = await post("/submissions").send({ problemSlug: "ledger-total", language: "cpp", source: "int main(){}" });
+    const other = await createTestUser(d.db); // `user` is at the active cap by now
+    others.push(other.userId);
+    const r = await request(app).post("/submissions").set("Origin", ORIGIN).set("Cookie", other.cookie).send({ problemSlug: "ledger-total", language: "cpp", source: "int main(){}" });
     created.push(r.body.id);
     // Waited 10 minutes in a backlog; its entry is still in the stream.
     await d.db.pool.query(

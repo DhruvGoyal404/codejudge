@@ -47,7 +47,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
   const consumer = new EventConsumer(d.config.CODEJUDGE_VALKEY_URL, d.config.EVENTS_STREAM, d.hub, d.log, 1000);
   consumer.start();
   const app = createApp(d);
-  const user = await createTestUser(d.db); // POST /submissions requires a session
+  const users: number[] = [];
   const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -89,6 +89,10 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
     async submit(slug, file) {
       const source = readFileSync(join(PROBLEMS, slug, "solutions", file), "utf8");
       const language = file.endsWith(".py") ? "python" : "cpp";
+      // A user per submission: POST requires a session, and each user may
+      // have at most 2 queued|running submissions.
+      const user = await createTestUser(d.db);
+      users.push(user.userId);
       const r = await fetch(`${base}/submissions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Origin: ORIGIN, Cookie: user.cookie },
@@ -123,7 +127,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
       server.close();
       await consumer.stop();
       if (created.length) await d.db.pool.query(`DELETE FROM submissions WHERE id = ANY($1::uuid[])`, [created]);
-      await deleteTestUsers(d.db, [user.userId]);
+      await deleteTestUsers(d.db, users);
       await d.close();
     },
   };
