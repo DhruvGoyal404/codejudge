@@ -1,0 +1,72 @@
+# Production edge for CodeJudge. Automatic HTTPS (Let's Encrypt) for
+# $CODEJUDGE_DOMAIN; HTTP redirects to HTTPS. Static SPA from /srv/web,
+# /api/* proxied to the API with the prefix stripped (same paths as the Vite
+# dev proxy).
+{
+	email {$ACME_EMAIL}
+	admin off
+}
+
+# The page's Content-Security-Policy (the API's own JSON responses get
+# helmet's). Every directive is explained in docs/PHASE6.md § 6a.3.
+(csp) {
+	header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types codejudge-worker defaultWorkerFactory diffEditorWidget diffReview domLineBreaksComputer editorViewLayer richScreenReaderContent standaloneColorizer tokenizeToString; upgrade-insecure-requests"
+}
+
+# Response headers for every response, including error pages.
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Cross-Origin-Opener-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		-Server
+	}
+}
+
+{$CODEJUDGE_DOMAIN} {
+	encode zstd gzip
+
+	# API: Caddy sets X-Forwarded-For to the client address (it ignores an
+	# incoming XFF from untrusted clients), so the API trusts exactly one hop.
+	handle_path /api/* {
+		reverse_proxy api:8080 {
+			flush_interval -1 # SSE: stream events immediately
+		}
+	}
+
+	# Hashed build assets: immutable; a missing one is a real 404 (never the
+	# SPA page). The CSP is sent here too: a Web Worker's policy comes from
+	# its own script response (Monaco's workers live under /assets/).
+	handle /assets/* {
+		root * /srv/web
+		header Cache-Control "public, max-age=31536000, immutable"
+		import csp
+		file_server
+	}
+
+	# SPA: any other path serves index.html (client-side routes), always revalidated.
+	handle {
+		root * /srv/web
+		header Cache-Control "no-cache"
+		import csp
+		try_files {path} /index.html
+		file_server
+	}
+
+	import security_headers
+
+	# Errors (e.g. a missing asset) are never cached, whatever header the
+	# handler had set.
+	handle_errors {
+		import security_headers
+		header Cache-Control "no-store"
+		respond "{err.status_code} {err.status_text}" {err.status_code}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

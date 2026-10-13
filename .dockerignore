@@ -1,0 +1,18 @@
+# Build context for deploy/web.Dockerfile and api/Dockerfile is the repo
+# root: send only what they copy. Secrets and hidden tests never enter it.
+**/.env
+**/.env.*
+!**/.env.example
+.git
+**/node_modules
+**/dist
+problems
+runner
+sandbox
+scripts
+docs
+db
+web/test-results
+web/playwright-report
+api/test
+api/e2e

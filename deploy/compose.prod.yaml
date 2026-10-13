@@ -1,0 +1,163 @@
+# CodeJudge production stack (one t3.small: 2 vCPU burstable, 2 GiB RAM).
+#
+#   Internet ──443/80──▶ caddy ──▶ web static build (in the caddy image)
+#                           └─/api/*─▶ api ──(backend, internal)──▶ postgres, valkey
+#   host: judge-worker (systemd) ──unix sockets in /run/codejudge──▶ postgres, valkey
+#
+# Postgres and Valkey publish NO ports: the API reaches them on the internal
+# "backend" network; the worker (a host process, it needs the Docker socket)
+# reaches them through Unix sockets bind-mounted under /run/codejudge, a
+# 0750 root:codejudge directory created by deploy/systemd/codejudge.tmpfiles.conf.
+#
+#   docker compose -f deploy/compose.prod.yaml --env-file /etc/codejudge/prod.env up -d --build --wait
+#   docker compose -f deploy/compose.prod.yaml --env-file /etc/codejudge/prod.env run --rm migrate up
+#
+# Memory (mem_limit = hard cgroup limit): caddy 64m + api 256m + postgres 320m
+# + valkey 160m ≈ 800 MiB, leaving ~1.2 GiB for the OS, dockerd, the worker
+# and ONE sandbox container at a time (JUDGE_CONCURRENCY=1, see
+# deploy/systemd/judge-worker.service). See docs/PHASE6.md.
+name: codejudge-prod
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  caddy:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    environment:
+      CODEJUDGE_DOMAIN: ${CODEJUDGE_DOMAIN:-judge.dhruvgoyal.tech}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL (Let's Encrypt account contact)}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp" # HTTP/3
+    volumes:
+      - caddy_data:/data # certificates and ACME account: must persist
+      - caddy_config:/config
+    networks: [edge]
+    depends_on:
+      api: { condition: service_healthy }
+    mem_limit: 64m
+    restart: unless-stopped
+    logging: *logging
+
+  api:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8080"
+      LOG_LEVEL: info
+      NODE_OPTIONS: --max-old-space-size=160
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-https://judge.dhruvgoyal.tech}
+      TRUST_PROXY: "1" # exactly one hop: Caddy
+      CODEJUDGE_DATABASE_URL: postgres://codejudge:${CODEJUDGE_PG_PASSWORD:?set CODEJUDGE_PG_PASSWORD}@postgres:5432/codejudge?sslmode=disable
+      CODEJUDGE_VALKEY_URL: redis://:${CODEJUDGE_VALKEY_PASSWORD:?set CODEJUDGE_VALKEY_PASSWORD}@valkey:6379
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:?set GITHUB_CLIENT_SECRET}
+      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-https://judge.dhruvgoyal.tech/api/auth/github/callback}
+    networks: [edge, backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: 256m
+    restart: unless-stopped
+    logging: *logging
+
+  postgres:
+    image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    environment:
+      POSTGRES_USER: codejudge
+      POSTGRES_DB: codejudge
+      POSTGRES_PASSWORD: ${CODEJUDGE_PG_PASSWORD:?set CODEJUDGE_PG_PASSWORD}
+      # The image's default is "local all all trust": anyone who can reach the
+      # Unix socket would be superuser. Require passwords for socket and TCP.
+      POSTGRES_INITDB_ARGS: --auth-local=scram-sha-256 --auth-host=scram-sha-256
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - max_connections=40
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - effective_cache_size=192MB
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ${CODEJUDGE_RUN_DIR:-/run/codejudge}/postgresql:/var/run/postgresql
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U codejudge -d codejudge"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 320m
+    shm_size: 64m
+    restart: unless-stopped
+    logging: *logging
+
+  valkey:
+    image: valkey/valkey:9.1.2-alpine@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
+    environment:
+      REDISCLI_AUTH: ${CODEJUDGE_VALKEY_PASSWORD:?set CODEJUDGE_VALKEY_PASSWORD} # for the healthcheck
+    command:
+      - sh
+      - -c
+      - >-
+        exec valkey-server --appendonly yes --maxmemory 96mb --maxmemory-policy noeviction
+        --requirepass "$$REDISCLI_AUTH"
+        --unixsocket /run/valkey/valkey.sock --unixsocketperm 777
+    volumes:
+      - valkey:/data
+      - ${CODEJUDGE_RUN_DIR:-/run/codejudge}/valkey:/run/valkey
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 160m
+    restart: unless-stopped
+    logging: *logging
+
+  # One-shot: docker compose -f deploy/compose.prod.yaml run --rm migrate up
+  migrate:
+    image: ghcr.io/amacneil/dbmate:2.36.0@sha256:520c740c6e0ad73fde2cd1ea7e2b779aaf789d22aca8858f87a478e7094535fb
+    profiles: ["tools"]
+    environment:
+      DATABASE_URL: postgres://codejudge:${CODEJUDGE_PG_PASSWORD}@postgres:5432/codejudge?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: /db/migrations
+      DBMATE_NO_DUMP_SCHEMA: "true"
+      DBMATE_WAIT: "true"
+    volumes:
+      - ../db:/db:ro
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 64m
+
+networks:
+  edge: {}
+  # No gateway, no route out, nothing published: only containers on it.
+  backend:
+    internal: true
+
+volumes:
+  pgdata:
+  valkey:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,29 @@
+# LOCAL TEST ONLY (Docker Desktop): run the production stack on this machine.
+#
+#   docker compose -f deploy/compose.prod.yaml -f deploy/compose.prod.localtest.yaml \
+#     --env-file <local-test env file outside the repo, see deploy/prod.env.example> -p codejudge-prodtest up -d --build --wait
+#
+# Differences from production, and why:
+# - CODEJUDGE_DOMAIN=localhost: Caddy issues a certificate from its own local CA
+#   (no Let's Encrypt); ports 8081/8444 avoid clashes on the dev machine.
+# - Unix-socket directories become named volumes (Windows bind mounts can't
+#   hold sockets); there is no host worker in this test.
+# - Postgres is published on 127.0.0.1:55433 so judge-admin can import the
+#   problems. Production publishes nothing.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - pgsock:/var/run/postgresql
+  valkey:
+    volumes:
+      - vksock:/run/valkey
+  # Production's backend network is internal (no route out), which on Docker
+  # Desktop also blocks the published port above; a plain bridge here.
+networks:
+  backend:
+    internal: false
+volumes:
+  pgsock:
+  vksock:
