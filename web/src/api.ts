@@ -70,6 +70,34 @@ export interface Submission {
   source?: string;
 }
 
+/** One row of GET /me/submissions (no tests, no source). */
+export interface HistoryItem {
+  id: string;
+  problem_slug: string;
+  problem_title: string;
+  language: Language;
+  status: Status;
+  verdict: Verdict | null;
+  max_cpu_ms: number | null;
+  max_rss_kb: number | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface HistoryPage {
+  submissions: HistoryItem[];
+  next_cursor: string | null;
+}
+
+export interface HistoryFilter {
+  problem?: string;
+  verdict?: Verdict;
+  limit?: number;
+  cursor?: string | null;
+}
+
+export const VERDICTS: Verdict[] = ["AC", "WA", "CE", "RE", "TLE", "MLE", "OLE", "IE"];
+
 /** HTTP error from the API (has a status code and the server's message). */
 export class ApiError extends Error {
   constructor(
@@ -120,6 +148,16 @@ export const api = {
   logout: () => request<null>("/auth/logout", { method: "POST" }),
   problems: () => request<{ problems: ProblemSummary[] }>("/problems").then((r) => r.problems),
   problem: (slug: string) => request<Problem>(`/problems/${encodeURIComponent(slug)}`),
+  /** The logged-in user's submissions, newest first (keyset pagination via next_cursor). */
+  history: ({ problem, verdict, limit, cursor }: HistoryFilter = {}) => {
+    const q = new URLSearchParams();
+    if (problem) q.set("problem", problem);
+    if (verdict) q.set("verdict", verdict);
+    if (limit) q.set("limit", String(limit));
+    if (cursor) q.set("cursor", cursor);
+    const qs = q.toString();
+    return request<HistoryPage>(`/me/submissions${qs ? `?${qs}` : ""}`);
+  },
   submission: (id: string) => request<Submission>(`/submissions/${encodeURIComponent(id)}`),
   submit: (problemSlug: string, language: Language, source: string) =>
     request<{ id: string }>("/submissions", {

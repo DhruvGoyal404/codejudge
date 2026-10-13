@@ -29,24 +29,10 @@ export function loadJSON<T>(key: string, fallback: T): T {
 }
 
 const draftKey = (slug: string, lang: string) => `codejudge:draft:${slug}:${lang}`;
-const mineKey = (slug: string) => `codejudge:mine:${slug}`;
-const MAX_MINE = 50;
 
 export const drafts = {
   get: (slug: string, lang: string) => load(draftKey(slug, lang)),
   set: (slug: string, lang: string, code: string) => save(draftKey(slug, lang), code),
-};
-
-/** Submission ids per problem (until accounts exist, Phase 5). Newest first. */
-export const mySubmissions = {
-  list: (slug: string): string[] => {
-    const v = loadJSON<unknown>(mineKey(slug), []);
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  },
-  add: (slug: string, id: string) => {
-    const next = [id, ...mySubmissions.list(slug).filter((x) => x !== id)].slice(0, MAX_MINE);
-    save(mineKey(slug), JSON.stringify(next));
-  },
 };
 
 export const theme = {

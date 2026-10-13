@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { api, NetworkError } from "../api.ts";
 import { ErrorBanner } from "../components/Layout.tsx";
+import { ProblemStatus } from "../components/ProblemStatus.tsx";
 
 export function ProblemList() {
   const q = useQuery({ queryKey: ["problems"], queryFn: api.problems });
@@ -23,6 +24,7 @@ export function ProblemList() {
           <thead className="text-xs text-zinc-500">
             <tr>
               <th className="py-2">Title</th>
+              <th className="py-2">Status</th>
               <th className="py-2 text-right">Time</th>
               <th className="py-2 text-right">Memory</th>
             </tr>
@@ -34,6 +36,9 @@ export function ProblemList() {
                   <Link to={`/problems/${p.slug}`} className="text-blue-700 hover:underline dark:text-blue-400">
                     {p.title}
                   </Link>
+                </td>
+                <td className="py-2">
+                  <ProblemStatus status={p.my_status} />
                 </td>
                 <td className="py-2 text-right tabular-nums">{p.time_limit_ms / 1000} s</td>
                 <td className="py-2 text-right tabular-nums">{p.memory_limit_mb} MB</td>

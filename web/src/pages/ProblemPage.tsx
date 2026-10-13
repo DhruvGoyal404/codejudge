@@ -1,14 +1,14 @@
-import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useReducer, useState } from "react";
 import Markdown from "react-markdown";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 import { api, ApiError, LANGUAGES, MAX_SOURCE_BYTES, NetworkError, submitErrorMessage, type Language, type Problem } from "../api.ts";
 import { ErrorBanner, LoginLink } from "../components/Layout.tsx";
 import { ResultPanel } from "../components/ResultPanel.tsx";
 import { VerdictBadge } from "../components/VerdictBadge.tsx";
 import { judgeReducer, type JudgeEvent } from "../lib/judgeState.ts";
-import { drafts, mySubmissions } from "../lib/storage.ts";
+import { drafts } from "../lib/storage.ts";
 import { useMe } from "../lib/useMe.ts";
 import { useSubmissionStream } from "../lib/useSubmissionStream.ts";
 
@@ -47,10 +47,18 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
   const [state, dispatch] = useReducer(judgeReducer, { phase: "idle" });
   const me = useMe();
   const loggedOut = me.data === null;
-  const [mine, setMine] = useState(() => mySubmissions.list(problem.slug));
   const stableDispatch = useCallback((e: JudgeEvent) => dispatch(e), []);
   const activeId = "id" in state ? state.id : null;
   useSubmissionStream(state.phase === "done" ? null : activeId, stableDispatch);
+  const qc = useQueryClient();
+  // A new verdict changes the history and the solved/attempted badges.
+  const finished = state.phase === "done" ? state.submission.id + state.submission.status : null;
+  useEffect(() => {
+    if (finished) {
+      void qc.invalidateQueries({ queryKey: ["history"] });
+      void qc.invalidateQueries({ queryKey: ["problems"] });
+    }
+  }, [finished, qc]);
 
   // Drafts: per problem and language, saved on every change (storage failures are ignored).
   useEffect(() => {
@@ -66,9 +74,8 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
     mutationFn: () => api.submit(problem.slug, lang, code),
     onMutate: () => dispatch({ type: "SUBMIT" }),
     onSuccess: ({ id }) => {
-      mySubmissions.add(problem.slug, id);
-      setMine(mySubmissions.list(problem.slug));
       dispatch({ type: "SUBMITTED", id });
+      void qc.invalidateQueries({ queryKey: ["history"] });
     },
     onError: (err) => dispatch({ type: "SUBMIT_FAILED", message: submitErrorMessage(err) }),
   });
@@ -162,45 +169,48 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
         </div>
         <div className="max-h-[50%] overflow-y-auto border-t border-zinc-200 p-3 dark:border-zinc-800">
           <ResultPanel state={state} samples={problem.samples} />
-          <MySubmissions ids={mine} activeId={activeId} onOpen={(id) => dispatch({ type: "SHOW", id })} />
+          <MySubmissions slug={problem.slug} activeId={activeId} onOpen={(id) => dispatch({ type: "SHOW", id })} />
         </div>
       </section>
     </div>
   );
 }
 
-function MySubmissions({ ids, activeId, onOpen }: { ids: string[]; activeId: string | null; onOpen: (id: string) => void }) {
-  const results = useQueries({
-    queries: ids.slice(0, 10).map((id) => ({
-      queryKey: ["submission", id],
-      queryFn: () => api.submission(id),
-      refetchInterval: (q: { state: { data?: { status: string } } }) => (q.state.data?.status === "done" ? false : 3000),
-    })),
+/** The logged-in user's latest submissions to this problem (from the API). */
+function MySubmissions({ slug, activeId, onOpen }: { slug: string; activeId: string | null; onOpen: (id: string) => void }) {
+  const me = useMe();
+  const q = useQuery({
+    queryKey: ["history", { problem: slug, limit: 10 }],
+    queryFn: () => api.history({ problem: slug, limit: 10 }),
+    enabled: !!me.data,
+    // Keep pending rows fresh until they have a verdict.
+    refetchInterval: (query) => (query.state.data?.submissions.some((s) => s.status !== "done") ? 3000 : false),
   });
-  if (ids.length === 0) return null;
+  const rows = q.data?.submissions ?? [];
+  if (!me.data || rows.length === 0) return null;
   return (
     <div className="mt-4">
-      <h3 className="mb-1 text-sm font-medium">My submissions</h3>
+      <div className="mb-1 flex items-baseline gap-2">
+        <h3 className="text-sm font-medium">My submissions</h3>
+        <Link to={`/profile?problem=${encodeURIComponent(slug)}`} className="text-xs text-blue-700 hover:underline dark:text-blue-400">
+          View all
+        </Link>
+      </div>
       <ul className="space-y-1 text-sm" data-testid="my-submissions">
-        {results.map((r, i) => {
-          const id = ids[i]!;
-          const s = r.data;
-          return (
-            <li key={id} className="flex items-center gap-2">
-              <button type="button" onClick={() => onOpen(id)} className={`font-mono text-xs hover:underline ${id === activeId ? "font-bold" : ""}`}>
-                {id.slice(0, 8)}
-              </button>
-              {r.isError ? (
-                <span className="text-xs text-zinc-500">unavailable</span>
-              ) : s?.verdict ? (
-                <VerdictBadge verdict={s.verdict} />
-              ) : (
-                <span className="text-xs text-zinc-500">{s?.status ?? "…"}</span>
-              )}
-              {s && <span className="text-xs text-zinc-500">{s.language} · {new Date(s.created_at).toLocaleTimeString()}</span>}
-            </li>
-          );
-        })}
+        {rows.map((s) => (
+          <li key={s.id} className="flex items-center gap-2">
+            <button type="button" onClick={() => onOpen(s.id)} className={`font-mono text-xs hover:underline ${s.id === activeId ? "font-bold" : ""}`} title="Show the result here">
+              {s.id.slice(0, 8)}
+            </button>
+            {s.verdict ? <VerdictBadge verdict={s.verdict} /> : <span className="text-xs text-zinc-500">{s.status}</span>}
+            <span className="text-xs text-zinc-500">
+              {s.language} · {new Date(s.created_at).toLocaleTimeString()}
+            </span>
+            <Link to={`/submissions/${s.id}`} className="text-xs text-blue-700 hover:underline dark:text-blue-400">
+              Details
+            </Link>
+          </li>
+        ))}
       </ul>
     </div>
   );
