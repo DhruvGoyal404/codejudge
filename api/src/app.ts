@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import { authRouter } from "./auth.ts";
 import type { Config } from "./config.ts";
 import type { Db } from "./db.ts";
 import { HttpError, originCheck } from "./http.ts";
@@ -53,6 +54,8 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
   app.use(express.json({ limit: "200kb" }));
 
   app.use(sessions.middleware);
+
+  app.use(authRouter({ db, redis: queue.redis, sessions, config, log }));
 
   app.get("/me", (req, res) => {
     res.json(requireUser(req));
