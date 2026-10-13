@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 
 $root    = Split-Path -Parent $PSScriptRoot
 $context = Join-Path $root 'runner'
-$imgDir  = Join-Path $root 'sandbox\images'
+$imgDir  = Join-Path $root 'sandbox/images' # '/' works on Windows and on Linux pwsh (CI)
 $lock    = Join-Path $imgDir 'images.lock.json'
 
 $images = [ordered]@{

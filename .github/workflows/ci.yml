@@ -1,0 +1,180 @@
+# CI: Go unit tests, API tests (real Postgres + Valkey), web unit tests, and
+# the sandbox integration suite on Linux under runc AND gVisor (runsc).
+# Actions are pinned by commit SHA; versions follow the two-week rule.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GVISOR_RELEASE: "20260921.0" # published 2026-09-23
+
+jobs:
+  go-unit:
+    name: Go unit tests + lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runner
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: runner/go.mod
+          cache-dependency-path: runner/go.sum
+      - run: go version
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./... && go vet -tags integration ./...
+      - run: go test -count=1 ./...
+      - name: systemd unit is valid
+        working-directory: .
+        run: |
+          sudo install -D /bin/true /opt/codejudge/bin/judge-worker
+          systemd-analyze verify deploy/systemd/judge-worker.service
+
+  api:
+    name: API tests (Postgres + Valkey)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        env:
+          POSTGRES_USER: codejudge
+          POSTGRES_DB: codejudge
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U codejudge -d codejudge" --health-interval 2s --health-timeout 3s --health-retries 30
+      valkey:
+        image: valkey/valkey:9.1.2-alpine@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
+        ports: ["56379:6379"]
+        options: >-
+          --health-cmd "valkey-cli ping" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      CODEJUDGE_DATABASE_URL: postgres://codejudge:ci-only-password@127.0.0.1:55432/codejudge?sslmode=disable
+      CODEJUDGE_VALKEY_URL: redis://127.0.0.1:56379
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: runner/go.mod
+          cache-dependency-path: runner/go.sum
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.3
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - name: Migrate
+        run: >-
+          docker run --rm --network host -v "$PWD/db:/db:ro"
+          -e DATABASE_URL="$CODEJUDGE_DATABASE_URL" -e DBMATE_MIGRATIONS_DIR=/db/migrations -e DBMATE_NO_DUMP_SCHEMA=true
+          ghcr.io/amacneil/dbmate:2.36.0@sha256:520c740c6e0ad73fde2cd1ea7e2b779aaf789d22aca8858f87a478e7094535fb up
+      # Expected outputs (*.out) are not in git; regenerate them, then import.
+      # (After the hidden-tests split this step reads the private problems repo.)
+      - name: Seed problems
+        run: |
+          python3 scripts/make-tests.py
+          cd runner && go run ./cmd/judge-admin import ../problems
+      - name: Install
+        working-directory: api
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        working-directory: api
+        run: npx tsc --noEmit
+      - name: Test
+        working-directory: api
+        run: npm test
+
+  web:
+    name: Web unit tests + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.3
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: npm test
+      - run: npm run build
+
+  sandbox:
+    name: Sandbox integration (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [runc, runsc]
+    defaults:
+      run:
+        working-directory: runner
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: runner/go.mod
+          cache-dependency-path: runner/go.sum
+      - name: Install gVisor ${{ env.GVISOR_RELEASE }}
+        if: matrix.runtime == 'runsc'
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          base="https://storage.googleapis.com/gvisor/releases/release/${GVISOR_RELEASE}/x86_64"
+          curl -fsSLO "$base/gvisor.tar.zstd"
+          curl -fsSLO "$base/gvisor.tar.zstd.sha512"
+          sha512sum -c gvisor.tar.zstd.sha512
+          mkdir gvisor && tar --zstd -xf gvisor.tar.zstd -C gvisor
+          runsc=$(find gvisor -type f -name runsc | head -1)
+          shim=$(find gvisor -type f -name containerd-shim-runsc-v1 | head -1)
+          sudo install -m 0755 "$runsc" /usr/local/bin/runsc
+          if [ -n "$shim" ]; then sudo install -m 0755 "$shim" /usr/local/bin/containerd-shim-runsc-v1; fi
+          runsc --version
+          # Load the OCI seccomp profile inside the sandbox too, when supported.
+          if runsc flags 2>/dev/null | grep -q -- '-oci-seccomp'; then
+            sudo runsc install -- --oci-seccomp
+          else
+            sudo runsc install
+          fi
+          sudo systemctl restart docker
+          docker info --format '{{json .Runtimes}}'
+      - name: Docker / kernel
+        run: |
+          docker version --format 'engine {{.Server.Version}} api {{.Server.APIVersion}}'
+          docker info --format 'cgroup v{{.CgroupVersion}} driver {{.CgroupDriver}} runtimes {{json .Runtimes}}'
+          uname -a
+      - name: Build sandbox images
+        working-directory: .
+        run: pwsh -NoProfile -File scripts/build-images.ps1
+      - name: Sandbox integration suite
+        env:
+          JUDGE_TEST_RUNTIME: ${{ matrix.runtime == 'runsc' && 'runsc' || '' }}
+        run: go test -p 1 -tags integration -count=1 -timeout 40m -v ./internal/sandbox/ 2>&1 | tee "$RUNNER_TEMP/sandbox-${{ matrix.runtime }}.log"
+      - name: Summary
+        if: always()
+        run: |
+          log="$RUNNER_TEMP/sandbox-${{ matrix.runtime }}.log"
+          [ -f "$log" ] || exit 0
+          {
+            echo "### Sandbox integration under ${{ matrix.runtime }}"
+            echo '```'
+            grep -E '^(--- (PASS|FAIL|SKIP)|ok|FAIL|PASS)' "$log" | sed 's/ (.*//' | sort | uniq -c | sort -rn | head -5
+            grep -E '^--- FAIL' "$log" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
