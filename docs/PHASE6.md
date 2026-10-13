@@ -1,6 +1,6 @@
 # Phase 6a — Production prep (local only)
 
-Status: **in progress**. Nothing here touches AWS. Pieces land one commit each; history is **not** rewritten until the hidden-tests split (6a.1) is approved.
+Status: **6a.2–6a.6 done; 6a.1 (hidden-tests split) awaits approval; gVisor is not production-ready yet (6a.5).** Nothing here touches AWS. Pieces land one commit each; history is **not** rewritten until the hidden-tests split (6a.1) is approved.
 
 ## 6a.1 Hidden-tests split — PLAN (awaiting approval; nothing executed)
 
@@ -205,6 +205,42 @@ systemctl daemon-reload && systemctl enable --now judge-worker
 ```
 
 gVisor is installed by `runsc install`, which registers the `runsc` runtime in `/etc/docker/daemon.json`; then dockerd is restarted. CI does the same (6a.5).
+
+## 6a.5 CI (GitHub Actions) — first run on Linux and gVisor
+
+File: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). Actions are pinned by commit SHA (checkout v7.0.1, setup-go v7.0.0, setup-node v7.0.0). Every job runs under `bash -eo pipefail`.
+
+| Job | What it runs |
+|---|---|
+| Go unit tests + lint | gofmt, `go vet` (with and without the integration tag), unit tests, `systemd-analyze verify` on all units, `shellcheck --severity=warning` on the backup scripts |
+| API tests | service containers (Postgres 18.6, Valkey 9.1.2, by digest), dbmate migrations, expected outputs regenerated (`*.out` is not in git), problems imported, `tsc` and Vitest |
+| Web | `tsc`, Vitest, production build |
+| Sandbox integration (runc / runsc) | ubuntu-latest (Docker 28.0.4, API 1.48, cgroup v2): sandbox images built with `pwsh scripts/build-images.ps1`, then the sandbox integration suite. The runsc job installs gVisor `release-20260921.0` (sha512-verified), registers it with `runsc install -- --oci-seccomp`, and runs the suite with `JUDGE_TEST_RUNTIME=runsc`. |
+
+### Results
+
+| Run | Go unit | API | Web | Sandbox, runc | Sandbox, **runsc** |
+|---|---|---|---|---|---|
+| 1 `83ab072` | ✅ | ✅ | ✅ | ✅ 51 passed | shown ✅ but **actually 5 FAILED** (see below) |
+| 3 `4dbc621` (final) | ✅ | ✅ | ✅ | ✅ | ❌ 22 failed |
+
+**A CI bug found and fixed.** Run 1 reported the runsc job green although `go test` printed `FAIL`. GitHub's default shell has no `pipefail`, so `go test | tee` returned tee's status. All jobs now run under `pipefail`.
+
+**On Linux with runc, the whole sandbox suite passes** (51 tests). That is the first time the sandbox has run on Linux; it was previously only exercised on Docker Desktop/WSL2.
+
+**Under gVisor the sandbox is NOT ready.** Production must not run with `JUDGE_RUNTIME=runsc` until these are fixed:
+
+1. **Seccomp isn't applied inside gVisor by default.** Run 1 registered runsc without `--oci-seccomp`; the runtime's flag annotations showed `oci-seccomp: "false"`. `TestSeccompActive` then saw `keyctl` succeed.
+2. **With `--oci-seccomp`, every C++ compile fails** (CE with empty stderr, 22 tests). Under gVisor our profile blocks something g++/ld needs, while Python (no compile step) passes. The profile was written for runc on a host kernel and needs a gVisor-aware review.
+3. **Cross-test state leaks** (`TestBatchCrossTestState/snoopipc.cpp`). SysV shm/msg/sem objects and a POSIX mqueue planted by test 1 were FOUND by tests 2 and 3. The cause is our own fail-open: `judge-exec` enumerates `/proc/sysvipc/*` and treats a missing table as "nothing to clean". gVisor implements SysV IPC but has no `/proc/sysvipc`, and keeps POSIX mqueues outside `/dev/mqueue`, so nothing is removed and the check passes. Under runc these tables exist and the reset works.
+4. **Fork bomb** (`TestProcessLimit`): judge-exec produced no result frame (IE) instead of a contained run. The pids cgroup limits the sandbox's host threads, not guest processes, so gVisor needs its own process limit.
+
+**Proposed fixes (need your approval; they change sandbox invariants):**
+- **IPC:** make the reset fail closed. If SysV IPC works (an `IPC_PRIVATE` probe succeeds) but it can't be enumerated, end the batch. Better still, deny the SysV IPC and POSIX mqueue syscalls in the seccomp profile altogether: judged programs never need them, and that removes the channel under both runtimes.
+- **Seccomp under gVisor:** run with `--oci-seccomp` and find the syscall(s) blocking g++ (an strace of the compile under runsc), then adjust the profile. gVisor itself is the main boundary there, but our profile should still apply.
+- **Processes:** test gVisor's own task limit (or keep the pids limit plus a judge-exec-side `RLIMIT_NPROC`) until `TestProcessLimit` passes under both runtimes.
+
+The runsc job is left failing on purpose: it is the gate for using gVisor in production.
 
 ## 6a.6 Nightly pg_dump to S3, and restore
 
