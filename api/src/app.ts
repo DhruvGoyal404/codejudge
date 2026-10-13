@@ -1,0 +1,212 @@
+import express, { type NextFunction, type Request, type Response } from "express";
+import type { Logger } from "pino";
+import { z } from "zod";
+
+import type { Config } from "./config.ts";
+import type { Db } from "./db.ts";
+import type { Hub } from "./hub.ts";
+import type { Queue } from "./queue.ts";
+
+export const LANGUAGES = ["cpp", "python"] as const;
+export const MAX_SOURCE_BYTES = 64 * 1024;
+
+const Slug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
+const SubmissionId = z.uuid();
+const NewSubmission = z
+  .object({
+    problemSlug: Slug,
+    language: z.enum(LANGUAGES),
+    source: z.string().min(1),
+  })
+  .strict();
+
+export interface Deps {
+  db: Db;
+  queue: Queue;
+  hub: Hub;
+  config: Config;
+  log: Logger;
+}
+
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly details?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+export function createApp({ db, queue, hub, config, log }: Deps) {
+  const app = express();
+  app.disable("x-powered-by");
+  app.set("query parser", "simple");
+
+  app.use((req, res, next) => {
+    const start = process.hrtime.bigint();
+    res.on("finish", () => {
+      log.info(
+        { method: req.method, path: req.path, status: res.statusCode, ms: Number(process.hrtime.bigint() - start) / 1e6 },
+        "request",
+      );
+    });
+    next();
+  });
+  // JSON body limit leaves room for escaping around a 64 KiB source; the
+  // source itself is limited separately (in bytes) below.
+  app.use(express.json({ limit: "200kb" }));
+
+  app.get("/health", async (_req, res) => {
+    const [pgOk, vkOk] = await Promise.all([
+      db.ping().then(() => true, () => false),
+      queue.ping().then(() => true, () => false),
+    ]);
+    res.status(pgOk && vkOk ? 200 : 503).json({ ok: pgOk && vkOk, postgres: pgOk, valkey: vkOk });
+  });
+
+  app.get("/problems", async (_req, res) => {
+    res.json({ problems: await db.listProblems() });
+  });
+
+  app.get("/problems/:slug", async (req, res) => {
+    const slug = Slug.safeParse(req.params.slug);
+    if (!slug.success) throw new HttpError(400, "invalid problem slug");
+    const p = await db.getProblem(slug.data);
+    if (!p) throw new HttpError(404, "problem not found");
+    res.json(p);
+  });
+
+  app.post("/submissions", async (req, res) => {
+    const body = NewSubmission.safeParse(req.body);
+    if (!body.success) throw new HttpError(400, "invalid submission", z.flattenError(body.error));
+    const { problemSlug, language, source } = body.data;
+    if (Buffer.byteLength(source, "utf8") > MAX_SOURCE_BYTES) {
+      throw new HttpError(413, `source exceeds ${MAX_SOURCE_BYTES} bytes`);
+    }
+    const problemId = await db.problemIdBySlug(problemSlug);
+    if (problemId === null) throw new HttpError(404, "problem not found");
+
+    // Simplified transactional outbox: the row is the source of truth. If
+    // XADD fails after the INSERT, the submission stays queued with
+    // enqueued_at NULL and the sweeper enqueues it later.
+    const id = await db.insertSubmission(problemId, language, source);
+    try {
+      await queue.enqueue(id);
+      await db.markEnqueued(id);
+    } catch (err) {
+      log.warn({ err, id }, "enqueue failed; sweeper will retry");
+    }
+    res.status(202).location(`/submissions/${id}`).json({ id });
+  });
+
+  app.get("/submissions/:id", async (req, res) => {
+    const id = SubmissionId.safeParse(req.params.id);
+    if (!id.success) throw new HttpError(400, "invalid submission id");
+    const s = await db.getSubmission(id.data);
+    if (!s) throw new HttpError(404, "submission not found");
+    res.json(s);
+  });
+
+  // SSE: current state first, then every change, then the final verdict; then close.
+  app.get("/submissions/:id/events", async (req, res) => {
+    const id = SubmissionId.safeParse(req.params.id);
+    if (!id.success) throw new HttpError(400, "invalid submission id");
+    const first = await db.getSubmission(id.data);
+    if (!first) throw new HttpError(404, "submission not found");
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.flushHeaders();
+
+    let closed = false;
+    let lastKey = "";
+    const send = (event: string, data: unknown) => {
+      if (!closed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      unsubscribe();
+      clearInterval(keepalive);
+      clearTimeout(maxTimer);
+      res.end();
+    };
+    // Emit the state if it changed since the last event; close after the verdict.
+    const emit = (s: NonNullable<Awaited<ReturnType<Db["getSubmission"]>>>) => {
+      const key = `${s.status}|${s.verdict ?? ""}|${s.attempt}`;
+      if (key !== lastKey) {
+        lastKey = key;
+        send("status", { id: s.id, status: s.status, verdict: s.verdict, attempt: s.attempt });
+      }
+      if (s.status === "done") {
+        send("verdict", s);
+        finish();
+      }
+    };
+    // Serialize refreshes so events are emitted in order.
+    let chain: Promise<void> = Promise.resolve();
+    const refresh = () => {
+      chain = chain
+        .then(async () => {
+          if (closed) return;
+          const s = await db.getSubmission(id.data);
+          if (s) emit(s);
+        })
+        .catch((err) => log.warn({ err, id: id.data }, "sse refresh failed"));
+    };
+
+    // Subscribe BEFORE reading/sending the current state: an update that lands
+    // between the read and the subscription can't be lost.
+    const unsubscribe = hub.subscribe(id.data, refresh);
+    const keepalive = setInterval(() => !closed && res.write(": keepalive\n\n"), config.SSE_KEEPALIVE_MS);
+    const maxTimer = setTimeout(finish, config.SSE_MAX_MS);
+    req.on("close", finish);
+    emit(first);
+    refresh(); // re-read once after subscribing to cover the gap
+  });
+
+  app.use((_req, _res) => {
+    throw new HttpError(404, "not found");
+  });
+
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof HttpError) {
+      res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
+      return;
+    }
+    const e = err as { type?: string; status?: number };
+    if (e?.type === "entity.too.large") {
+      res.status(413).json({ error: "request body too large" });
+      return;
+    }
+    if (e?.type === "entity.parse.failed") {
+      res.status(400).json({ error: "malformed JSON" });
+      return;
+    }
+    log.error({ err }, "unhandled error");
+    res.status(500).json({ error: "internal error" });
+  });
+
+  return app;
+}
+
+/** One sweeper pass: re-enqueue stale queued submissions. Returns how many. */
+export async function sweepOnce({ db, queue, config, log }: Pick<Deps, "db" | "queue" | "config" | "log">): Promise<number> {
+  const ids = await db.claimForReenqueue(config.SWEEP_AFTER_MS, 100);
+  let n = 0;
+  for (const id of ids) {
+    try {
+      await queue.enqueue(id);
+      n++;
+    } catch (err) {
+      log.warn({ err, id }, "sweeper enqueue failed; will retry next sweep");
+    }
+  }
+  if (n > 0) log.info({ n }, "sweeper re-enqueued stale submissions");
+  return n;
+}
