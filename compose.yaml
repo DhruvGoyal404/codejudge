@@ -1,0 +1,65 @@
+# CodeJudge dev infrastructure. Shares Docker Desktop with the owner's other
+# work: everything here is namespaced by the "codejudge" project name; these
+# service containers are NOT sandbox containers and carry no judge.managed label.
+#
+#   docker compose up -d --wait           # postgres + valkey
+#   docker compose run --rm migrate up    # apply db/migrations
+#   docker compose down                   # stop (volumes kept)
+#
+# Credentials come from .env (gitignored; copy .env.example).
+name: codejudge
+
+services:
+  postgres:
+    image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    environment:
+      POSTGRES_USER: codejudge
+      POSTGRES_DB: codejudge
+      POSTGRES_PASSWORD: ${CODEJUDGE_PG_PASSWORD:?set CODEJUDGE_PG_PASSWORD in .env}
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=50"]
+    ports:
+      - "127.0.0.1:${CODEJUDGE_PG_PORT:-55432}:5432"
+    volumes:
+      - codejudge_pgdata:/var/lib/postgresql
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codejudge -d codejudge"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: "no"
+
+  valkey:
+    image: valkey/valkey:9.1.2-alpine@sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11
+    command: ["valkey-server", "--appendonly", "yes", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:${CODEJUDGE_VALKEY_PORT:-56379}:6379"
+    volumes:
+      - codejudge_valkey:/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: "no"
+
+  # One-shot migration runner: docker compose run --rm migrate up
+  migrate:
+    image: ghcr.io/amacneil/dbmate:2.36.0@sha256:520c740c6e0ad73fde2cd1ea7e2b779aaf789d22aca8858f87a478e7094535fb
+    profiles: ["tools"]
+    environment:
+      DATABASE_URL: postgres://codejudge:${CODEJUDGE_PG_PASSWORD}@postgres:5432/codejudge?sslmode=disable
+      DBMATE_MIGRATIONS_DIR: /db/migrations
+      DBMATE_NO_DUMP_SCHEMA: "true"
+      DBMATE_WAIT: "true"
+    volumes:
+      - ./db:/db:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 64m
+
+volumes:
+  codejudge_pgdata:
+  codejudge_valkey:
