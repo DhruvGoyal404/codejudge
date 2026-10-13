@@ -5,7 +5,7 @@ LeetCode-style online judge. Researcher (web Claude) writes specs; you implement
 ## Architecture
 
 Target: React+Monaco → API (Express+TS) → Postgres; API → Valkey Streams → Go worker → sandbox containers.
-Built so far (Phases 3–4): `web/` (Vite 8 + React 19 + Monaco, dev proxy /api → API) → `api/` (Express 5, TS) ↔ Postgres 18 + Valkey 9.1 (compose) ↔ `runner/cmd/judge-worker` (Go) → sandbox. `judge-admin import problems/` loads problem metadata + content_hash + samples; test files stay on disk for workers only. See docs/PHASE3.md.
+Built so far (Phases 3–5): `web/` (Vite 8 + React 19 + Monaco, dev proxy /api → API) → `api/` (Express 5, TS) ↔ Postgres 18 + Valkey 9.1 (compose) ↔ `runner/cmd/judge-worker` (Go) → sandbox. `judge-admin import problems/` loads problem metadata + content_hash + samples; test files stay on disk for workers only. See docs/PHASE3.md. Auth (GitHub OAuth, sessions), limits and history: docs/PHASE5.md; GitHub credentials in gitignored `api/.env` (see `api/.env.example`).
 
 Compose (project `codejudge`, credentials in gitignored `.env`):
 - `docker compose up -d --wait` · `docker compose run --rm migrate up` · `docker compose down` (volumes kept)
@@ -20,7 +20,7 @@ Compose (project `codejudge`, credentials in gitignored `.env`):
 | 2 | judge engine (problem format, checker, batch mode, submission verdicts) ✅ |
 | 3 | API + Postgres schema + Valkey Streams + worker ✅ |
 | 4 | frontend ✅ |
-| 5 | auth/rate-limit/history |
+| 5 | auth/rate-limit/history ✅ |
 | 6 | deploy EC2 + gVisor (runsc) + CI |
 | 7 | stretch: collab mode (Yjs) |
 
@@ -50,4 +50,14 @@ Go: system 1.22.5; runner/ pins toolchain go1.27.2 via go.mod (auto-downloaded).
 - Results are written only with a fenced write (`WHERE attempt = $mine AND status = 'running'`); a stale worker discards its result and does not XACK.
 - XACK only after the result commit. Events go to `judge:events` after every state change.
 - Workers verify the on-disk problem content_hash against the DB before judging (mismatch → IE).
+- The sweeper re-enqueues a queued submission only if `stream_entry_id` is NULL or its entry is gone from the stream; workers XACK without judging an entry for a done submission or one older than the recorded `stream_entry_id`.
+
+## Auth invariants (never weaken without explicit approval)
+
+- No JWT and no auth library. Sessions are opaque: the cookie holds a random 32-byte token; the DB stores only its SHA-256 (`sessions.id`), never the token. Cookie httpOnly, SameSite=Lax, Path=/; Secure + `__Host-` in production.
+- OAuth `state` is random, in a short-lived httpOnly cookie, compared in constant time, and single-use (Valkey GETDEL). PKCE S256, scope `read:user`; success only if `access_token` is present; the GitHub token is never stored or logged. Never print `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` values.
+- Every non-GET/HEAD/OPTIONS route passes the Origin/Referer check against `PUBLIC_ORIGIN`. Post-login `next` is same-origin paths only.
+- Submission source is returned only to its owner (`GET /submissions/:id` with the owner's session); never in lists, SSE events or to anyone else.
+- POST /submissions requires a session; rate limits (6/min, 200/day per user; 20/min per IP on /auth/*; 429 + Retry-After) and the 2-active cap (atomic, row lock) stay in place.
+- The test auth shortcut (`TEST_AUTH_SHORTCUT=1`, `POST /test/login`) exists only with `NODE_ENV=test`; the server refuses to start otherwise. Never enable it in production or dev, never weaken that check.
 - Dev machine: Docker capped at 6 GB. Run integration suites with `go test -p 1`, and each E2E suite (`api: npm run e2e`, `web: npm run e2e` / Playwright) alone; never concurrently with the benchmark or each other. Problem time limits are provisional until recalibrated on Linux (Phase 6).

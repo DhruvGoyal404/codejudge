@@ -2,7 +2,7 @@
 
 A LeetCode-style online judge: users submit code, which is compiled and run against test cases inside locked-down, per-submission Docker containers, and receive verdicts (AC / WA / TLE / MLE / RE / CE).
 
-> **Status:** Phase 4 complete — web frontend (Vite + React 19 + Monaco) with live judging over SSE, on top of the Phase 3 service (Express API + Valkey Streams + Go workers + Postgres). See [docs/PHASE4.md](docs/PHASE4.md).
+> **Status:** Phase 5 complete — GitHub login, sessions, rate limits and submission history ([docs/PHASE5.md](docs/PHASE5.md)), on top of the Phase 4 web frontend (Vite + React 19 + Monaco, live judging over SSE) and the Phase 3 service (Express API + Valkey Streams + Go workers + Postgres).
 
 > ⚠️ **Keep this repository private.** `problems/*/tests/` contains the **hidden test data** (inputs and expected outputs) of every problem, plus reference solutions. Anyone who can read the repo can read the hidden tests. It must stay private until Phase 6 decides where hidden tests live (for example, a separate private store mounted only on workers).
 
@@ -20,6 +20,7 @@ A LeetCode-style online judge: users submit code, which is compiled and run agai
 - [docs/PROTOCOL.md](docs/PROTOCOL.md) — judge-exec batch wire protocol.
 - [docs/PHASE3.md](docs/PHASE3.md) — service architecture, queue semantics, end-to-end tests and latency.
 - [docs/PHASE4.md](docs/PHASE4.md) — frontend, screenshots, bundle sizes, tests.
+- [docs/PHASE5.md](docs/PHASE5.md) — GitHub OAuth + sessions, rate limits and the active cap, history, the test-only auth shortcut.
 
 ## Quick start
 ```powershell
@@ -39,6 +40,7 @@ Prerequisites: Docker Desktop (WSL2), Go (the `runner/` module pins go1.27.2 and
 ```powershell
 # 0. one-time: credentials and sandbox images
 copy .env.example .env                       # then set CODEJUDGE_PG_PASSWORD
+copy api\.env.example api\.env               # then set GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET (see below)
 powershell -File scripts/build-images.ps1    # judge sandbox images -> sandbox/images/images.lock.json
 
 # 1. infrastructure: Postgres 18 + Valkey 9.1 (project "codejudge")
@@ -55,12 +57,14 @@ go build -o judge-admin.exe ./cmd/judge-admin; go build -o judge-worker.exe ./cm
 ./judge-admin.exe import ../problems
 ./judge-worker.exe
 
-# 4. API (terminal 2) -> http://127.0.0.1:8080
+# 4. API (terminal 2) -> http://127.0.0.1:8080  (reads api/.env; real environment variables win)
 cd api; npm ci; npm start
 
 # 5. web (terminal 3) -> http://localhost:5173  (proxies /api to the API; use localhost, not 127.0.0.1: cookies are per host)
 cd web; npm ci; npm run dev
 ```
+
+**GitHub login:** create a GitHub OAuth App (Settings → Developer settings → OAuth Apps) with callback URL `http://localhost:5173/api/auth/github/callback`, exactly as `GITHUB_REDIRECT_URI`, and put its client id and secret in `api/.env` (gitignored; never commit or paste them). Browse to http://localhost:5173 and use "Log in with GitHub"; submitting requires login. Limits: 6 submissions/min and 200/day per user, at most 2 queued or running at once, 20 `/auth` requests/min per IP. Details: [docs/PHASE5.md](docs/PHASE5.md).
 
 Tests (run each suite on its own on the dev machine):
 
@@ -71,7 +75,7 @@ Tests (run each suite on its own on the dev machine):
 | API | `cd api; npm test` |
 | Service E2E | `cd api; npm run e2e` |
 | Web unit | `cd web; npm test` |
-| Web E2E (Playwright; starts API + Vite + a worker) | `cd web; npx playwright install chromium; npm run e2e` |
+| Web E2E (Playwright; starts API + Vite + a worker; logs in via the test-only shortcut, `NODE_ENV=test` only) | `cd web; npx playwright install chromium; npm run e2e` |
 
 ## Dev environment
 Windows 11 + Docker Desktop (WSL2 backend), Node 22. Go: `runner/go.mod` pins toolchain go1.27.2.
