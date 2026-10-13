@@ -19,6 +19,12 @@ concurrency:
 env:
   GVISOR_RELEASE: "20260921.0" # published 2026-09-23
 
+# bash -eo pipefail: without pipefail, "go test | tee" reports tee's status and
+# a failing suite looks green (it did, in the first run).
+defaults:
+  run:
+    shell: bash
+
 jobs:
   go-unit:
     name: Go unit tests + lint
@@ -146,14 +152,14 @@ jobs:
           sudo install -m 0755 "$runsc" /usr/local/bin/runsc
           if [ -n "$shim" ]; then sudo install -m 0755 "$shim" /usr/local/bin/containerd-shim-runsc-v1; fi
           runsc --version
-          # Load the OCI seccomp profile inside the sandbox too, when supported.
-          if runsc flags 2>/dev/null | grep -q -- '-oci-seccomp'; then
-            sudo runsc install -- --oci-seccomp
-          else
-            sudo runsc install
-          fi
+          # --oci-seccomp: apply the container's seccomp profile inside the
+          # sandbox too (gVisor ignores it otherwise).
+          sudo runsc install -- --oci-seccomp
           sudo systemctl restart docker
-          docker info --format '{{json .Runtimes}}'
+          # The runtime's annotations echo its flags (nested, escaped JSON).
+          if ! docker info --format '{{json .Runtimes.runsc}}' | grep -Eq 'flag\.oci-seccomp[^a-z]{1,6}true'; then
+            echo "runsc is not registered with --oci-seccomp"; exit 1
+          fi
       - name: Docker / kernel
         run: |
           docker version --format 'engine {{.Server.Version}} api {{.Server.APIVersion}}'
@@ -165,7 +171,9 @@ jobs:
       - name: Sandbox integration suite
         env:
           JUDGE_TEST_RUNTIME: ${{ matrix.runtime == 'runsc' && 'runsc' || '' }}
-        run: go test -p 1 -tags integration -count=1 -timeout 40m -v ./internal/sandbox/ 2>&1 | tee "$RUNNER_TEMP/sandbox-${{ matrix.runtime }}.log"
+        run: |
+          set -o pipefail
+          go test -p 1 -tags integration -count=1 -timeout 40m -v ./internal/sandbox/ 2>&1 | tee "$RUNNER_TEMP/sandbox-${{ matrix.runtime }}.log"
       - name: Summary
         if: always()
         run: |
