@@ -2,9 +2,14 @@
 
 LeetCode-style online judge. Researcher (web Claude) writes specs; you implement.
 
-## Architecture (target)
+## Architecture
 
-React+Monaco → API (Express+TS) → Postgres; API → Redis Streams → Go worker → sandbox containers.
+Target: React+Monaco → API (Express+TS) → Postgres; API → Valkey Streams → Go worker → sandbox containers.
+Built so far (Phase 3): `api/` (Express 5, TS) ↔ Postgres 18 + Valkey 9.1 (compose) ↔ `runner/cmd/judge-worker` (Go) → sandbox. `judge-admin import problems/` loads problem metadata + content_hash + samples; test files stay on disk for workers only. See docs/PHASE3.md.
+
+Compose (project `codejudge`, credentials in gitignored `.env`):
+- `docker compose up -d --wait` · `docker compose run --rm migrate up` · `docker compose down` (volumes kept)
+- Postgres 127.0.0.1:55432, Valkey 127.0.0.1:56379. Service containers carry no judge.managed label.
 
 ## Phases
 
@@ -13,7 +18,7 @@ React+Monaco → API (Express+TS) → Postgres; API → Redis Streams → Go wor
 | 0 | env ✅ |
 | 1 | Go sandbox runner (CLI) ✅ |
 | 2 | judge engine (problem format, checker, batch mode, submission verdicts) ✅ |
-| 3 | API + Postgres schema + Redis Streams + worker |
+| 3 | API + Postgres schema + Valkey Streams + worker ✅ |
 | 4 | frontend |
 | 5 | auth/rate-limit/history |
 | 6 | deploy EC2 + gVisor (runsc) + CI |
@@ -34,4 +39,8 @@ Go: system 1.22.5; runner/ pins toolchain go1.27.2 via go.mod (auto-downloaded).
 - Untrusted output is always size-capped before being read into memory.
 - judge-exec runs non-dumpable (PR_SET_DUMPABLE=0) and drops catchable terminating signals; batch frames are validated (nonce + seq) by the host.
 - Batch mode: between tests reset /box, /tmp, /dev/mqueue and all SysV IPC objects; fail closed if any reset fails. Hidden-test output is never returned.
-- Dev machine: run integration suites with `go test -p 1`, never concurrently with the benchmark. Problem time limits are provisional until recalibrated on Linux (Phase 6).
+- Hidden tests are never served: the API has no access to test files; only samples (copied into `problem_samples` at import) are returned.
+- Results are written only with a fenced write (`WHERE attempt = $mine AND status = 'running'`); a stale worker discards its result and does not XACK.
+- XACK only after the result commit. Events go to `judge:events` after every state change.
+- Workers verify the on-disk problem content_hash against the DB before judging (mismatch → IE).
+- Dev machine: Docker capped at 6 GB. Run integration suites with `go test -p 1`, and the E2E suite (`npm run e2e`) alone; never concurrently with the benchmark or each other. Problem time limits are provisional until recalibrated on Linux (Phase 6).
