@@ -12,6 +12,12 @@ const Env = z.object({
   // queued and were not (re)enqueued within SWEEP_AFTER_MS.
   SWEEP_INTERVAL_MS: z.coerce.number().int().min(100).default(10_000),
   SWEEP_AFTER_MS: z.coerce.number().int().min(1_000).default(60_000),
+  // Also re-enqueue submissions stuck in 'running' whose started_at is older
+  // than the maximum submission duration plus margin (their worker and its
+  // stream entry are gone). Fencing makes this safe even if the old worker is
+  // somehow still alive. Default 30 min = Go sandbox.ReaperThreshold, which is
+  // proven > MaxContainerLifetime (22.5 min) + compile.
+  SWEEP_RUNNING_AFTER_MS: z.coerce.number().int().min(1_000).default(30 * 60_000),
   SSE_MAX_MS: z.coerce.number().int().min(1_000).default(30 * 60_000),
   SSE_KEEPALIVE_MS: z.coerce.number().int().min(1_000).default(15_000),
   // Safety net: each open SSE stream re-reads the DB this often, so a missed

@@ -57,6 +57,9 @@ type TestRow struct {
 	Status   string
 	CPUMs    int64
 	RSSKB    int64
+	// Stdout is stored for sample tests only (the DB rejects it otherwise).
+	Stdout          *string
+	StdoutTruncated bool
 }
 
 // Final is a submission's outcome.
@@ -96,9 +99,9 @@ func FinishFenced(ctx context.Context, pool *pgxpool.Pool, id string, attempt in
 		}
 		for _, t := range f.Tests {
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO submission_tests (submission_id, seq, name, is_sample, status, cpu_ms, rss_kb)
-				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				id, t.Seq, t.Name, t.IsSample, t.Status, t.CPUMs, t.RSSKB); err != nil {
+				INSERT INTO submission_tests (submission_id, seq, name, is_sample, status, cpu_ms, rss_kb, stdout, stdout_truncated)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+				id, t.Seq, t.Name, t.IsSample, t.Status, t.CPUMs, t.RSSKB, t.Stdout, t.StdoutTruncated); err != nil {
 				return err
 			}
 		}

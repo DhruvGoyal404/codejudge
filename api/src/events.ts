@@ -36,9 +36,9 @@ export class EventConsumer {
         for (const [, entries] of res ?? []) {
           for (const [entryId, fields] of entries) {
             lastId = entryId;
-            const i = fields.indexOf("id");
-            const id = i >= 0 ? fields[i + 1] : undefined;
-            if (id) this.hub.publish(id);
+            const e: Record<string, string> = {};
+            for (let k = 0; k + 1 < fields.length; k += 2) e[fields[k]!] = fields[k + 1]!;
+            if (e.id) this.hub.publish(e.id, e);
           }
         }
       } catch (err) {

@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -243,6 +244,31 @@ func (w *Worker) event(ctx context.Context, id, status, verdict string) {
 	if verdict != "" {
 		vals["verdict"] = verdict
 	}
+	w.xaddEvent(ctx, id, vals)
+}
+
+// progressMinGap throttles progress events to at most 5 per second per submission.
+const progressMinGap = 200 * time.Millisecond
+
+// progressReporter returns a judge.Options.Progress callback that publishes
+// {id, status: running, stage, test, total} to judge:events. Stage changes
+// are always sent; within a stage, events closer than progressMinGap are
+// dropped (the next one carries the newer test number).
+func (w *Worker) progressReporter(ctx context.Context, id string) func(stage string, test, total int) {
+	var last time.Time
+	lastStage := ""
+	return func(stage string, test, total int) {
+		now := time.Now()
+		if stage == lastStage && now.Sub(last) < progressMinGap {
+			return
+		}
+		last, lastStage = now, stage
+		w.xaddEvent(ctx, id, map[string]any{"id": id, "status": "running", "stage": stage,
+			"test": strconv.Itoa(test), "total": strconv.Itoa(total)})
+	}
+}
+
+func (w *Worker) xaddEvent(ctx context.Context, id string, vals map[string]any) {
 	if err := w.rdb.XAdd(ctx, &redis.XAddArgs{Stream: w.cfg.EventsStream, MaxLen: 100000, Approx: true, Values: vals}).Err(); err != nil {
 		w.log.Warn("XADD event failed", "submission", id, "err", err)
 	}
@@ -300,7 +326,7 @@ func (w *Worker) handle(ctx context.Context, msg redis.XMessage) {
 	log.Info("judging", "problem", sub.ProblemSlug, "lang", sub.Language, "deliveries", n)
 	w.event(ctx, id, "running", "")
 
-	final := w.judge(ctx, sub, log)
+	final := w.judge(ctx, sub, log, w.progressReporter(ctx, id))
 
 	written, err := store.FinishFenced(ctx, w.db, id, attempt, final)
 	switch {
@@ -319,7 +345,7 @@ func (w *Worker) handle(ctx context.Context, msg redis.XMessage) {
 }
 
 // judge runs the Phase 2 engine. Any judge-side failure becomes IE.
-func (w *Worker) judge(ctx context.Context, sub *store.Submission, log *slog.Logger) store.Final {
+func (w *Worker) judge(ctx context.Context, sub *store.Submission, log *slog.Logger, progress func(string, int, int)) store.Final {
 	ie := func(reason string) store.Final {
 		log.Error("internal error", "reason", reason)
 		return store.Final{Verdict: judge.IE, Reason: reason}
@@ -339,7 +365,7 @@ func (w *Worker) judge(ctx context.Context, sub *store.Submission, log *slog.Log
 	if hash != sub.ContentHash {
 		return ie(fmt.Sprintf("problem package on disk (%s) does not match the database (%s); re-run judge-admin import", hash[:19], sub.ContentHash[:min(19, len(sub.ContentHash))]))
 	}
-	res, err := judge.Judge(ctx, w.sb, p, l, []byte(sub.Source), judge.Options{})
+	res, err := judge.Judge(ctx, w.sb, p, l, []byte(sub.Source), judge.Options{Progress: progress})
 	if err != nil {
 		return ie("judge: " + err.Error())
 	}
@@ -349,7 +375,12 @@ func (w *Worker) judge(ctx context.Context, sub *store.Submission, log *slog.Log
 		f.Reason = truncate(res.CompileOutput, 4096)
 	}
 	for _, t := range res.Tests {
-		f.Tests = append(f.Tests, store.TestRow{Seq: t.Index, Name: t.Name, IsSample: t.Sample, Status: t.Verdict, CPUMs: t.CPUMs, RSSKB: t.MaxRSSKB})
+		row := store.TestRow{Seq: t.Index, Name: t.Name, IsSample: t.Sample, Status: t.Verdict, CPUMs: t.CPUMs, RSSKB: t.MaxRSSKB}
+		if t.Sample { // hidden-test output is never stored
+			out := t.Stdout
+			row.Stdout, row.StdoutTruncated = &out, t.StdoutTruncated
+		}
+		f.Tests = append(f.Tests, row)
 	}
 	return f
 }

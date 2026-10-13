@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/DhruvGoyal404/codejudge/runner/internal/checker"
 	"github.com/DhruvGoyal404/codejudge/runner/internal/lang"
@@ -35,7 +36,16 @@ const (
 type Options struct {
 	RunAll bool   // keep going after the first non-AC test (samples / "run code")
 	Mode   string // ModeBatch (default) or ModePerTest
+	// Progress, if set, is called before compiling ("compiling", 0, n) and
+	// before each test ("testing", k, n). It must not block for long.
+	Progress func(stage string, test, total int)
 }
+
+// Progress stages.
+const (
+	StageCompiling = "compiling"
+	StageTesting   = "testing"
+)
 
 // sampleOutputCap bounds how much program/expected output is returned for
 // samples. Output of hidden tests is never returned.
@@ -43,20 +53,21 @@ const sampleOutputCap = 4 << 10
 
 // TestDetail is the outcome of one executed test.
 type TestDetail struct {
-	Index    int    `json:"index"` // 1-based execution order
-	Name     string `json:"name"`
-	Sample   bool   `json:"sample"`
-	Verdict  string `json:"verdict"`
-	Message  string `json:"message,omitempty"` // checker message or internal reason
-	CPUMs    int64  `json:"cpu_ms"`
-	WallMs   int64  `json:"wall_ms"`
-	MaxRSSKB int64  `json:"max_rss_kb"`
-	ExitCode int    `json:"exit_code"`
-	Signal   int    `json:"signal"`
-	RunMs    int64  `json:"run_ms"`
-	Stdout   string `json:"stdout,omitempty"`   // samples only, capped
-	Expected string `json:"expected,omitempty"` // samples only, capped
-	Stderr   string `json:"stderr,omitempty"`   // samples only, capped
+	Index           int    `json:"index"` // 1-based execution order
+	Name            string `json:"name"`
+	Sample          bool   `json:"sample"`
+	Verdict         string `json:"verdict"`
+	Message         string `json:"message,omitempty"` // checker message or internal reason
+	CPUMs           int64  `json:"cpu_ms"`
+	WallMs          int64  `json:"wall_ms"`
+	MaxRSSKB        int64  `json:"max_rss_kb"`
+	ExitCode        int    `json:"exit_code"`
+	Signal          int    `json:"signal"`
+	RunMs           int64  `json:"run_ms"`
+	Stdout          string `json:"stdout,omitempty"`           // samples only, at most sampleOutputCap bytes
+	StdoutTruncated bool   `json:"stdout_truncated,omitempty"` // samples only
+	Expected        string `json:"expected,omitempty"`         // samples only, capped
+	Stderr          string `json:"stderr,omitempty"`           // samples only, capped
 }
 
 // SubmissionResult is the aggregate verdict.
@@ -95,6 +106,12 @@ func Judge(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, l lang.
 		TimeLimitMs: lim.TimeLimit.Milliseconds(), MemoryLimitMB: p.MemoryMB}
 	defer func() { sr.TotalMs = time.Since(start).Milliseconds() }()
 
+	progress := func(stage string, k int) {
+		if opt.Progress != nil {
+			opt.Progress(stage, k, len(p.Tests))
+		}
+	}
+	progress(StageCompiling, 0)
 	compiled, cres, err := sb.Compile(ctx, l, src)
 	if err != nil {
 		return nil, err
@@ -118,6 +135,7 @@ func Judge(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, l lang.
 		if err != nil {
 			return nil, err
 		}
+		progress(StageTesting, i+1)
 		res, alive := runner.run(input)
 		d := TestDetail{Index: i + 1, Name: t.Name, Sample: t.Sample, Verdict: verdictOf(res.Status), Message: res.Reason,
 			CPUMs: res.CPUMs, WallMs: res.WallMs, MaxRSSKB: res.MaxRSSKB, ExitCode: res.ExitCode, Signal: res.Signal, RunMs: res.RunMs}
@@ -131,7 +149,8 @@ func Judge(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, l lang.
 			}
 		}
 		if t.Sample {
-			d.Stdout, d.Stderr = capStr(res.Stdout), capStr(res.Stderr)
+			d.Stdout, d.StdoutTruncated = capBytes(res.Stdout)
+			d.Stderr = capStr(res.Stderr)
 			if want == nil {
 				want, _ = t.Expected()
 			}
@@ -174,6 +193,19 @@ func verdictOf(status string) string {
 	default:
 		return IE
 	}
+}
+
+// capBytes returns at most sampleOutputCap bytes of s (cut on a UTF-8
+// boundary) and whether anything was cut.
+func capBytes(s string) (string, bool) {
+	if len(s) <= sampleOutputCap {
+		return s, false
+	}
+	cut := sampleOutputCap
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut], true
 }
 
 func capStr(s string) string {

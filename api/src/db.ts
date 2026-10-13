@@ -64,32 +64,45 @@ export class Db {
     );
     const sub = r.rows[0];
     if (!sub) return null;
+    // stdout is selected for sample rows only (the schema also forbids
+    // storing it for hidden tests); hidden rows never carry output fields.
     const t = await this.pool.query(
-      `SELECT seq, name, is_sample, status, cpu_ms, rss_kb
+      `SELECT seq, name, is_sample, status, cpu_ms, rss_kb,
+              CASE WHEN is_sample THEN stdout END AS stdout,
+              CASE WHEN is_sample THEN stdout_truncated END AS stdout_truncated
          FROM submission_tests WHERE submission_id = $1 ORDER BY seq`,
       [id],
     );
-    return { ...sub, tests: t.rows };
+    const tests = t.rows.map((r) => {
+      if (r.is_sample) return r;
+      const { stdout: _o, stdout_truncated: _t, ...hidden } = r;
+      return hidden;
+    });
+    return { ...sub, tests };
   }
 
   /**
-   * Claims up to `limit` submissions that are still queued and have not been
-   * (re)enqueued within `afterMs`, stamping enqueued_at so concurrent sweeps
-   * (or API instances) don't pick the same rows. Returns their ids.
+   * Claims up to `limit` submissions that need (re)enqueueing, stamping
+   * enqueued_at so concurrent sweeps (or API instances) don't pick the same
+   * rows, and returns their ids:
+   *  - queued, older than `afterMs`, and not (re)enqueued within `afterMs`
+   *    (covers an XADD lost after the INSERT);
+   *  - running with started_at older than `runningAfterMs` and not
+   *    re-enqueued within `afterMs` (worker and stream entry lost).
    */
-  async claimForReenqueue(afterMs: number, limit: number): Promise<string[]> {
+  async claimForReenqueue(afterMs: number, runningAfterMs: number, limit: number): Promise<string[]> {
     const r = await this.pool.query(
       `UPDATE submissions SET enqueued_at = now()
         WHERE id IN (
           SELECT id FROM submissions
-           WHERE status = 'queued'
-             AND created_at < now() - make_interval(secs => $1::double precision / 1000)
-             AND (enqueued_at IS NULL OR enqueued_at < now() - make_interval(secs => $1::double precision / 1000))
+           WHERE (enqueued_at IS NULL OR enqueued_at < now() - make_interval(secs => $1::double precision / 1000))
+             AND (   (status = 'queued'  AND created_at < now() - make_interval(secs => $1::double precision / 1000))
+                  OR (status = 'running' AND started_at < now() - make_interval(secs => $2::double precision / 1000)))
            ORDER BY created_at
-           LIMIT $2
+           LIMIT $3
            FOR UPDATE SKIP LOCKED)
         RETURNING id`,
-      [afterMs, limit],
+      [afterMs, runningAfterMs, limit],
     );
     return r.rows.map((x) => x.id as string);
   }

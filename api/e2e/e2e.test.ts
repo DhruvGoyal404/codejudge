@@ -54,6 +54,36 @@ describe("verdicts through the API (2 workers)", () => {
       expect(verdicts[0]!.data.verdict, `${r.slug}/${r.file}`).toBe(r.want);
       expect(r.events[0]!.event).toBe("status"); // current state first
     }
+    // Live progress reached the client for every submission. A subscriber
+    // that connects after compilation starts gets the latest stage replayed,
+    // so "compiling" is only guaranteed when it connected early enough.
+    for (const r of results) {
+      const progress = r.events.filter((e) => e.event === "progress");
+      expect(progress.length, `${r.slug}/${r.file}`).toBeGreaterThan(0);
+      for (const p of progress) {
+        expect(["compiling", "testing"]).toContain(p.data.stage);
+        expect(p.data.total).toBeGreaterThan(0);
+      }
+    }
+    const allStages = new Set(results.flatMap((r) => r.events.filter((e) => e.event === "progress").map((e) => e.data.stage)));
+    expect([...allStages].sort()).toEqual(["compiling", "testing"]);
+    // range-ledger/wrong.cpp fails on sample 01: its stdout is stored for that
+    // sample; hidden tests never carry output.
+    const wrong = results.find((r) => r.slug === "range-ledger" && r.file === "wrong.cpp")!;
+    const sub = (await (await fetch(`${s.base}/submissions/${wrong.id}`)).json()) as any;
+    expect(sub).toMatchObject({ verdict: "WA", failed_test: "01", failed_is_sample: true });
+    expect(sub.tests[0]).toMatchObject({ name: "01", is_sample: true, status: "WA", stdout: "14\n7\n0\n", stdout_truncated: false });
+    const ac = results.find((r) => r.slug === "ledger-total" && r.file === "ref.cpp")!;
+    const acSub = (await (await fetch(`${s.base}/submissions/${ac.id}`)).json()) as any;
+    for (const tr of acSub.tests) {
+      if (tr.is_sample) expect(typeof tr.stdout).toBe("string");
+      else expect(tr).not.toHaveProperty("stdout");
+    }
+    const leaked = await s.d.db.pool.query(
+      `SELECT count(*)::int AS n FROM submission_tests WHERE submission_id = ANY($1::uuid[]) AND NOT is_sample AND stdout IS NOT NULL`,
+      [results.map((r) => r.id)],
+    );
+    expect(leaked.rows[0].n).toBe(0);
   }, 900_000);
 });
 
@@ -154,6 +184,38 @@ describe("outbox sweeper", () => {
     expect(events.at(-1)).toMatchObject({ event: "verdict", data: { verdict: "AC" } });
     const row = await s.d.db.pool.query(`SELECT enqueued_at FROM submissions WHERE id = $1`, [id]);
     expect(row.rows[0].enqueued_at).not.toBeNull(); // stamped by the sweeper, not the API
+  }, 400_000);
+});
+
+describe("sweeper: stuck running submission", () => {
+  let s: Stack;
+  beforeAll(async () => {
+    // runningAfterMs must exceed the judging time, or the sweeper would
+    // re-enqueue the re-claimed attempt too (fencing would still pick one
+    // result, but attempt would be 3). Production default: 30 min.
+    s = await startStack({ sweepAfterMs: 2_000, runningAfterMs: 60_000 });
+    s.startWorker(`e2e-${s.run}-w1`);
+  });
+  afterAll(async () => s.close());
+
+  it("a running submission with an old started_at and no stream entry completes", async () => {
+    const source = (await import("node:fs")).readFileSync(
+      (await import("node:path")).join((await import("./harness.ts")).PROBLEMS, "ledger-total", "solutions", "ref.cpp"),
+      "utf8",
+    );
+    const r = await s.d.db.pool.query(
+      `INSERT INTO submissions (problem_id, language, source, status, attempt, worker_id, created_at, started_at, enqueued_at)
+       SELECT id, 'cpp', $1, 'running', 1, 'lost-worker', now() - interval '1 hour', now() - interval '1 hour', now() - interval '1 hour'
+         FROM problems WHERE slug = 'ledger-total' RETURNING id`,
+      [source],
+    );
+    const id = r.rows[0].id as string;
+    s.created.push(id);
+    const events = await s.sse(id, 300_000);
+    expect(events.at(-1)).toMatchObject({ event: "verdict", data: { verdict: "AC" } });
+    const row = await s.d.db.pool.query(`SELECT attempt, worker_id FROM submissions WHERE id = $1`, [id]);
+    expect(row.rows[0].attempt).toBe(2); // the lost attempt 1 is fenced out
+    expect(row.rows[0].worker_id).toBe(`e2e-${s.run}-w1`);
   }, 400_000);
 });
 

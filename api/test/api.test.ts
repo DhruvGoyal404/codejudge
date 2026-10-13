@@ -138,6 +138,54 @@ describe("sweeper (simplified transactional outbox)", () => {
   });
 });
 
+describe("sweeper: stuck running submissions", () => {
+  it("re-enqueues running submissions whose started_at is older than the running threshold", async () => {
+    const cfg = { ...d, config: { ...d.config, SWEEP_AFTER_MS: 60_000, SWEEP_RUNNING_AFTER_MS: 30 * 60_000 } };
+    const mk = async (startedAgoS: number) => {
+      const r = await d.db.pool.query(
+        `INSERT INTO submissions (problem_id, language, source, status, attempt, worker_id, created_at, started_at, enqueued_at)
+         SELECT id, 'cpp', 'int main(){}', 'running', 1, 'gone-worker', now() - interval '3 hours',
+                now() - make_interval(secs => $1), now() - interval '3 hours'
+           FROM problems WHERE slug = 'ledger-total' RETURNING id`,
+        [startedAgoS],
+      );
+      created.push(r.rows[0].id);
+      return r.rows[0].id as string;
+    };
+    const stuck = await mk(2 * 3600); // started 2 h ago, worker and stream entry lost
+    const active = await mk(60); // a worker started it a minute ago
+    await sweepOnce(cfg);
+    const ids = await streamIds(d.config.SUBMISSIONS_STREAM);
+    expect(ids).toContain(stuck);
+    expect(ids).not.toContain(active);
+  });
+});
+
+describe("sample output only", () => {
+  it("stores stdout for sample rows only and never returns output fields for hidden tests", async () => {
+    const id = await insertRaw("done", "WA", 0, 0);
+    await d.db.pool.query(
+      `INSERT INTO submission_tests (submission_id, seq, name, is_sample, status, cpu_ms, rss_kb, stdout, stdout_truncated)
+       VALUES ($1, 1, '01', true, 'AC', 1, 100, '12', false),
+              ($1, 2, '02', true, 'WA', 1, 100, 'oops', false),
+              ($1, 3, '03', false, 'WA', 1, 100, NULL, false)`,
+      [id],
+    );
+    // The schema refuses to store output of a hidden test at all.
+    await expect(
+      d.db.pool.query(
+        `INSERT INTO submission_tests (submission_id, seq, name, is_sample, status, cpu_ms, rss_kb, stdout)
+         VALUES ($1, 4, '04', false, 'WA', 1, 100, 'leak')`,
+        [id],
+      ),
+    ).rejects.toThrow(/submission_tests_stdout_samples_only/);
+    const r = await request(app).get(`/submissions/${id}`);
+    expect(r.status).toBe(200);
+    expect(r.body.tests[1]).toMatchObject({ name: "02", is_sample: true, stdout: "oops", stdout_truncated: false });
+    expect(r.body.tests[2]).toEqual({ seq: 3, name: "03", is_sample: false, status: "WA", cpu_ms: 1, rss_kb: 100 });
+  });
+});
+
 describe("GET /submissions/:id/events (SSE)", () => {
   async function listen() {
     const server = app.listen(0, "127.0.0.1");
@@ -220,6 +268,53 @@ describe("GET /submissions/:id/events (SSE)", () => {
     } finally {
       server.close();
       await consumer.stop();
+    }
+  });
+
+  it("forwards progress events (stage, test k of n) without a DB read", async () => {
+    const consumer = new EventConsumer(d.config.CODEJUDGE_VALKEY_URL, d.config.EVENTS_STREAM, d.hub, d.log, 500);
+    consumer.start();
+    const { server, base } = await listen();
+    try {
+      const id = await insertRaw("queued", null, 0, 0);
+      await new Promise((r) => setTimeout(r, 300));
+      const events = await readEvents(`${base}/submissions/${id}/events`, async () => {
+        const x = (f: string[]) => d.queue.redis.xadd(d.config.EVENTS_STREAM, "*", ...f);
+        await d.db.pool.query(`UPDATE submissions SET status = 'running', attempt = 1 WHERE id = $1`, [id]);
+        await x(["id", id, "status", "running"]);
+        await x(["id", id, "status", "running", "stage", "compiling", "test", "0", "total", "11"]);
+        await x(["id", id, "status", "running", "stage", "testing", "test", "3", "total", "11"]);
+        await new Promise((r) => setTimeout(r, 300));
+        await d.db.pool.query(`UPDATE submissions SET status = 'done', verdict = 'AC', finished_at = now() WHERE id = $1`, [id]);
+        await x(["id", id, "status", "done", "verdict", "AC"]);
+      });
+      const progress = events.filter((e) => e.event === "progress").map((e) => e.data);
+      expect(progress).toEqual([
+        { id, stage: "compiling", test: 0, total: 11 },
+        { id, stage: "testing", test: 3, total: 11 },
+      ]);
+      expect(events.at(-1)).toMatchObject({ event: "verdict", data: { verdict: "AC" } });
+    } finally {
+      server.close();
+      await consumer.stop();
+    }
+  });
+
+  it("replays the latest progress to a subscriber that connects mid-judging", async () => {
+    const { server, base } = await listen();
+    try {
+      const id = await insertRaw("queued", null, 0, 0);
+      await d.db.pool.query(`UPDATE submissions SET status = 'running', attempt = 1 WHERE id = $1`, [id]);
+      d.hub.publish(id, { id, status: "running", stage: "testing", test: "7", total: "11" });
+      const events = await readEvents(`${base}/submissions/${id}/events`, async () => {
+        await d.db.pool.query(`UPDATE submissions SET status = 'done', verdict = 'AC', finished_at = now() WHERE id = $1`, [id]);
+        d.hub.publish(id, { id, status: "done", verdict: "AC" });
+      });
+      expect(events.map((e) => e.event)).toEqual(["status", "progress", "status", "verdict"]);
+      expect(events[1]!.data).toEqual({ id, stage: "testing", test: 7, total: 11 });
+      expect(d.hub.latestProgress(id)).toBeUndefined(); // dropped once done
+    } finally {
+      server.close();
     }
   });
 

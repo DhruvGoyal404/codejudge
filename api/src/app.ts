@@ -163,12 +163,24 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
 
     // Subscribe BEFORE reading/sending the current state: an update that lands
     // between the read and the subscription can't be lost.
-    const unsubscribe = hub.subscribe(id.data, refresh);
+    const sendProgress = (e: Record<string, string>) =>
+      send("progress", { id: id.data, stage: e.stage, test: Number(e.test ?? 0), total: Number(e.total ?? 0) });
+    const unsubscribe = hub.subscribe(id.data, (e) => {
+      if (e?.stage) {
+        // Progress (compiling / test k of n) is not stored in Postgres: forward it.
+        sendProgress(e);
+        return;
+      }
+      refresh();
+    });
     const keepalive = setInterval(() => !closed && res.write(": keepalive\n\n"), config.SSE_KEEPALIVE_MS);
     const maxTimer = setTimeout(finish, config.SSE_MAX_MS);
     const poll = setInterval(refresh, config.SSE_POLL_MS);
     req.on("close", finish);
     emit(first);
+    // A late subscriber still sees where judging is (latest progress replay).
+    const latest = first.status === "running" ? hub.latestProgress(id.data) : undefined;
+    if (latest) sendProgress(latest);
     refresh(); // re-read once after subscribing to cover the gap
   });
 
@@ -199,7 +211,7 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
 
 /** One sweeper pass: re-enqueue stale queued submissions. Returns how many. */
 export async function sweepOnce({ db, queue, config, log }: Pick<Deps, "db" | "queue" | "config" | "log">): Promise<number> {
-  const ids = await db.claimForReenqueue(config.SWEEP_AFTER_MS, 100);
+  const ids = await db.claimForReenqueue(config.SWEEP_AFTER_MS, config.SWEEP_RUNNING_AFTER_MS, 100);
   let n = 0;
   for (const id of ids) {
     try {
