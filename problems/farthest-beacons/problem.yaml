@@ -1,6 +1,6 @@
 id: farthest-beacons
 title: Farthest Beacons
-time_limit: 1s
+time_limit: 2s
 memory_limit: 256
 checker:
   type: float
