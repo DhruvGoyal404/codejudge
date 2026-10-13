@@ -205,3 +205,33 @@ systemctl daemon-reload && systemctl enable --now judge-worker
 ```
 
 gVisor is installed by `runsc install`, which registers the `runsc` runtime in `/etc/docker/daemon.json`; then dockerd is restarted. CI does the same (6a.5).
+
+## 6a.6 Nightly pg_dump to S3, and restore
+
+Files: [`deploy/backup/pg-backup.sh`](../deploy/backup/pg-backup.sh), [`deploy/backup/pg-restore.sh`](../deploy/backup/pg-restore.sh), [`deploy/systemd/pg-backup.service`](../deploy/systemd/pg-backup.service) + [`.timer`](../deploy/systemd/pg-backup.timer) (03:30 UTC, `Persistent=true`, ±10 min), [`deploy/backup/backup.env.example`](../deploy/backup/backup.env.example).
+
+**Backup (`pg-backup.sh`).** The script:
+1. Runs `pg_dump` inside the postgres container, so the client is the same major version as the server and nothing extra is installed on the host. It uses custom format (`--format=custom --compress=6 --no-owner --no-privileges`).
+2. Checks the archive with `pg_restore --list` and refuses to upload one with no table data.
+3. Uploads to `$BACKUP_DEST` (`s3://bucket/prefix`) with `--sse AES256` and the dump's SHA-256 stored as object metadata.
+
+Credentials come from the EC2 instance role, so no AWS keys are kept on disk. The bucket name is taken only from the environment. Retention is an S3 lifecycle rule on the prefix (for example, expire after 30 days), set up in Phase 6b. `file:///dir` is supported for local tests.
+
+**Restore (`pg-restore.sh <url | latest> [--into-live]`).** The script:
+1. Fetches the dump and checks its SHA-256 against the recorded value. A mismatch aborts.
+2. By default, restores into a **new** database `codejudge_restore_<ts>` and prints row counts for the restored and live databases side by side. A backup can be verified at any time without touching production.
+3. With `--into-live`, it drops and recreates the live database, after you type its name. Stop the API and the worker first.
+
+Commands that don't read input get `</dev/null`; otherwise `docker compose exec -T` would swallow stdin, including the confirmation. That bug was caught by the test below.
+
+**Tested locally against the dev compose stack** (`CODEJUDGE_COMPOSE="docker compose -p codejudge -f compose.yaml"`, `BACKUP_DEST=file:///tmp/cj-backups`):
+
+| Check | Result |
+|---|---|
+| backup | 20 KB dump, 7 tables with data, sha256 recorded |
+| restore → new DB | sha256 ok; row counts identical to live for all 7 tables (schema_migrations 6, problems 5, problem_samples 10, users 1, sessions 1, submissions 8, submission_tests 38) |
+| corrupted dump (1 byte changed) | refused: "sha256 mismatch", exit 1, nothing restored |
+| `--into-live` with the wrong name typed | aborted, nothing dropped |
+| `--into-live` confirmed | live DB replaced; counts identical; the full API suite (85 tests) then passed against it |
+
+The scratch databases were dropped afterwards. CI runs `shellcheck --severity=warning` on both scripts and `systemd-analyze verify` on the units. Two info-level notes are intentional: the single quotes make `$POSTGRES_*` expand inside the container.

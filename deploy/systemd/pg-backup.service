@@ -1,0 +1,26 @@
+# /etc/systemd/system/pg-backup.service — one nightly database backup to S3
+# (deploy/backup/pg-backup.sh); started by pg-backup.timer.
+[Unit]
+Description=CodeJudge nightly Postgres backup to S3
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=codejudge
+Group=codejudge
+SupplementaryGroups=docker
+WorkingDirectory=/opt/codejudge/app
+# BACKUP_DEST=s3://<bucket>/<prefix>, AWS_REGION. Credentials come from the
+# EC2 instance role (no keys on disk).
+EnvironmentFile=/etc/codejudge/backup.env
+ExecStart=/opt/codejudge/app/deploy/backup/pg-backup.sh
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/run/docker.sock
