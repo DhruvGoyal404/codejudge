@@ -16,6 +16,10 @@ type Submission struct {
 	Source      string
 	ProblemSlug string
 	ContentHash string
+	// StreamEntryID is the judge:submissions entry of the current enqueue
+	// (empty if not recorded yet). Any other entry for this submission is a
+	// duplicate delivery.
+	StreamEntryID string
 }
 
 // ErrNotFound is returned when a submission does not exist.
@@ -25,9 +29,9 @@ var ErrNotFound = errors.New("submission not found")
 func LoadSubmission(ctx context.Context, pool *pgxpool.Pool, id string) (*Submission, error) {
 	var s Submission
 	err := pool.QueryRow(ctx, `
-		SELECT s.id::text, s.status, s.language, s.source, p.slug, p.content_hash
+		SELECT s.id::text, s.status, s.language, s.source, p.slug, p.content_hash, coalesce(s.stream_entry_id, '')
 		  FROM submissions s JOIN problems p ON p.id = s.problem_id
-		 WHERE s.id = $1`, id).Scan(&s.ID, &s.Status, &s.Language, &s.Source, &s.ProblemSlug, &s.ContentHash)
+		 WHERE s.id = $1`, id).Scan(&s.ID, &s.Status, &s.Language, &s.Source, &s.ProblemSlug, &s.ContentHash, &s.StreamEntryID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

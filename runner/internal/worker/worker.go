@@ -6,6 +6,10 @@
 //   - FinishFenced writes only if attempt is still current.
 //   - XACK only after the result commit (or when there is provably nothing
 //     to do), so a crash at any point leaves the entry pending for XAUTOCLAIM.
+//   - Duplicate deliveries (submission already done, or the entry is older
+//     than the submission's recorded stream_entry_id) are XACKed without
+//     judging, so a stray duplicate never steals a submission another worker
+//     is judging.
 //
 // Together: at-least-once delivery + fencing = effectively-once results.
 package worker
@@ -284,6 +288,30 @@ func (w *Worker) handle(ctx context.Context, msg redis.XMessage) {
 		return
 	}
 
+	// Duplicates first: a superseded entry must not dead-letter (or steal) a
+	// submission whose current entry is still live.
+	sub, err := store.LoadSubmission(ctx, w.db, id)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		log.Info("submission missing; acking")
+		w.ack(ctx, msg.ID)
+		return
+	case err != nil:
+		log.Error("load submission failed; leaving entry pending", "err", err)
+		return
+	case sub.Status == "done":
+		log.Info("duplicate delivery: submission already done; acking without judging")
+		w.ack(ctx, msg.ID)
+		return
+	case sub.StreamEntryID != "" && entryBefore(msg.ID, sub.StreamEntryID):
+		// Only an entry OLDER than the recorded one is superseded. A newer one
+		// may be a re-enqueue whose id is not recorded yet (XADD happens
+		// before the UPDATE), so it is judged.
+		log.Info("duplicate delivery: superseded stream entry; acking without judging", "current_entry", sub.StreamEntryID)
+		w.ack(ctx, msg.ID)
+		return
+	}
+
 	n, err := w.deliveries(ctx, msg.ID)
 	if err != nil {
 		log.Warn("XPENDING failed; leaving entry pending", "err", err)
@@ -302,16 +330,6 @@ func (w *Worker) handle(ctx context.Context, msg redis.XMessage) {
 		return
 	}
 
-	sub, err := store.LoadSubmission(ctx, w.db, id)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && sub.Status == "done") {
-		log.Info("nothing to do (missing or already done); acking")
-		w.ack(ctx, msg.ID)
-		return
-	}
-	if err != nil {
-		log.Error("load submission failed; leaving entry pending", "err", err)
-		return
-	}
 	attempt, ok, err := store.Claim(ctx, w.db, id, w.cfg.WorkerID)
 	if err != nil {
 		log.Error("claim failed; leaving entry pending", "err", err)
@@ -390,4 +408,25 @@ func truncate(s string, n int) string {
 		return s[:n] + "...[truncated]"
 	}
 	return s
+}
+
+// entryBefore reports whether stream entry id a ("ms-seq") is strictly older
+// than b. Unparseable ids compare as not-before (the entry is judged).
+func entryBefore(a, b string) bool {
+	am, as, ok1 := parseEntryID(a)
+	bm, bs, ok2 := parseEntryID(b)
+	if !ok1 || !ok2 {
+		return false
+	}
+	return am < bm || (am == bm && as < bs)
+}
+
+func parseEntryID(id string) (ms, seq uint64, ok bool) {
+	m, s, found := strings.Cut(id, "-")
+	if !found {
+		return 0, 0, false
+	}
+	ms, err1 := strconv.ParseUint(m, 10, 64)
+	seq, err2 := strconv.ParseUint(s, 10, 64)
+	return ms, seq, err1 == nil && err2 == nil
 }

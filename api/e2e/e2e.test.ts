@@ -121,6 +121,11 @@ describe("load: 30 concurrent submissions, 2 workers", () => {
       if (o.status === "done") done.set(o.id!, (done.get(o.id!) ?? 0) + 1);
     }
     for (const id of ids) expect(done.get(id), id).toBe(1);
+    // No duplicate stream entries: the sweeper (original 60 s threshold) never
+    // re-enqueued a submission that was waiting in the backlog.
+    expect(await s.d.queue.redis.xlen(s.d.config.SUBMISSIONS_STREAM)).toBe(ids.length);
+    const streamed = (await s.d.queue.redis.xrange(s.d.config.SUBMISSIONS_STREAM, "-", "+")).map(([, f]) => f[1]!);
+    expect(streamed.sort()).toEqual([...ids].sort());
     // No duplicate submission_tests rows (also guaranteed by the PK).
     const dup = await s.d.db.pool.query(
       `SELECT submission_id, seq, count(*) FROM submission_tests WHERE submission_id = ANY($1::uuid[]) GROUP BY 1, 2 HAVING count(*) > 1`,
@@ -172,19 +177,59 @@ describe("outbox sweeper", () => {
   });
   afterAll(async () => s.close());
 
+  const AC_CPP = `#include <cstdio>\nint main(){int n;long long s=0,x;scanf("%d",&n);while(n--){scanf("%lld",&x);s+=x;}printf("%lld\\n",s);}`;
+  let doneId = "";
+
   it("a queued submission that was never XADDed is enqueued by the sweeper and completes", async () => {
     const r = await s.d.db.pool.query(
       `INSERT INTO submissions (problem_id, language, source)
        SELECT id, 'cpp', $1 FROM problems WHERE slug = 'ledger-total' RETURNING id`,
-      [`#include <cstdio>\nint main(){int n;long long s=0,x;scanf("%d",&n);while(n--){scanf("%lld",&x);s+=x;}printf("%lld\\n",s);}`],
+      [AC_CPP],
     );
     const id = r.rows[0].id as string;
     s.created.push(id);
     const events = await s.sse(id, 300_000);
     expect(events.at(-1)).toMatchObject({ event: "verdict", data: { verdict: "AC" } });
-    const row = await s.d.db.pool.query(`SELECT enqueued_at FROM submissions WHERE id = $1`, [id]);
+    const row = await s.d.db.pool.query(`SELECT enqueued_at, stream_entry_id, attempt FROM submissions WHERE id = $1`, [id]);
     expect(row.rows[0].enqueued_at).not.toBeNull(); // stamped by the sweeper, not the API
+    expect(row.rows[0].stream_entry_id).toMatch(/^\d+-\d+$/);
+    expect(row.rows[0].attempt).toBe(1);
+    doneId = id;
   }, 400_000);
+
+  it("a queued submission whose stream entry was lost is re-enqueued and completes", async () => {
+    const r = await s.d.db.pool.query(
+      `INSERT INTO submissions (problem_id, language, source, created_at, enqueued_at, stream_entry_id)
+       SELECT id, 'cpp', $1, now() - interval '1 hour', now() - interval '1 hour', '1-1'
+         FROM problems WHERE slug = 'ledger-total' RETURNING id`,
+      [AC_CPP],
+    );
+    const id = r.rows[0].id as string;
+    s.created.push(id);
+    const events = await s.sse(id, 300_000);
+    expect(events.at(-1)).toMatchObject({ event: "verdict", data: { verdict: "AC" } });
+    const row = await s.d.db.pool.query(`SELECT stream_entry_id, attempt FROM submissions WHERE id = $1`, [id]);
+    expect(row.rows[0].stream_entry_id).not.toBe("1-1");
+    expect(row.rows[0].attempt).toBe(1);
+  }, 400_000);
+
+  it("a duplicate delivery of a done submission is XACKed without judging", async () => {
+    const before = await finalOf(s, doneId);
+    const dup = await s.d.queue.redis.xadd(s.d.config.SUBMISSIONS_STREAM, "*", "id", doneId);
+    // Delivered (past the group's last-delivered id) and acknowledged (not pending).
+    await waitFor(
+      async () => {
+        const groups = (await s.d.queue.redis.xinfo("GROUPS", s.d.config.SUBMISSIONS_STREAM)) as unknown[][];
+        const g = groups.map((x) => Object.fromEntries(Array.from({ length: x.length / 2 }, (_, k) => [x[2 * k], x[2 * k + 1]])));
+        const delivered = g.some((x) => x["last-delivered-id"] === dup);
+        const pending = (await s.d.queue.redis.xpending(s.d.config.SUBMISSIONS_STREAM, "workers")) as [number, ...unknown[]];
+        return delivered && pending[0] === 0;
+      },
+      60_000,
+      500,
+    );
+    expect(await finalOf(s, doneId)).toEqual(before); // same attempt, verdict, worker, test rows
+  }, 120_000);
 });
 
 describe("sweeper: stuck running submission", () => {

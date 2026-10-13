@@ -97,8 +97,7 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
     // enqueued_at NULL and the sweeper enqueues it later.
     const id = await db.insertSubmission(problemId, language, source, user.id);
     try {
-      await queue.enqueue(id);
-      await db.markEnqueued(id);
+      await db.markEnqueued(id, await queue.enqueue(id));
     } catch (err) {
       log.warn({ err, id }, "enqueue failed; sweeper will retry");
     }
@@ -214,13 +213,18 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
   return app;
 }
 
-/** One sweeper pass: re-enqueue stale queued submissions. Returns how many. */
+/**
+ * One sweeper pass. Returns how many submissions were re-enqueued. A queued
+ * submission is re-enqueued only when it has no stream entry (XADD failed) or
+ * its entry is gone; one legitimately waiting in a backlog is not.
+ */
 export async function sweepOnce({ db, queue, config, log }: Pick<Deps, "db" | "queue" | "config" | "log">): Promise<number> {
-  const ids = await db.claimForReenqueue(config.SWEEP_AFTER_MS, config.SWEEP_RUNNING_AFTER_MS, 100);
+  const rows = await db.claimForReenqueue(config.SWEEP_AFTER_MS, config.SWEEP_RUNNING_AFTER_MS, 100);
   let n = 0;
-  for (const id of ids) {
+  for (const { id, status, stream_entry_id: entry } of rows) {
     try {
-      await queue.enqueue(id);
+      if (status === "queued" && entry !== null && (await queue.hasEntry(entry))) continue; // still waiting
+      await db.markEnqueued(id, await queue.enqueue(id));
       n++;
     } catch (err) {
       log.warn({ err, id }, "sweeper enqueue failed; will retry next sweep");

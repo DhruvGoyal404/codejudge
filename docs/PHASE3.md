@@ -211,6 +211,18 @@ Committed in `0826aba`, before Phase 4.
 
 API tests: 18. E2E: 6. Latency after the follow-ups: p50 3020 ms / p95 3292 ms (ledger-total C++, 20 runs).
 
+5. **Design bug found by the load test: the sweeper duplicated backlog entries** (fixed during Phase 5, before 5b).
+   - *Symptom:* in a slow full e2e run, a 30-submission load test ended with a submission at `attempt = 2`.
+   - *Cause:* the sweeper re-enqueued any `queued` row not (re)enqueued within 60 s. That includes submissions legitimately waiting in the stream behind a backlog. It created duplicate entries, and a duplicate delivered while another worker was judging the submission re-claimed it (`Claim` accepts `running`). Fencing kept results correct, but workers wasted capacity. Since a bigger backlog meant more duplicates, more wasted judging, and more backlog, it was a positive feedback loop.
+   - *Fix:*
+     - New column `submissions.stream_entry_id`; the API stores the XADD entry id after a successful XADD.
+     - The sweeper re-enqueues a queued submission only if `stream_entry_id IS NULL` (XADD failed) or `XRANGE <id> <id>` finds nothing (entry lost or trimmed), and records the new id. Its `enqueued_at` stamp rotates the check through a large backlog. Stuck `running` rows are handled as before.
+     - The worker loads the submission first and XACKs without judging when it is already `done` or when the entry is **older** than its recorded `stream_entry_id` (logged as a duplicate delivery). This also means a superseded entry can no longer dead-letter a live submission. *Older*, not merely different: the first version skipped any mismatch, and the new lost-entry e2e test caught a race. The sweeper XADDs before it records the new id, so the worker read the new entry, still saw the old id, and dropped it. Stream ids are ordered, so a newer, not-yet-recorded entry is judged.
+   - *Tests:*
+     - The load test, at the original 60 s threshold, now also asserts `XLEN = 30` with each id exactly once, and `attempt = 1` for all.
+     - API tests: a 10-minute-old waiting submission isn't re-enqueued; a lost entry is re-enqueued and the new id recorded.
+     - E2E: lost XADD (kept); lost stream entry completes at attempt 1; a duplicate entry for a done submission is XACKed with nothing changed.
+
 ## How to run
 
 ```powershell

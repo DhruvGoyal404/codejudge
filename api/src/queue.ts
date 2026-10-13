@@ -23,6 +23,11 @@ export class Queue {
     return entry;
   }
 
+  /** Whether the stream still holds this entry (it may have been trimmed or the stream lost). */
+  async hasEntry(entryId: string): Promise<boolean> {
+    return (await this.redis.xrange(this.submissionsStream, entryId, entryId)).length > 0;
+  }
+
   async close(): Promise<void> {
     this.redis.disconnect();
   }

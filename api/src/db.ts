@@ -56,8 +56,9 @@ export class Db {
     return r.rows[0].id as string;
   }
 
-  async markEnqueued(id: string): Promise<void> {
-    await this.pool.query(`UPDATE submissions SET enqueued_at = now() WHERE id = $1`, [id]);
+  /** Records a successful XADD: its stream entry id and when it happened. */
+  async markEnqueued(id: string, entryId: string): Promise<void> {
+    await this.pool.query(`UPDATE submissions SET enqueued_at = now(), stream_entry_id = $2 WHERE id = $1`, [id, entryId]);
   }
 
   async getSubmission(id: string) {
@@ -89,15 +90,22 @@ export class Db {
   }
 
   /**
-   * Claims up to `limit` submissions that need (re)enqueueing, stamping
-   * enqueued_at so concurrent sweeps (or API instances) don't pick the same
-   * rows, and returns their ids:
-   *  - queued, older than `afterMs`, and not (re)enqueued within `afterMs`
-   *    (covers an XADD lost after the INSERT);
-   *  - running with started_at older than `runningAfterMs` and not
-   *    re-enqueued within `afterMs` (worker and stream entry lost).
+   * Claims up to `limit` sweep candidates, stamping enqueued_at so concurrent
+   * sweeps (or API instances) don't pick the same rows within `afterMs`, and
+   * so a large backlog is checked in rotation rather than the oldest rows
+   * over and over:
+   *  - queued, older than `afterMs`, not stamped within `afterMs`. The caller
+   *    re-enqueues it only if stream_entry_id is NULL (XADD failed) or that
+   *    entry is gone from the stream; a submission still waiting in the
+   *    stream is left alone (no duplicates under backlog);
+   *  - running with started_at older than `runningAfterMs` and not stamped
+   *    within `afterMs` (worker and its stream entry presumed lost).
    */
-  async claimForReenqueue(afterMs: number, runningAfterMs: number, limit: number): Promise<string[]> {
+  async claimForReenqueue(
+    afterMs: number,
+    runningAfterMs: number,
+    limit: number,
+  ): Promise<{ id: string; status: "queued" | "running"; stream_entry_id: string | null }[]> {
     const r = await this.pool.query(
       `UPDATE submissions SET enqueued_at = now()
         WHERE id IN (
@@ -108,10 +116,10 @@ export class Db {
            ORDER BY created_at
            LIMIT $3
            FOR UPDATE SKIP LOCKED)
-        RETURNING id`,
+        RETURNING id, status, stream_entry_id`,
       [afterMs, runningAfterMs, limit],
     );
-    return r.rows.map((x) => x.id as string);
+    return r.rows;
   }
 
   /** Inserts or refreshes a GitHub user; returns users.id. */

@@ -33,6 +33,9 @@ async function streamIds(stream: string): Promise<string[]> {
   return entries.map(([, fields]) => fields[fields.indexOf("id") + 1]!);
 }
 
+const entryOf = async (id: string) =>
+  (await d.db.pool.query(`SELECT stream_entry_id FROM submissions WHERE id = $1`, [id])).rows[0].stream_entry_id as string | null;
+
 async function insertRaw(status: string, verdict: string | null, ageSeconds: number, enqueuedAgeSeconds: number | null) {
   const r = await d.db.pool.query(
     `INSERT INTO submissions (problem_id, language, source, status, verdict, created_at, enqueued_at, finished_at)
@@ -88,6 +91,9 @@ describe("POST /submissions", () => {
     expect(row.rows[0].status).toBe("queued");
     expect(Number(row.rows[0].user_id)).toBe(user.userId);
     expect(row.rows[0].enqueued_at).not.toBeNull();
+    // The XADD entry id is recorded.
+    const entries = await d.queue.redis.xrange(d.config.SUBMISSIONS_STREAM, "-", "+");
+    expect(entries.find(([, f]) => f[1] === r.body.id)?.[0]).toBe(await entryOf(r.body.id));
   });
 
   it("validates the body", async () => {
@@ -141,6 +147,32 @@ describe("sweeper (simplified transactional outbox)", () => {
     // A second sweep right away does not re-add it: enqueued_at was stamped.
     await sweepOnce(sweepCfg);
     expect((await streamIds(d.config.SUBMISSIONS_STREAM)).filter((x) => x === stale)).toHaveLength(1);
+    expect(await entryOf(stale)).toMatch(/^\d+-\d+$/);
+  });
+
+  it("does not re-enqueue a submission still waiting in the stream (backlog), however old", async () => {
+    const sweepCfg = { ...d, config: { ...d.config, SWEEP_AFTER_MS: 60_000 } };
+    const r = await post("/submissions").send({ problemSlug: "ledger-total", language: "cpp", source: "int main(){}" });
+    created.push(r.body.id);
+    // Waited 10 minutes in a backlog; its entry is still in the stream.
+    await d.db.pool.query(
+      `UPDATE submissions SET created_at = now() - interval '10 minutes', enqueued_at = now() - interval '10 minutes' WHERE id = $1`,
+      [r.body.id],
+    );
+    const entry = await entryOf(r.body.id);
+    expect(await sweepOnce(sweepCfg)).toBe(0);
+    expect((await streamIds(d.config.SUBMISSIONS_STREAM)).filter((x) => x === r.body.id)).toHaveLength(1);
+    expect(await entryOf(r.body.id)).toBe(entry);
+  });
+
+  it("re-enqueues a queued submission whose stream entry is gone, recording the new entry", async () => {
+    const sweepCfg = { ...d, config: { ...d.config, SWEEP_AFTER_MS: 60_000 } };
+    const lost = await insertRaw("queued", null, 120, 120);
+    await d.db.pool.query(`UPDATE submissions SET stream_entry_id = '1-1' WHERE id = $1`, [lost]); // trimmed / stream lost
+    await sweepOnce(sweepCfg);
+    const mine = (await d.queue.redis.xrange(d.config.SUBMISSIONS_STREAM, "-", "+")).filter(([, f]) => f[1] === lost);
+    expect(mine).toHaveLength(1);
+    expect(await entryOf(lost)).toBe(mine[0]![0]);
   });
 });
 
