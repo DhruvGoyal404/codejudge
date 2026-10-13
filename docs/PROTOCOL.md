@@ -68,12 +68,22 @@ A frame is written with a single `write(2)` and is never interleaved with anothe
 
 judge-exec handles each `T` message in this order:
 
-1. Write the payload to `/box/input`, mode `0400`.
-2. Run the program with fresh rlimits. Its stdin is `/box/input`, and its stdout/stderr are files in `/box`.
-3. Wait for it to exit or be killed.
-4. Kill and reap every other process in the container.
-5. Read the capped outputs.
-6. Reset the work directory (remove everything except the program files).
-7. Emit the result frame.
+1. Re-extract the program files from judge-exec's in-memory copy of the `P` tar, so every test starts from a pristine program.
+2. Write the payload to `/box/input`, mode `0400`.
+3. Run the program with fresh rlimits. Its stdin is `/box/input`, and its stdout/stderr are files in `/box`. All other judge-exec descriptors are close-on-exec.
+4. Wait for it to exit or be killed.
+5. Kill and reap every other process in the container.
+6. Read the capped outputs.
+7. Reset `/box`, `/tmp` and `/dev/mqueue` (and `/dev/shm` if present; containers run with `--ipc none`, so it isn't mounted).
+8. Remove every System V IPC object listed in `/proc/sysvipc/{shm,msg,sem}` with `IPC_RMID`, and verify the tables are empty.
+9. Emit the result frame.
 
-Because the result frame is written only after step 4, nothing the program started can still be running when the host receives the result. Because the host sends the next `T` only after that frame arrives, inputs for later tests are never inside the container before their turn.
+If step 7 or 8 fails, judge-exec emits an **error** frame and exits: a test never runs in a dirty container.
+
+Because the result frame is written only after step 5, nothing the program started can still be running when the host receives the result. Because the host sends the next `T` only after that frame arrives, inputs for later tests are never inside the container before their turn.
+
+## Host rules
+
+- Reject any frame whose `nonce` differs from the one sent in `P`, or whose `seq` is not the next expected value: the submission gets IE and the container is force-removed.
+- Exception: a frame with the correct nonce and `status: "error"` is judge-exec reporting its own failure. It may carry the previous `seq` (for example, when the input was rejected before the test started). Report it as IE with its message, and end the batch.
+- A failed stdin write, a broken result stream, or no frame within the per-test guard (wall limit + 5 s) means the container died: wait for it to stop, read `State.OOMKilled` (MLE if set, else IE), force-remove it, and never reuse it.
