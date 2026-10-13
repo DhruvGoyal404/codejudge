@@ -4,6 +4,8 @@ A LeetCode-style online judge: users submit code, which is compiled and run agai
 
 > **Status:** Phase 4 complete — web frontend (Vite + React 19 + Monaco) with live judging over SSE, on top of the Phase 3 service (Express API + Valkey Streams + Go workers + Postgres). See [docs/PHASE4.md](docs/PHASE4.md).
 
+> ⚠️ **Keep this repository private.** `problems/*/tests/` contains the **hidden test data** (inputs and expected outputs) of every problem, plus reference solutions. Anyone who can read the repo can read the hidden tests. It must stay private until Phase 6 decides where hidden tests live (for example, a separate private store mounted only on workers).
+
 ## Design principles
 - One run container per submission (batch mode), reset between tests; no host bind mounts (program and inputs go in over stdin).
 - Every container: `--network none`, memory/CPU/PID limits, read-only rootfs, non-root user, all capabilities dropped, `no-new-privileges`.
