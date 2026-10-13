@@ -43,11 +43,15 @@ jobs:
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./... && go vet -tags integration ./...
       - run: go test -count=1 ./...
-      - name: systemd unit is valid
+      - name: systemd units are valid
         working-directory: .
         run: |
           sudo install -D /bin/true /opt/codejudge/bin/judge-worker
-          systemd-analyze verify deploy/systemd/judge-worker.service
+          sudo install -D /bin/true /opt/codejudge/app/deploy/backup/pg-backup.sh
+          systemd-analyze verify deploy/systemd/judge-worker.service deploy/systemd/pg-backup.service deploy/systemd/pg-backup.timer
+      - name: shellcheck
+        working-directory: .
+        run: shellcheck --severity=warning deploy/backup/*.sh
 
   api:
     name: API tests (Postgres + Valkey)
@@ -156,8 +160,11 @@ jobs:
           # sandbox too (gVisor ignores it otherwise).
           sudo runsc install -- --oci-seccomp
           sudo systemctl restart docker
-          # The runtime's annotations echo its flags (nested, escaped JSON).
-          if ! docker info --format '{{json .Runtimes.runsc}}' | grep -Eq 'flag\.oci-seccomp[^a-z]{1,6}true'; then
+          # The flag lives in the runtime's runtimeArgs (docker info's feature
+          # annotations show runsc's defaults, not these args). TestSeccompActive
+          # proves it takes effect.
+          sudo cat /etc/docker/daemon.json
+          if ! sudo grep -q -- '--oci-seccomp' /etc/docker/daemon.json; then
             echo "runsc is not registered with --oci-seccomp"; exit 1
           fi
       - name: Docker / kernel
