@@ -19,6 +19,7 @@ func realBatchDeps(o options) batchDeps {
 		runOne:       runOne,
 		reapAll:      reapAll,
 		resetWorkDir: resetWorkDir,
+		cleanIPC:     cleanSysVIPC,
 		extract: func(tarBytes []byte) error {
 			return boxtar.Extract(bytes.NewReader(tarBytes), boxDir, boxtar.Limits{MaxBytes: o.maxTarBytes, MaxFiles: o.maxFiles})
 		},
@@ -26,7 +27,7 @@ func realBatchDeps(o options) batchDeps {
 			return os.WriteFile(path, data, 0o400)
 		},
 		workDir:    boxDir,
-		scratch:    []string{"/tmp"},
+		scratch:    append([]string{"/tmp"}, optionalScratch()...),
 		inputPath:  filepath.Join(boxDir, "input"),
 		maxProgram: uint32(protocol.NonceSize + o.maxTarBytes),
 		maxInput:   uint32(o.maxInput),

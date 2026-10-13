@@ -4,7 +4,8 @@ package main
 //
 //	P (nonce || program tar) -> extract into /box, reset, emit ready
 //	T (input)                -> fresh program files + /box/input (0400),
-//	                            runOne, reapAll, reset work dirs, emit result
+//	                            runOne, reapAll, reset work dirs, remove all
+//	                            System V IPC objects, emit result
 //	E / clean EOF            -> exit 0
 //	anything else            -> emit error frame, exit non-zero
 //
@@ -27,6 +28,7 @@ type batchDeps struct {
 	runOne       func(cfg RunConfig, inputPath string) Result
 	reapAll      func()
 	resetWorkDir func(dir string) error
+	cleanIPC     func() error                         // remove every System V IPC object left by the program
 	extract      func(programTar []byte) error        // verify + extract program files into the work dir
 	writeInput   func(path string, data []byte) error // create path with mode 0400
 
@@ -50,6 +52,9 @@ func runBatch(cfg RunConfig, d batchDeps) int {
 			if err := d.resetWorkDir(dir); err != nil {
 				return fmt.Errorf("reset %s: %w", dir, err)
 			}
+		}
+		if err := d.cleanIPC(); err != nil {
+			return fmt.Errorf("clean System V IPC: %w", err)
 		}
 		return nil
 	}

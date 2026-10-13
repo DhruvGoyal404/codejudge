@@ -14,13 +14,16 @@ import (
 
 // fakeEnv records every call the loop makes, in order.
 type fakeEnv struct {
-	log        []string
-	inputs     map[string][]byte // path -> data written by writeInput
-	extractErr error
-	resetErr   error
-	resetFails int // fail resetWorkDir on this call number (1-based); 0 = never
-	resets     int
-	runResult  func(input []byte) Result
+	log          []string
+	inputs       map[string][]byte // path -> data written by writeInput
+	extractErr   error
+	resetErr     error
+	resetFails   int // fail resetWorkDir on this call number (1-based); 0 = never
+	ipcErr       error
+	ipcCalls     int
+	ipcFailAfter int // fail cleanIPC on this call number (1-based); 0 = never
+	resets       int
+	runResult    func(input []byte) Result
 }
 
 func (f *fakeEnv) deps(in io.Reader, out io.Writer) batchDeps {
@@ -36,6 +39,14 @@ func (f *fakeEnv) deps(in io.Reader, out io.Writer) batchDeps {
 			return Result{Status: protocol.StatusExited, Stdout: append([]byte("out:"), data...)}
 		},
 		reapAll: func() { f.log = append(f.log, "reap") },
+		cleanIPC: func() error {
+			f.ipcCalls++
+			f.log = append(f.log, "ipc")
+			if f.ipcFailAfter == f.ipcCalls {
+				return errors.New("shmctl: EPERM")
+			}
+			return f.ipcErr
+		},
 		resetWorkDir: func(dir string) error {
 			f.resets++
 			f.log = append(f.log, "reset("+dir+")")
@@ -122,10 +133,10 @@ func TestBatchHappyPath(t *testing.T) {
 
 	// Exact per-test ordering: fresh program, input, run, reap, reset all dirs.
 	want := strings.Join([]string{
-		"extract(prog)", "reset(/box)", "reset(/tmp)", // P: verify, then clean
-		"extract(prog)", "input(1 2)", "run(1 2)", "reap", "reset(/box)", "reset(/tmp)",
-		"extract(prog)", "input()", "run()", "reap", "reset(/box)", "reset(/tmp)",
-		"extract(prog)", "input(3)", "run(3)", "reap", "reset(/box)", "reset(/tmp)",
+		"extract(prog)", "reset(/box)", "reset(/tmp)", "ipc", // P: verify, then clean
+		"extract(prog)", "input(1 2)", "run(1 2)", "reap", "reset(/box)", "reset(/tmp)", "ipc",
+		"extract(prog)", "input()", "run()", "reap", "reset(/box)", "reset(/tmp)", "ipc",
+		"extract(prog)", "input(3)", "run(3)", "reap", "reset(/box)", "reset(/tmp)", "ipc",
 	}, " ")
 	if got := strings.Join(env.log, " "); got != want {
 		t.Fatalf("call order:\n got  %s\n want %s", got, want)
@@ -157,13 +168,14 @@ func TestBatchErrors(t *testing.T) {
 		wantError string
 		noReady   bool
 	}{
-		"test before program":   {in: msgs(t, [2]string{"T", "x"}), env: &fakeEnv{}, wantError: "want program", noReady: true},
-		"empty stream":          {in: &bytes.Buffer{}, env: &fakeEnv{}, wantError: "read program", noReady: true},
-		"bad program tar":       {in: msgs(t, [2]string{"P", "prog"}), env: &fakeEnv{extractErr: errors.New("absolute path")}, wantError: "absolute path", noReady: true},
-		"second program":        {in: msgs(t, [2]string{"P", "prog"}, [2]string{"P", "again"}), env: &fakeEnv{}, wantError: "unexpected message"},
-		"oversized input":       {in: oversized, env: &fakeEnv{}, wantSeq: 0, wantError: "exceeds size limit"},
-		"truncated input":       {in: truncated, env: &fakeEnv{}, wantSeq: 0, wantError: "truncated"},
-		"reset fails after run": {in: msgs(t, [2]string{"P", "prog"}, [2]string{"T", "x"}, [2]string{"T", "y"}), env: &fakeEnv{resetErr: errors.New("busy"), resetFails: 3}, wantSeq: 1, wantError: "busy"},
+		"test before program":         {in: msgs(t, [2]string{"T", "x"}), env: &fakeEnv{}, wantError: "want program", noReady: true},
+		"empty stream":                {in: &bytes.Buffer{}, env: &fakeEnv{}, wantError: "read program", noReady: true},
+		"bad program tar":             {in: msgs(t, [2]string{"P", "prog"}), env: &fakeEnv{extractErr: errors.New("absolute path")}, wantError: "absolute path", noReady: true},
+		"second program":              {in: msgs(t, [2]string{"P", "prog"}, [2]string{"P", "again"}), env: &fakeEnv{}, wantError: "unexpected message"},
+		"oversized input":             {in: oversized, env: &fakeEnv{}, wantSeq: 0, wantError: "exceeds size limit"},
+		"truncated input":             {in: truncated, env: &fakeEnv{}, wantSeq: 0, wantError: "truncated"},
+		"ipc cleanup fails after run": {in: msgs(t, [2]string{"P", "prog"}, [2]string{"T", "x"}, [2]string{"T", "y"}), env: &fakeEnv{ipcFailAfter: 2}, wantSeq: 1, wantError: "System V IPC"},
+		"reset fails after run":       {in: msgs(t, [2]string{"P", "prog"}, [2]string{"T", "x"}, [2]string{"T", "y"}), env: &fakeEnv{resetErr: errors.New("busy"), resetFails: 3}, wantSeq: 1, wantError: "busy"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -190,7 +202,7 @@ func TestBatchErrors(t *testing.T) {
 				}
 			}
 			// A failed reset must stop before the next test's input is written.
-			if name == "reset fails after run" && strings.Contains(strings.Join(c.env.log, " "), "input(y)") {
+			if (name == "reset fails after run" || name == "ipc cleanup fails after run") && strings.Contains(strings.Join(c.env.log, " "), "input(y)") {
 				t.Fatal("next test started after a failed reset")
 			}
 		})

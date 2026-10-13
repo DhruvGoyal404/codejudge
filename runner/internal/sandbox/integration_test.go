@@ -35,15 +35,15 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Invariant: nothing we created may outlive the suite.
-	n, err := sb.ManagedContainers(ctx)
+	n, err := sb.OwnContainers(ctx) // only this process: other suites may run concurrently
 	if err != nil {
 		fmt.Println("FAIL: list managed containers:", err)
 		code = 1
 	} else if n != 0 {
-		fmt.Printf("FAIL: %d judge.managed containers left after suite\n", n)
+		fmt.Printf("FAIL: %d judge.managed containers left by this process after suite\n", n)
 		code = 1
 	} else {
-		fmt.Println("post-suite: 0 judge.managed containers left")
+		fmt.Println("post-suite: 0 judge.managed containers left by this process")
 	}
 	sb.Close()
 	os.Exit(code)

@@ -29,11 +29,12 @@ func TestMain(m *testing.M) {
 	sb, err = sandbox.New(ctx, sandbox.Options{SeccompPath: seccomp, ImagesLockPath: lock})
 	must(err)
 	code := m.Run()
-	if n, err := sb.ManagedContainers(ctx); err != nil || n != 0 {
-		fmt.Printf("FAIL: %d judge.managed containers left (%v)\n", n, err)
+	// Only this process's containers: other suites may run concurrently.
+	if n, err := sb.OwnContainers(ctx); err != nil || n != 0 {
+		fmt.Printf("FAIL: %d judge.managed containers left by this process (%v)\n", n, err)
 		code = 1
 	} else {
-		fmt.Println("post-suite: 0 judge.managed containers left")
+		fmt.Println("post-suite: 0 judge.managed containers left by this process")
 	}
 	sb.Close()
 	os.Exit(code)

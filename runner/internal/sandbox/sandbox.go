@@ -122,6 +122,20 @@ func (s *Sandbox) Reap(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// OwnContainers counts containers (any state) created by this process
+// (judge.instance label). Unlike ManagedContainers it ignores containers that
+// belong to other runner processes working concurrently.
+func (s *Sandbox) OwnContainers(ctx context.Context) (int, error) {
+	list, err := s.cli.ContainerList(ctx, client.ContainerListOptions{
+		All:     true,
+		Filters: make(client.Filters).Add("label", LabelInstance+"="+self.ID),
+	})
+	if err != nil {
+		return 0, err
+	}
+	return len(list.Items), nil
+}
+
 // ManagedContainers counts judge.managed containers (any state).
 func (s *Sandbox) ManagedContainers(ctx context.Context) (int, error) {
 	list, err := s.cli.ContainerList(ctx, client.ContainerListOptions{
@@ -217,6 +231,7 @@ func (s *Sandbox) containerConfigs(image string, sp containerSpec) (*container.C
 	}
 	hc := &container.HostConfig{
 		NetworkMode:    "none",
+		IpcMode:        "none", // private IPC namespace, no /dev/shm mount
 		ReadonlyRootfs: true,
 		CapDrop:        []string{"ALL"},
 		SecurityOpt:    []string{"no-new-privileges", "seccomp=" + s.seccomp},

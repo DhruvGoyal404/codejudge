@@ -209,3 +209,22 @@ func TestBatchOversizedInput(t *testing.T) {
 		t.Fatal("batch reused after judge-exec error")
 	}
 }
+
+// Nothing planted in one test survives into the next: /dev/shm (not even
+// mounted under --ipc none), POSIX message queues, and System V shm/msg/sem.
+func TestBatchCrossTestState(t *testing.T) {
+	for _, f := range []string{"snoopipc.cpp", "snoopipc.py"} {
+		t.Run(f, func(t *testing.T) {
+			res := runBatchFixture(t, f, []string{"plant", "look", "look"}, std)
+			for i, r := range res {
+				wantStatus(t, r, StatusOK)
+				if i > 0 && strings.Contains(r.Stdout, "FOUND") {
+					t.Fatalf("test %d found state planted by test 1:\n%s", i+1, r.Stdout)
+				}
+			}
+			if strings.Contains(res[0].Stdout, "plant /dev/shm ok") {
+				t.Errorf("/dev/shm is writable despite --ipc none:\n%s", res[0].Stdout)
+			}
+		})
+	}
+}
