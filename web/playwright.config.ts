@@ -18,7 +18,7 @@ export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
   use: {
-    baseURL: "http://127.0.0.1:5173",
+    baseURL: "http://localhost:5173",
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
@@ -35,7 +35,7 @@ export default defineConfig({
     },
     {
       command: "npx vite",
-      url: "http://127.0.0.1:5173",
+      url: "http://localhost:5173",
       reuseExistingServer: false,
       timeout: 120_000,
     },

@@ -58,7 +58,7 @@ go build -o judge-admin.exe ./cmd/judge-admin; go build -o judge-worker.exe ./cm
 # 4. API (terminal 2) -> http://127.0.0.1:8080
 cd api; npm ci; npm start
 
-# 5. web (terminal 3) -> http://127.0.0.1:5173  (proxies /api to the API)
+# 5. web (terminal 3) -> http://localhost:5173  (proxies /api to the API; use localhost, not 127.0.0.1: cookies are per host)
 cd web; npm ci; npm run dev
 ```
 

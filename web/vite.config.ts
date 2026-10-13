@@ -7,7 +7,7 @@ const API = process.env.CODEJUDGE_API_URL ?? "http://127.0.0.1:8080";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    host: "127.0.0.1",
+    host: "localhost", // browser-facing dev origin: http://localhost:5173 (must match the OAuth callback)
     port: 5173,
     strictPort: true,
     // Same-origin in dev: /api/* -> Express (no CORS). SSE responses are
@@ -20,6 +20,6 @@ export default defineConfig({
       },
     },
   },
-  preview: { host: "127.0.0.1", port: 4173, strictPort: true },
+  preview: { host: "localhost", port: 4173, strictPort: true },
   build: { target: "es2022", sourcemap: false },
 });

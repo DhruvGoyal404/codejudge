@@ -30,6 +30,11 @@ Windows 11 + Docker Desktop 4.32 (engine 27.0.3, WSL2, cgroup v2). Docker Deskto
 
 Go: system 1.22.5; runner/ pins toolchain go1.27.2 via go.mod (auto-downloaded). CI must use go-version-file: runner/go.mod.
 
+## Conventions
+
+- Dependencies: only adopt a release that has been published for at least 14 days (check `npm view <pkg> time` / the Go module proxy); if the newest is younger, use the newest one that is older. Pin exact versions.
+- Dev URLs: the browser-facing origin is `http://localhost:5173` everywhere (Vite, Playwright baseURL, `GITHUB_REDIRECT_URI`), never 127.0.0.1 — cookies are per host. Server-to-server hops (Vite proxy → API on 127.0.0.1:8080) may use 127.0.0.1.
+
 ## Sandbox invariants (never weaken without explicit approval)
 
 - Always: `--network none`, `--ipc none`, memory+memory-swap equal, `--cpus`, `--pids-limit`, `--read-only` rootfs, `--cap-drop ALL`, `no-new-privileges`, non-root user 65534, explicit seccomp profile `sandbox/seccomp/default.json` (engine default is unconfined on this host), log driver none.
