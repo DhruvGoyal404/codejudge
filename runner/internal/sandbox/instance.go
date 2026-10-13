@@ -65,6 +65,18 @@ var self = func() instance {
 	return instance{ID: hex.EncodeToString(b), Host: host, PID: strconv.Itoa(pid), Start: start}
 }()
 
+// SetInstanceID replaces this process's random instance id (judge.instance
+// label) with a caller-chosen one, e.g. the worker id. Call it before
+// creating any container; the id must be unique per process.
+func SetInstanceID(id string) {
+	if id != "" {
+		self.ID = id
+	}
+}
+
+// InstanceID reports the id used for this process's judge.instance label.
+func InstanceID() string { return self.ID }
+
 func (in instance) labels() map[string]string {
 	return map[string]string{LabelInstance: in.ID, LabelHost: in.Host, LabelPID: in.PID, LabelPIDStart: in.Start}
 }
