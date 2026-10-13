@@ -10,7 +10,8 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
     "express": "5.3.0",

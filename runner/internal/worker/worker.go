@@ -111,19 +111,28 @@ func (w *Worker) Run(ctx context.Context) error {
 	bg, stopBg := context.WithCancel(context.Background())
 	defer stopBg()
 	go w.every(bg, w.cfg.Heartbeat, w.heartbeat)
-	go w.every(bg, w.cfg.ClaimIdle/2, func(c context.Context) { w.recover(ctx, c) })
 	go w.every(bg, w.cfg.ReapEvery, func(c context.Context) {
 		if n, err := w.sb.Reap(c); err == nil && n > 0 {
 			w.log.Info("reaped stale sandbox containers", "n", n)
 		}
 	})
 
+	var lastClaim time.Time
 	for ctx.Err() == nil {
 		// Wait for a free slot before reading, so we never hold entries we can't run.
 		select {
 		case w.sem <- struct{}{}:
 		case <-ctx.Done():
 			continue
+		}
+		// Recovery runs in the same loop, with the slot already held, so it
+		// can never be starved by the blocking read below.
+		if time.Since(lastClaim) >= w.cfg.ClaimIdle/2 {
+			lastClaim = time.Now()
+			if msg, ok := w.reclaim(ctx); ok {
+				w.dispatch(msg)
+				continue
+			}
 		}
 		res, err := w.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group: w.cfg.Group, Consumer: w.cfg.WorkerID,
@@ -197,29 +206,20 @@ func (w *Worker) heartbeat(ctx context.Context) {
 	}
 }
 
-// recover XAUTOCLAIMs entries idle longer than ClaimIdle (their worker died)
-// and runs them here, dead-lettering any delivered more than MaxDeliveries.
-func (w *Worker) recover(runCtx, ctx context.Context) {
-	if runCtx.Err() != nil {
-		return // shutting down: don't take new work
-	}
-	select {
-	case w.sem <- struct{}{}:
-	default:
-		return // no free slot now
-	}
+// reclaim XAUTOCLAIMs one entry idle longer than ClaimIdle (its worker died
+// or lost it) for this worker. handle() dead-letters entries delivered more
+// than MaxDeliveries. The caller holds a concurrency slot.
+func (w *Worker) reclaim(ctx context.Context) (redis.XMessage, bool) {
 	msgs, _, err := w.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{Stream: w.cfg.SubmissionsStream, Group: w.cfg.Group,
 		Consumer: w.cfg.WorkerID, MinIdle: w.cfg.ClaimIdle, Start: "0", Count: 1}).Result()
 	if err != nil || len(msgs) == 0 {
-		<-w.sem
 		if err != nil && ctx.Err() == nil {
 			w.log.Warn("XAUTOCLAIM failed", "err", err)
 		}
-		return
+		return redis.XMessage{}, false
 	}
-	msg := msgs[0]
-	w.log.Info("reclaimed idle entry", "entry", msg.ID, "submission", msg.Values["id"])
-	w.dispatch(msg)
+	w.log.Info("reclaimed idle entry", "entry", msgs[0].ID, "submission", msgs[0].Values["id"])
+	return msgs[0], true
 }
 
 // deliveries returns how many times an entry has been delivered.
