@@ -1,5 +1,12 @@
 import pg from "pg";
 
+export interface SessionUser {
+  id: number;
+  github_id: number;
+  login: string;
+  avatar_url: string | null;
+}
+
 /** All SQL here is parameterized; no string interpolation of values. */
 export class Db {
   constructor(readonly pool: pg.Pool) {}
@@ -41,10 +48,10 @@ export class Db {
     return r.rows[0] ? Number(r.rows[0].id) : null;
   }
 
-  async insertSubmission(problemId: number, language: string, source: string): Promise<string> {
+  async insertSubmission(problemId: number, language: string, source: string, userId: number | null): Promise<string> {
     const r = await this.pool.query(
-      `INSERT INTO submissions (problem_id, language, source) VALUES ($1, $2, $3) RETURNING id`,
-      [problemId, language, source],
+      `INSERT INTO submissions (problem_id, language, source, user_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [problemId, language, source, userId],
     );
     return r.rows[0].id as string;
   }
@@ -105,6 +112,61 @@ export class Db {
       [afterMs, runningAfterMs, limit],
     );
     return r.rows.map((x) => x.id as string);
+  }
+
+  /** Inserts or refreshes a GitHub user; returns users.id. */
+  async upsertUser(githubId: number, login: string, avatarUrl: string | null): Promise<number> {
+    const r = await this.pool.query(
+      `INSERT INTO users (github_id, login, avatar_url) VALUES ($1, $2, $3)
+       ON CONFLICT (github_id) DO UPDATE SET login = EXCLUDED.login, avatar_url = EXCLUDED.avatar_url
+       RETURNING id`,
+      [githubId, login, avatarUrl],
+    );
+    return Number(r.rows[0].id);
+  }
+
+  /** id is the SHA-256 hex of the session token (never the token itself). */
+  async createSession(id: string, userId: number, ttlMs: number): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO sessions (id, user_id, expires_at)
+       VALUES ($1, $2, now() + make_interval(secs => $3::double precision / 1000))`,
+      [id, userId, ttlMs],
+    );
+  }
+
+  /**
+   * Returns the user of a live (unexpired) session, renewing it (last_seen_at
+   * = now, expires_at = now + ttl) when it was last renewed more than
+   * renewAfterMs ago; null if the session is missing or expired.
+   */
+  async getSession(id: string, renewAfterMs: number, ttlMs: number): Promise<{ user: SessionUser; renewed: boolean } | null> {
+    const r = await this.pool.query(
+      `WITH renewed AS (
+         UPDATE sessions
+            SET last_seen_at = now(), expires_at = now() + make_interval(secs => $3::double precision / 1000)
+          WHERE id = $1 AND expires_at > now()
+            AND last_seen_at < now() - make_interval(secs => $2::double precision / 1000)
+         RETURNING id)
+       SELECT u.id, u.github_id, u.login, u.avatar_url, EXISTS (SELECT 1 FROM renewed) AS renewed
+         FROM sessions s JOIN users u ON u.id = s.user_id
+        WHERE s.id = $1 AND s.expires_at > now()`,
+      [id, renewAfterMs, ttlMs],
+    );
+    const row = r.rows[0];
+    if (!row) return null;
+    return {
+      user: { id: Number(row.id), github_id: Number(row.github_id), login: row.login, avatar_url: row.avatar_url },
+      renewed: row.renewed,
+    };
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    await this.pool.query(`DELETE FROM sessions WHERE id = $1`, [id]);
+  }
+
+  async deleteExpiredSessions(): Promise<number> {
+    const r = await this.pool.query(`DELETE FROM sessions WHERE expires_at <= now()`);
+    return r.rowCount ?? 0;
   }
 
   async close(): Promise<void> {

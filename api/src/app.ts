@@ -4,8 +4,10 @@ import { z } from "zod";
 
 import type { Config } from "./config.ts";
 import type { Db } from "./db.ts";
+import { HttpError, originCheck } from "./http.ts";
 import type { Hub } from "./hub.ts";
 import type { Queue } from "./queue.ts";
+import { requireUser, Sessions } from "./sessions.ts";
 
 export const LANGUAGES = ["cpp", "python"] as const;
 export const MAX_SOURCE_BYTES = 64 * 1024;
@@ -28,17 +30,8 @@ export interface Deps {
   log: Logger;
 }
 
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly details?: unknown,
-  ) {
-    super(message);
-  }
-}
-
 export function createApp({ db, queue, hub, config, log }: Deps) {
+  const sessions = new Sessions(db, config);
   const app = express();
   app.disable("x-powered-by");
   app.set("query parser", "simple");
@@ -53,9 +46,17 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
     });
     next();
   });
+  // CSRF: reject cross-origin state-changing requests before reading the body.
+  app.use(originCheck(config.PUBLIC_ORIGIN));
   // JSON body limit leaves room for escaping around a 64 KiB source; the
   // source itself is limited separately (in bytes) below.
   app.use(express.json({ limit: "200kb" }));
+
+  app.use(sessions.middleware);
+
+  app.get("/me", (req, res) => {
+    res.json(requireUser(req));
+  });
 
   app.get("/health", async (_req, res) => {
     const [pgOk, vkOk] = await Promise.all([
@@ -78,6 +79,7 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
   });
 
   app.post("/submissions", async (req, res) => {
+    const user = requireUser(req);
     const body = NewSubmission.safeParse(req.body);
     if (!body.success) throw new HttpError(400, "invalid submission", z.flattenError(body.error));
     const { problemSlug, language, source } = body.data;
@@ -90,7 +92,7 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
     // Simplified transactional outbox: the row is the source of truth. If
     // XADD fails after the INSERT, the submission stays queued with
     // enqueued_at NULL and the sweeper enqueues it later.
-    const id = await db.insertSubmission(problemId, language, source);
+    const id = await db.insertSubmission(problemId, language, source, user.id);
     try {
       await queue.enqueue(id);
       await db.markEnqueued(id);

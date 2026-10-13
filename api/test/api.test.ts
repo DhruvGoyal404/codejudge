@@ -5,21 +5,26 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createApp, MAX_SOURCE_BYTES, sweepOnce } from "../src/app.ts";
 import { EventConsumer } from "../src/events.ts";
-import { testDeps, type TestDeps } from "./helpers.ts";
+import { createTestUser, deleteTestUsers, ORIGIN, testDeps, type TestDeps, type TestUser } from "./helpers.ts";
 
 let d: TestDeps;
 let app: ReturnType<typeof createApp>;
+let user: TestUser;
 const created: string[] = [];
+/** Authenticated, same-origin POST. */
+const post = (path: string) => request(app).post(path).set("Origin", ORIGIN).set("Cookie", user.cookie);
 
 beforeAll(async () => {
   d = testDeps();
   app = createApp(d);
+  user = await createTestUser(d.db);
   const n = await d.db.pool.query(`SELECT count(*)::int AS n FROM problems WHERE slug = 'ledger-total'`);
   if (n.rows[0].n !== 1) throw new Error("seed problems missing: run `judge-admin import problems/` first");
 });
 
 afterAll(async () => {
   if (created.length) await d.db.pool.query(`DELETE FROM submissions WHERE id = ANY($1::uuid[])`, [created]);
+  await deleteTestUsers(d.db, [user.userId]);
   await d.close();
 });
 
@@ -74,33 +79,34 @@ describe("health and problems", () => {
 
 describe("POST /submissions", () => {
   it("inserts a queued submission and enqueues it", async () => {
-    const r = await request(app).post("/submissions").send({ problemSlug: "ledger-total", language: "cpp", source: "int main(){}" });
+    const r = await post("/submissions").send({ problemSlug: "ledger-total", language: "cpp", source: "int main(){}" });
     expect(r.status).toBe(202);
     expect(r.headers.location).toBe(`/submissions/${r.body.id}`);
     created.push(r.body.id);
     expect(await streamIds(d.config.SUBMISSIONS_STREAM)).toContain(r.body.id);
-    const row = await d.db.pool.query(`SELECT status, enqueued_at FROM submissions WHERE id = $1`, [r.body.id]);
+    const row = await d.db.pool.query(`SELECT status, enqueued_at, user_id FROM submissions WHERE id = $1`, [r.body.id]);
     expect(row.rows[0].status).toBe("queued");
+    expect(Number(row.rows[0].user_id)).toBe(user.userId);
     expect(row.rows[0].enqueued_at).not.toBeNull();
   });
 
   it("validates the body", async () => {
-    const post = (body: unknown) => request(app).post("/submissions").send(body as object);
-    expect((await post({ problemSlug: "ledger-total", language: "rust", source: "x" })).status).toBe(400);
-    expect((await post({ problemSlug: "ledger-total", language: "cpp", source: "" })).status).toBe(400);
-    expect((await post({ problemSlug: "ledger-total", language: "cpp", source: "x", extra: 1 })).status).toBe(400);
-    expect((await post({ problemSlug: "no-such-problem", language: "cpp", source: "x" })).status).toBe(404);
+    const submit = (body: unknown) => post("/submissions").send(body as object);
+    expect((await submit({ problemSlug: "ledger-total", language: "rust", source: "x" })).status).toBe(400);
+    expect((await submit({ problemSlug: "ledger-total", language: "cpp", source: "" })).status).toBe(400);
+    expect((await submit({ problemSlug: "ledger-total", language: "cpp", source: "x", extra: 1 })).status).toBe(400);
+    expect((await submit({ problemSlug: "no-such-problem", language: "cpp", source: "x" })).status).toBe(404);
     const big = "a".repeat(MAX_SOURCE_BYTES + 1);
-    expect((await post({ problemSlug: "ledger-total", language: "cpp", source: big })).status).toBe(413);
+    expect((await submit({ problemSlug: "ledger-total", language: "cpp", source: big })).status).toBe(413);
     // multi-byte characters count in bytes, not characters
     const bigUtf8 = "é".repeat(MAX_SOURCE_BYTES / 2 + 1);
-    expect((await post({ problemSlug: "ledger-total", language: "python", source: bigUtf8 })).status).toBe(413);
-    const malformed = await request(app).post("/submissions").set("Content-Type", "application/json").send("{nope");
+    expect((await submit({ problemSlug: "ledger-total", language: "python", source: bigUtf8 })).status).toBe(413);
+    const malformed = await post("/submissions").set("Content-Type", "application/json").send("{nope");
     expect(malformed.status).toBe(400);
   });
 
   it("accepts a source of exactly the limit", async () => {
-    const r = await request(app).post("/submissions").send({ problemSlug: "ledger-total", language: "cpp", source: "a".repeat(MAX_SOURCE_BYTES) });
+    const r = await post("/submissions").send({ problemSlug: "ledger-total", language: "cpp", source: "a".repeat(MAX_SOURCE_BYTES) });
     expect(r.status).toBe(202);
     created.push(r.body.id);
   });

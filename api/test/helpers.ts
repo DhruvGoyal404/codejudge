@@ -8,6 +8,10 @@ import { loadConfig, type Config } from "../src/config.ts";
 import { Db } from "../src/db.ts";
 import { Hub } from "../src/hub.ts";
 import { Queue } from "../src/queue.ts";
+import { newToken, SESSION_TTL_MS, sha256hex } from "../src/sessions.ts";
+
+/** The browser-facing origin the API accepts for non-GET requests (config default). */
+export const ORIGIN = "http://localhost:5173";
 
 /** Fills CODEJUDGE_* URLs from the repo's .env when not already set. */
 export function devEnv(): NodeJS.ProcessEnv {
@@ -60,4 +64,42 @@ export function testDeps(overrides: Record<string, string> = {}): TestDeps {
       await Promise.allSettled([db.close(), queue.close()]);
     },
   };
+}
+
+export interface TestUser {
+  userId: number;
+  githubId: number;
+  sessionId: string;
+  token: string;
+  /** Cookie header value for this session (dev cookie name). */
+  cookie: string;
+}
+
+/**
+ * Inserts a user and a session directly (bypassing OAuth). github_id is drawn
+ * from a range real GitHub accounts don't use.
+ */
+export async function createTestUser(
+  db: Db,
+  { expiresInMs = SESSION_TTL_MS, lastSeenAgoMs = 0 }: { expiresInMs?: number; lastSeenAgoMs?: number } = {},
+): Promise<TestUser> {
+  const githubId = 9_000_000_000_000 + Math.floor(Math.random() * 1e12);
+  const u = await db.pool.query(`INSERT INTO users (github_id, login) VALUES ($1, $2) RETURNING id`, [githubId, `test-${githubId}`]);
+  const userId = Number(u.rows[0].id);
+  const token = newToken();
+  const sessionId = sha256hex(token);
+  await db.pool.query(
+    `INSERT INTO sessions (id, user_id, expires_at, last_seen_at)
+     VALUES ($1, $2, now() + make_interval(secs => $3::double precision / 1000),
+             now() - make_interval(secs => $4::double precision / 1000))`,
+    [sessionId, userId, expiresInMs, lastSeenAgoMs],
+  );
+  return { userId, githubId, sessionId, token, cookie: `cj_session=${token}` };
+}
+
+/** Removes test users with their submissions (sessions cascade). */
+export async function deleteTestUsers(db: Db, userIds: number[]): Promise<void> {
+  if (!userIds.length) return;
+  await db.pool.query(`DELETE FROM submissions WHERE user_id = ANY($1::bigint[])`, [userIds]);
+  await db.pool.query(`DELETE FROM users WHERE id = ANY($1::bigint[])`, [userIds]);
 }

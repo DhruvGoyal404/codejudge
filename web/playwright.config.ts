@@ -3,6 +3,7 @@
 // judge-worker. Run alone: `npm run e2e` (never alongside other suites).
 import { defineConfig } from "@playwright/test";
 
+import { STATE_FILE } from "./e2e/global-setup.ts";
 import { stackEnv } from "./e2e/stack.ts";
 
 const env = { ...stackEnv(), LOG_LEVEL: "warn" };
@@ -19,6 +20,7 @@ export default defineConfig({
   globalTeardown: "./e2e/global-teardown.ts",
   use: {
     baseURL: "http://localhost:5173",
+    storageState: STATE_FILE, // written by global-setup: a logged-in test user
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

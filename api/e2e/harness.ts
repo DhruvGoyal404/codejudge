@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { createApp, sweepOnce } from "../src/app.ts";
 import { EventConsumer } from "../src/events.ts";
-import { testDeps, type TestDeps } from "../test/helpers.ts";
+import { createTestUser, deleteTestUsers, ORIGIN, testDeps, type TestDeps } from "../test/helpers.ts";
 
 export const REPO = fileURLToPath(new URL("../../", import.meta.url));
 export const RUNNER = join(REPO, "runner");
@@ -47,6 +47,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
   const consumer = new EventConsumer(d.config.CODEJUDGE_VALKEY_URL, d.config.EVENTS_STREAM, d.hub, d.log, 1000);
   consumer.start();
   const app = createApp(d);
+  const user = await createTestUser(d.db); // POST /submissions requires a session
   const server = app.listen(0, "127.0.0.1");
   await new Promise((r) => server.once("listening", r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -90,7 +91,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
       const language = file.endsWith(".py") ? "python" : "cpp";
       const r = await fetch(`${base}/submissions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Origin: ORIGIN, Cookie: user.cookie },
         body: JSON.stringify({ problemSlug: slug, language, source }),
       });
       if (r.status !== 202) throw new Error(`POST /submissions -> ${r.status} ${await r.text()}`);
@@ -122,6 +123,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
       server.close();
       await consumer.stop();
       if (created.length) await d.db.pool.query(`DELETE FROM submissions WHERE id = ANY($1::uuid[])`, [created]);
+      await deleteTestUsers(d.db, [user.userId]);
       await d.close();
     },
   };

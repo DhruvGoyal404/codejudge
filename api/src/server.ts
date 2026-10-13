@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { pino } from "pino";
 
 import { createApp, sweepOnce } from "./app.ts";
@@ -6,6 +9,11 @@ import { Db } from "./db.ts";
 import { EventConsumer } from "./events.ts";
 import { Hub } from "./hub.ts";
 import { Queue } from "./queue.ts";
+
+// api/.env (gitignored) holds the GitHub OAuth credentials; variables already
+// in the environment take precedence.
+const envFile = fileURLToPath(new URL("../.env", import.meta.url));
+if (existsSync(envFile)) process.loadEnvFile(envFile);
 
 const config = loadConfig(); // fails fast with a readable message on bad env
 const log = pino({ level: config.LOG_LEVEL });
@@ -26,6 +34,7 @@ const server = app.listen(config.PORT, config.HOST, () => {
 
 const sweeper = setInterval(() => {
   sweepOnce({ db, queue, config, log }).catch((err) => log.error({ err }, "sweep failed"));
+  db.deleteExpiredSessions().catch((err) => log.error({ err }, "session cleanup failed"));
 }, config.SWEEP_INTERVAL_MS);
 
 let stopping = false;
