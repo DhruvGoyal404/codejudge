@@ -14,6 +14,9 @@ const Env = z.object({
   SWEEP_AFTER_MS: z.coerce.number().int().min(1_000).default(60_000),
   SSE_MAX_MS: z.coerce.number().int().min(1_000).default(30 * 60_000),
   SSE_KEEPALIVE_MS: z.coerce.number().int().min(1_000).default(15_000),
+  // Safety net: each open SSE stream re-reads the DB this often, so a missed
+  // judge:events entry (e.g. while the API was restarting) only delays updates.
+  SSE_POLL_MS: z.coerce.number().int().min(500).default(5_000),
   PG_POOL_MAX: z.coerce.number().int().min(1).max(50).default(5),
 });
 

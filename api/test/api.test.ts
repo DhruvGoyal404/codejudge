@@ -4,6 +4,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createApp, MAX_SOURCE_BYTES, sweepOnce } from "../src/app.ts";
+import { EventConsumer } from "../src/events.ts";
 import { testDeps, type TestDeps } from "./helpers.ts";
 
 let d: TestDeps;
@@ -197,6 +198,28 @@ describe("GET /submissions/:id/events (SSE)", () => {
       expect(d.hub.size).toBe(0); // listener removed on close
     } finally {
       server.close();
+    }
+  });
+
+  it("fans out judge:events entries to SSE via the event consumer", async () => {
+    const consumer = new EventConsumer(d.config.CODEJUDGE_VALKEY_URL, d.config.EVENTS_STREAM, d.hub, d.log, 500);
+    consumer.start();
+    const { server, base } = await listen();
+    try {
+      const id = await insertRaw("queued", null, 0, 0);
+      await new Promise((r) => setTimeout(r, 300)); // consumer is tailing from "$"
+      const t0 = Date.now();
+      const events = await readEvents(`${base}/submissions/${id}/events`, async () => {
+        // What a worker does: update the row, then XADD an event.
+        await d.db.pool.query(`UPDATE submissions SET status = 'done', verdict = 'TLE', attempt = 1, finished_at = now() WHERE id = $1`, [id]);
+        await d.queue.redis.xadd(d.config.EVENTS_STREAM, "*", "id", id, "status", "done", "verdict", "TLE");
+      });
+      expect(events.at(-1)).toMatchObject({ event: "verdict", data: { id, verdict: "TLE" } });
+      // Delivered by the event, well before the 5 s safety poll.
+      expect(Date.now() - t0).toBeLessThan(d.config.SSE_POLL_MS);
+    } finally {
+      server.close();
+      await consumer.stop();
     }
   });
 

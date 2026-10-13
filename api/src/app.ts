@@ -133,6 +133,7 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
       closed = true;
       unsubscribe();
       clearInterval(keepalive);
+      clearInterval(poll);
       clearTimeout(maxTimer);
       res.end();
     };
@@ -165,6 +166,7 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
     const unsubscribe = hub.subscribe(id.data, refresh);
     const keepalive = setInterval(() => !closed && res.write(": keepalive\n\n"), config.SSE_KEEPALIVE_MS);
     const maxTimer = setTimeout(finish, config.SSE_MAX_MS);
+    const poll = setInterval(refresh, config.SSE_POLL_MS);
     req.on("close", finish);
     emit(first);
     refresh(); // re-read once after subscribing to cover the gap

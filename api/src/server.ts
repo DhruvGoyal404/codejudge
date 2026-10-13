@@ -3,6 +3,7 @@ import { pino } from "pino";
 import { createApp, sweepOnce } from "./app.ts";
 import { loadConfig } from "./config.ts";
 import { Db } from "./db.ts";
+import { EventConsumer } from "./events.ts";
 import { Hub } from "./hub.ts";
 import { Queue } from "./queue.ts";
 
@@ -14,6 +15,9 @@ const hub = new Hub();
 
 await db.ping();
 await queue.ping();
+
+const events = new EventConsumer(config.CODEJUDGE_VALKEY_URL, config.EVENTS_STREAM, hub, log);
+events.start();
 
 const app = createApp({ db, queue, hub, config, log });
 const server = app.listen(config.PORT, config.HOST, () => {
@@ -32,7 +36,7 @@ async function shutdown(signal: string) {
   clearInterval(sweeper);
   server.close();
   server.closeAllConnections(); // ends open SSE streams
-  await Promise.allSettled([db.close(), queue.close()]);
+  await Promise.allSettled([events.stop(), db.close(), queue.close()]);
   process.exit(0);
 }
 process.on("SIGINT", () => void shutdown("SIGINT"));
