@@ -296,7 +296,7 @@ describe("GET /submissions/:id/events (SSE)", () => {
     const { server, base } = await listen();
     try {
       const id = await insertRaw("queued", null, 0, 0);
-      await new Promise((r) => setTimeout(r, 300)); // consumer is tailing from "$"
+      await consumer.ready; // positioned at the stream's tip: later events are not missed
       const t0 = Date.now();
       const events = await readEvents(`${base}/submissions/${id}/events`, async () => {
         // What a worker does: update the row, then XADD an event.
@@ -318,9 +318,9 @@ describe("GET /submissions/:id/events (SSE)", () => {
     const { server, base } = await listen();
     try {
       const id = await insertRaw("queued", null, 0, 0);
-      await new Promise((r) => setTimeout(r, 300));
+      await consumer.ready;
       const events = await readEvents(`${base}/submissions/${id}/events`, async () => {
-        const x = (f: string[]) => d.queue.redis.xadd(d.config.EVENTS_STREAM, "*", ...f);
+        const x =(f: string[]) => d.queue.redis.xadd(d.config.EVENTS_STREAM, "*", ...f);
         await d.db.pool.query(`UPDATE submissions SET status = 'running', attempt = 1 WHERE id = $1`, [id]);
         await x(["id", id, "status", "running"]);
         await x(["id", id, "status", "running", "stage", "compiling", "test", "0", "total", "11"]);

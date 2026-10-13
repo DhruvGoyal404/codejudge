@@ -12,6 +12,9 @@ export class EventConsumer {
   private stopped = false;
   private running: Promise<void> | null = null;
   private readonly redis: Redis;
+  private markReady!: () => void;
+  /** Resolves once the consumer has a position in the stream: every later event is delivered. */
+  readonly ready = new Promise<void>((r) => (this.markReady = r));
 
   constructor(
     url: string,
@@ -29,7 +32,21 @@ export class EventConsumer {
   }
 
   private async loop(): Promise<void> {
-    let lastId = "$"; // only events after startup; SSE handlers read current state from the DB
+    // Only events after startup (SSE handlers read the current state from the
+    // DB), but as a concrete id: re-issuing XREAD with "$" after each BLOCK
+    // timeout would skip entries added between two reads.
+    let lastId = "";
+    while (!lastId && !this.stopped) {
+      try {
+        const tip = await this.redis.xrevrange(this.stream, "+", "-", "COUNT", 1);
+        lastId = tip[0]?.[0] ?? "0-0";
+      } catch (err) {
+        if (this.stopped) return;
+        this.log.warn({ err }, "event stream position failed; retrying");
+        await new Promise((r) => setTimeout(r, 1_000));
+      }
+    }
+    this.markReady();
     while (!this.stopped) {
       try {
         const res = await this.redis.xread("BLOCK", this.blockMs, "STREAMS", this.stream, lastId);
