@@ -38,6 +38,20 @@ const Env = z
     // Overridable only so tests can point at a mock GitHub.
     GITHUB_OAUTH_URL: z.url().default("https://github.com"),
     GITHUB_API_URL: z.url().default("https://api.github.com"),
+    // Rate limits (Valkey-backed, shared by all API instances).
+    SUBMIT_LIMIT_PER_MIN: z.coerce.number().int().min(1).default(6), // per user
+    SUBMIT_LIMIT_PER_DAY: z.coerce.number().int().min(1).default(200), // per user
+    AUTH_LIMIT_PER_MIN: z.coerce.number().int().min(1).default(20), // per IP, /auth/*
+    // Length of the "per minute" windows; overridden only by tests.
+    RATE_LIMIT_MINUTE_S: z.coerce.number().int().min(1).default(60),
+    RATE_LIMIT_PREFIX: z.string().min(1).default("rl"),
+    // Express "trust proxy": how req.ip (the per-IP limit key) is derived.
+    // false = the socket peer. Set it (e.g. 1 or "loopback") behind a reverse
+    // proxy, or every client shares the proxy's address.
+    TRUST_PROXY: z
+      .string()
+      .default("false")
+      .transform((v): boolean | number | string => (v === "false" ? false : v === "true" ? true : /^\d+$/.test(v) ? Number(v) : v)),
   })
   .superRefine((c, ctx) => {
     if (c.NODE_ENV !== "production") return;

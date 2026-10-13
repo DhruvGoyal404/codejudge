@@ -5,6 +5,7 @@ export class HttpError extends Error {
     readonly status: number,
     message: string,
     readonly details?: unknown,
+    readonly headers?: Record<string, string>,
   ) {
     super(message);
   }

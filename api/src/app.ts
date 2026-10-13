@@ -1,4 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from "express";
+import helmet from "helmet";
 import type { Logger } from "pino";
 import { z } from "zod";
 
@@ -7,6 +8,7 @@ import type { Config } from "./config.ts";
 import type { Db } from "./db.ts";
 import { HttpError, originCheck } from "./http.ts";
 import type { Hub } from "./hub.ts";
+import { Limits } from "./limits.ts";
 import type { Queue } from "./queue.ts";
 import { requireUser, Sessions } from "./sessions.ts";
 
@@ -33,9 +35,12 @@ export interface Deps {
 
 export function createApp({ db, queue, hub, config, log }: Deps) {
   const sessions = new Sessions(db, config);
+  const limits = new Limits(queue.redis, config, log);
   const app = express();
   app.disable("x-powered-by");
   app.set("query parser", "simple");
+  app.set("trust proxy", config.TRUST_PROXY);
+  app.use(helmet());
 
   app.use((req, res, next) => {
     const start = process.hrtime.bigint();
@@ -55,6 +60,7 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
 
   app.use(sessions.middleware);
 
+  app.use("/auth", limits.auth);
   app.use(authRouter({ db, redis: queue.redis, sessions, config, log }));
 
   app.get("/me", (req, res) => {
@@ -83,6 +89,7 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
 
   app.post("/submissions", async (req, res) => {
     const user = requireUser(req);
+    await limits.consumeSubmit(user.id); // counts every attempt, valid or not
     const body = NewSubmission.safeParse(req.body);
     if (!body.success) throw new HttpError(400, "invalid submission", z.flattenError(body.error));
     const { problemSlug, language, source } = body.data;
@@ -194,6 +201,7 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof HttpError) {
+      if (err.headers) res.set(err.headers);
       res.status(err.status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
       return;
     }

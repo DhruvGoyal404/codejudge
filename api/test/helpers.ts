@@ -47,6 +47,11 @@ export function testDeps(overrides: Record<string, string> = {}): TestDeps {
     SUBMISSIONS_STREAM: `test:${run}:submissions`,
     EVENTS_STREAM: `test:${run}:events`,
     SSE_KEEPALIVE_MS: "1000",
+    // Suites make many requests as one user / one IP; limits get their own tests.
+    SUBMIT_LIMIT_PER_MIN: "100000",
+    SUBMIT_LIMIT_PER_DAY: "100000",
+    AUTH_LIMIT_PER_MIN: "100000",
+    RATE_LIMIT_PREFIX: `test:${run}:rl`,
     ...overrides,
   });
   const db = Db.connect(config.CODEJUDGE_DATABASE_URL, 3);
@@ -61,6 +66,8 @@ export function testDeps(overrides: Record<string, string> = {}): TestDeps {
     log,
     async close() {
       await queue.redis.del(config.SUBMISSIONS_STREAM, config.EVENTS_STREAM);
+      const rl = await queue.redis.keys(`${config.RATE_LIMIT_PREFIX}:*`); // per-run prefix: only ours
+      if (rl.length) await queue.redis.del(...rl);
       await Promise.allSettled([db.close(), queue.close()]);
     },
   };
