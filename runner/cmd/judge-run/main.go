@@ -40,15 +40,16 @@ func main() {
 		outputBytes = flag.Int64("output-limit", sandbox.DefaultOutputBytes, "stdout limit in bytes")
 		seccomp     = flag.String("seccomp", "", "seccomp profile (default: find sandbox/seccomp/default.json)")
 		imagesLock  = flag.String("images", "", "image lock (default: find sandbox/images/images.lock.json)")
+		runtime     = flag.String("runtime", os.Getenv("JUDGE_RUNTIME"), "OCI runtime, e.g. runsc (default: $JUDGE_RUNTIME, else the engine default)")
 	)
 	flag.Parse()
-	if err := run(*langName, *srcPath, *stdinPath, *seccomp, *imagesLock, sandbox.Limits{TimeLimit: *timeLimit, MemoryMB: *memoryMB, OutputBytes: *outputBytes}); err != nil {
+	if err := run(*langName, *srcPath, *stdinPath, *seccomp, *imagesLock, *runtime, sandbox.Limits{TimeLimit: *timeLimit, MemoryMB: *memoryMB, OutputBytes: *outputBytes}); err != nil {
 		fmt.Fprintln(os.Stderr, "judge-run:", err)
 		os.Exit(1)
 	}
 }
 
-func run(langName, srcPath, stdinPath, seccompPath, lockPath string, lim sandbox.Limits) error {
+func run(langName, srcPath, stdinPath, seccompPath, lockPath, runtimeName string, lim sandbox.Limits) error {
 	l, err := lang.Get(langName)
 	if err != nil {
 		return err
@@ -82,7 +83,7 @@ func run(langName, srcPath, stdinPath, seccompPath, lockPath string, lim sandbox
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	sb, err := sandbox.New(ctx, sandbox.Options{SeccompPath: seccompPath, ImagesLockPath: lockPath})
+	sb, err := sandbox.New(ctx, sandbox.Options{SeccompPath: seccompPath, ImagesLockPath: lockPath, Runtime: runtimeName})
 	if err != nil {
 		return err
 	}
@@ -106,6 +107,7 @@ func judgeCmd(args []string) error {
 	mode := fs.String("mode", judge.ModeBatch, "batch | per-test")
 	seccompPath := fs.String("seccomp", "", "seccomp profile (default: find sandbox/seccomp/default.json)")
 	lockPath := fs.String("images", "", "image lock (default: find sandbox/images/images.lock.json)")
+	runtime := fs.String("runtime", os.Getenv("JUDGE_RUNTIME"), "OCI runtime, e.g. runsc (default: $JUDGE_RUNTIME, else the engine default)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -136,7 +138,7 @@ func judgeCmd(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	sb, err := sandbox.New(ctx, sandbox.Options{SeccompPath: *seccompPath, ImagesLockPath: *lockPath})
+	sb, err := sandbox.New(ctx, sandbox.Options{SeccompPath: *seccompPath, ImagesLockPath: *lockPath, Runtime: *runtime})
 	if err != nil {
 		return err
 	}

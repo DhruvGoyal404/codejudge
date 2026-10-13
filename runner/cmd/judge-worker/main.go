@@ -12,6 +12,8 @@
 //	JUDGE_HEARTBEAT          10s
 //	JUDGE_SUBMISSIONS_STREAM judge:submissions
 //	JUDGE_EVENTS_STREAM      judge:events
+//	JUDGE_RUNTIME            OCI runtime for sandbox containers: runsc (gVisor) in
+//	                         production; empty = engine default (runc, dev)
 //
 // SIGINT/SIGTERM: stop reading, finish in-flight submissions, exit. A second
 // signal exits immediately.
@@ -115,7 +117,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	sandbox.SetInstanceID(cfg.WorkerID) // containers carry judge.instance = worker id
-	sb, err := sandbox.New(context.Background(), sandbox.Options{SeccompPath: seccomp, ImagesLockPath: lock, Concurrency: cfg.Concurrency})
+	sb, err := sandbox.New(context.Background(), sandbox.Options{SeccompPath: seccomp, ImagesLockPath: lock, Concurrency: cfg.Concurrency, Runtime: os.Getenv("JUDGE_RUNTIME")})
 	if err != nil {
 		return err
 	}

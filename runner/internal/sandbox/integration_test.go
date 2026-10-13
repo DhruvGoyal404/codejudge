@@ -28,9 +28,10 @@ func TestMain(m *testing.M) {
 	must(err)
 	lock, err := FindRepoFile("sandbox/images/images.lock.json")
 	must(err)
-	sb, err = New(ctx, Options{SeccompPath: seccomp, ImagesLockPath: lock, Concurrency: 2})
+	// JUDGE_TEST_RUNTIME=runsc runs the whole suite under gVisor (CI does both).
+	sb, err = New(ctx, Options{SeccompPath: seccomp, ImagesLockPath: lock, Concurrency: 2, Runtime: os.Getenv("JUDGE_TEST_RUNTIME")})
 	must(err)
-	fmt.Printf("docker API negotiated: %s\n", sb.APIVersion())
+	fmt.Printf("docker API negotiated: %s; runtime: %q\n", sb.APIVersion(), os.Getenv("JUDGE_TEST_RUNTIME"))
 
 	code := m.Run()
 

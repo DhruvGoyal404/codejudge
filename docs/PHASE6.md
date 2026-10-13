@@ -168,3 +168,40 @@ The page policy is tested against the production build (`web/e2e-prod/csp.spec.t
 - Earlier runs, before tightening, showed that removing `worker-src blob:`, `font-src data:` and `img-src data:` produced no violations, so they were removed.
 
 Monaco is trimmed (no find widget, suggestions or context menu; Phase 4), so policies belonging to contributions it doesn't include aren't needed.
+
+## 6a.4 Worker as a systemd service (gVisor by default)
+
+Files: [`deploy/systemd/judge-worker.service`](../deploy/systemd/judge-worker.service), [`deploy/systemd/worker.env.example`](../deploy/systemd/worker.env.example), [`deploy/systemd/codejudge.tmpfiles.conf`](../deploy/systemd/codejudge.tmpfiles.conf).
+
+**Why on the host:** the worker drives the Docker engine, which it reaches through `/run/docker.sock`. Running it in a container would mean mounting the socket into that container, which is the same trust with an extra layer. Membership in the `docker` group is root-equivalent, so the host should run nothing else.
+
+**gVisor by default.** The sandbox gained `Options.Runtime`, which becomes `HostConfig.Runtime` for every container. The worker reads it from `JUDGE_RUNTIME` (the unit sets `runsc`), `judge-run` takes `--runtime`, and the integration suites take `JUDGE_TEST_RUNTIME`. If the runtime isn't registered with the engine, `sandbox.New` fails at startup ("container runtime "runsc" is not registered…", verified on this Docker Desktop, which has no runsc) instead of silently falling back to runc. Empty means the engine default, so dev on Docker Desktop is unchanged.
+
+**The unit:**
+
+| Setting | Value | Why |
+|---|---|---|
+| `User` / `Group` / `SupplementaryGroups` | `codejudge` / `codejudge` / `docker` | Unprivileged user; the docker group gives the socket. |
+| `EnvironmentFile` | `/etc/codejudge/worker.env` (0640 root:codejudge) | DB and Valkey URLs over Unix sockets, problems dirs. |
+| `Environment` | `JUDGE_RUNTIME=runsc`, `JUDGE_CONCURRENCY=1` | gVisor; one sandbox at a time on 2 GiB. |
+| `Restart` / `RestartSec` | `always` / `5s` | Back after crashes or a DB outage, without hammering. |
+| `StartLimitIntervalSec` / `StartLimitBurst` | `10min` / `10` | Don't flap forever. |
+| `KillMode` / `KillSignal` | `mixed` / `SIGTERM` | SIGTERM to the worker (it stops reading and finishes in-flight submissions); SIGKILL to everything only at the timeout. |
+| `TimeoutStopSec` | `30min` | Longer than the longest submission: compile (1m35s) plus a full batch of 50 tests at the 10 s maximum (22m30s), 24m05s in total. **Asserted by `TestSystemdStopTimeoutCoversLongestSubmission`**, which reads the unit file. If it is ever exceeded, the pending entry is reclaimed by the next attempt and fencing keeps the result correct. |
+| `MemoryMax` / `MemoryHigh` | `256M` / `192M` | The worker process itself. Sandbox containers have their own cgroups and limits, set by the sandbox package. |
+| `TasksMax`, `LimitNOFILE`, `CPUWeight` | 256, 4096, 100 | |
+| Hardening | `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`, kernel/cgroup/clock/hostname protection, `RestrictNamespaces`, `RestrictSUIDSGID`, `MemoryDenyWriteExecute`, `LockPersonality`, native syscalls only, `AF_UNIX/AF_INET/AF_INET6` only, empty capability sets, `UMask=0077`; writable only `/run/codejudge` and `/run/docker.sock` | The Docker socket is the one door it needs. |
+
+**Host setup** (Phase 6b, written here so it's reviewed now):
+
+```sh
+useradd --system --home /opt/codejudge --shell /usr/sbin/nologin codejudge
+usermod -aG docker codejudge
+install -d -o root -g codejudge -m 0750 /etc/codejudge
+install -m 0640 -g codejudge worker.env /etc/codejudge/worker.env
+install -m 0644 deploy/systemd/codejudge.tmpfiles.conf /etc/tmpfiles.d/codejudge.conf && systemd-tmpfiles --create
+install -m 0644 deploy/systemd/judge-worker.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now judge-worker
+```
+
+gVisor is installed by `runsc install`, which registers the `runsc` runtime in `/etc/docker/daemon.json`; then dockerd is restarted. CI does the same (6a.5).

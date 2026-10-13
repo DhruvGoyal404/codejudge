@@ -31,6 +31,10 @@ type Options struct {
 	SeccompPath    string // sandbox/seccomp/default.json
 	ImagesLockPath string // sandbox/images/images.lock.json
 	Concurrency    int    // max containers in flight; default 2
+	// Runtime is the OCI runtime for every container ("runsc" = gVisor in
+	// production); empty = the engine's default (runc). New fails if the
+	// engine doesn't have it registered.
+	Runtime string
 }
 
 // Sandbox owns a Docker client, the pinned images, the seccomp profile and
@@ -73,6 +77,17 @@ func New(ctx context.Context, o Options) (*Sandbox, error) {
 	if _, err := cli.Ping(ctx, client.PingOptions{NegotiateAPIVersion: true}); err != nil {
 		cli.Close()
 		return nil, fmt.Errorf("docker ping: %w", err)
+	}
+	if o.Runtime != "" {
+		info, err := cli.Info(ctx, client.InfoOptions{})
+		if err != nil {
+			cli.Close()
+			return nil, fmt.Errorf("docker info: %w", err)
+		}
+		if _, ok := info.Info.Runtimes[o.Runtime]; !ok {
+			cli.Close()
+			return nil, fmt.Errorf("container runtime %q is not registered with the Docker engine (install it, e.g. runsc install, and restart dockerd)", o.Runtime)
+		}
 	}
 	s := &Sandbox{cli: cli, seccomp: compact.String(), images: images, sem: make(chan struct{}, o.Concurrency), opts: o}
 	if _, err := s.Reap(ctx); err != nil {
@@ -230,6 +245,7 @@ func (s *Sandbox) containerConfigs(image string, sp containerSpec) (*container.C
 		Labels:          sp.labels(),
 	}
 	hc := &container.HostConfig{
+		Runtime:        s.opts.Runtime, // "" = engine default
 		NetworkMode:    "none",
 		IpcMode:        "none", // private IPC namespace, no /dev/shm mount
 		ReadonlyRootfs: true,

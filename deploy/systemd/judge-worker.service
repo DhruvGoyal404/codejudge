@@ -1,0 +1,83 @@
+# /etc/systemd/system/judge-worker.service
+#
+# The judge worker runs on the host, not in a container: it drives the Docker
+# engine (membership in the docker group = root-equivalent; this host runs
+# nothing else). Sandbox containers use gVisor (runsc) by default.
+#
+#   install -m 0644 deploy/systemd/judge-worker.service /etc/systemd/system/
+#   install -m 0644 deploy/systemd/codejudge.tmpfiles.conf /etc/tmpfiles.d/codejudge.conf
+#   systemd-tmpfiles --create && systemctl daemon-reload && systemctl enable --now judge-worker
+[Unit]
+Description=CodeJudge judge worker
+Documentation=https://github.com/DhruvGoyal404/codejudge/blob/main/docs/PHASE6.md
+# Postgres and Valkey run in the codejudge-prod compose project (started by
+# docker.service's restart policy); the worker retries until they answer.
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=10min
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=codejudge
+Group=codejudge
+SupplementaryGroups=docker
+# A checkout of the public repo: the worker finds sandbox/seccomp/default.json
+# and sandbox/images/images.lock.json relative to it.
+WorkingDirectory=/opt/codejudge/app
+EnvironmentFile=/etc/codejudge/worker.env
+Environment=JUDGE_RUNTIME=runsc
+# One sandbox at a time on a 2 GiB t3.small (see docs/PHASE6.md memory budget).
+Environment=JUDGE_CONCURRENCY=1
+ExecStart=/opt/codejudge/bin/judge-worker
+
+# Restart on any exit; back off a little so a down database isn't hammered.
+Restart=always
+RestartSec=5s
+
+# Graceful stop: on SIGTERM the worker stops reading, finishes in-flight
+# submissions and exits. The longest submission is a compile container
+# (1m35s) followed by a full batch (50 tests × (21 s wall + 5 s guard) + 50 s
+# = 22m30s): 24m05s. 30 min (= sandbox.ReaperThreshold) covers it; asserted
+# by TestSystemdStopTimeoutCoversLongestSubmission. Only after that is the
+# worker SIGKILLed (the entry stays pending and another attempt reclaims it).
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30min
+
+# Limits for the worker process itself (sandbox containers are limited by
+# the sandbox package in their own cgroups, not this unit's).
+MemoryMax=256M
+MemoryHigh=192M
+TasksMax=256
+LimitNOFILE=4096
+CPUWeight=100
+
+# Hardening (the Docker socket is the one door it needs).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+ReadOnlyPaths=/opt/codejudge
+ReadWritePaths=/run/codejudge /run/docker.sock
+
+[Install]
+WantedBy=multi-user.target

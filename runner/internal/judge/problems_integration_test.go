@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 	must(err)
 	lock, err := sandbox.FindRepoFile("sandbox/images/images.lock.json")
 	must(err)
-	sb, err = sandbox.New(ctx, sandbox.Options{SeccompPath: seccomp, ImagesLockPath: lock})
+	sb, err = sandbox.New(ctx, sandbox.Options{SeccompPath: seccomp, ImagesLockPath: lock, Runtime: os.Getenv("JUDGE_TEST_RUNTIME")})
 	must(err)
 	code := m.Run()
 	// Only this process's containers: other suites may run concurrently.
