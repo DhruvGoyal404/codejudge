@@ -65,7 +65,18 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
   app.disable("x-powered-by");
   app.set("query parser", "simple");
   app.set("trust proxy", config.TRUST_PROXY);
-  app.use(helmet());
+  // The API serves only JSON and SSE, never documents: its CSP forbids
+  // everything. (The page's CSP is set where the HTML is served: Caddy in
+  // production, see deploy/Caddyfile and docs/PHASE6.md.)
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: false,
+        directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"], baseUri: ["'none'"], formAction: ["'none'"] },
+      },
+      frameguard: { action: "deny" },
+    }),
+  );
 
   app.use((req, res, next) => {
     const start = process.hrtime.bigint();

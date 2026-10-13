@@ -69,6 +69,11 @@ const Env = z
     for (const k of ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"] as const) {
       if (!c[k]) ctx.addIssue({ code: "custom", path: [k], message: "required in production" });
     }
+    if (c.TRUST_PROXY === false) {
+      // Behind the reverse proxy every request comes from the proxy: per-IP
+      // limits would put all clients in one bucket.
+      ctx.addIssue({ code: "custom", path: ["TRUST_PROXY"], message: "must be set in production (1 = one proxy hop)" });
+    }
     if (!c.PUBLIC_ORIGIN.startsWith("https://")) {
       ctx.addIssue({ code: "custom", path: ["PUBLIC_ORIGIN"], message: "must be https in production" });
     }

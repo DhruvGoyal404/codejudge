@@ -129,8 +129,8 @@ describe("helmet", () => {
   it("sets the standard security headers", async () => {
     const r = await request(app).get("/health");
     expect(r.headers["x-content-type-options"]).toBe("nosniff");
-    expect(r.headers["x-frame-options"]).toBe("SAMEORIGIN");
-    expect(r.headers["content-security-policy"]).toContain("default-src 'self'");
+    expect(r.headers["x-frame-options"]).toBe("DENY");
+    expect(r.headers["content-security-policy"]).toBe("default-src 'none';frame-ancestors 'none';base-uri 'none';form-action 'none'");
     expect(r.headers["strict-transport-security"]).toMatch(/max-age=/);
     expect(r.headers["referrer-policy"]).toBe("no-referrer");
     expect(r.headers["x-powered-by"]).toBeUndefined();

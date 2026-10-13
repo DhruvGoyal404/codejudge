@@ -98,3 +98,73 @@ problems/<slug>/samples/NN.in, NN.out    <slug>/solutions/ref.cpp, ref.py, wrong
 
 - Redact the docs that name which hidden test catches each wrong solution (`docs/PHASE2.md`: "32-bit overflow") in a normal commit? They contain no test data, only the kind of edge case; I'd generalise them (no history rewrite for docs).
 - Keep `wrong.cpp` / `slow.cpp` private with the refs (my recommendation) or publish them as examples?
+
+## 6a.2 Production compose
+
+Files: [`deploy/compose.prod.yaml`](../deploy/compose.prod.yaml), [`deploy/Caddyfile`](../deploy/Caddyfile), [`deploy/web.Dockerfile`](../deploy/web.Dockerfile) (web build baked into the Caddy image), [`api/Dockerfile`](../api/Dockerfile), [`.dockerignore`](../.dockerignore), [`deploy/prod.env.example`](../deploy/prod.env.example), [`deploy/systemd/codejudge.tmpfiles.conf`](../deploy/systemd/codejudge.tmpfiles.conf).
+
+```
+Internet ──443/80──▶ caddy ──▶ /srv/web (static SPA)
+                        └─/api/*─▶ api:8080 ──(backend: internal)──▶ postgres, valkey
+host: judge-worker (systemd) ──unix sockets /run/codejudge/{postgresql,valkey}──▶ postgres, valkey
+```
+
+| Service | Image (pinned by digest) | Networks | Published | mem_limit | restart |
+|---|---|---|---|---|---|
+| caddy | `caddy:2.11.4-alpine` + web build | edge | 80, 443, 443/udp | 64m | unless-stopped |
+| api | `node:22.23.3-alpine` + `api/` | edge, backend | — | 256m (`--max-old-space-size=160`) | unless-stopped |
+| postgres | `postgres:18.6-alpine` | backend | — | 320m (shared_buffers 64MB, max_connections 40) | unless-stopped |
+| valkey | `valkey/valkey:9.1.2-alpine` | backend | — | 160m (maxmemory 96mb, noeviction, AOF) | unless-stopped |
+| migrate (tools profile) | `dbmate:2.36.0` | backend | — | 64m | one-shot |
+
+- **Only Caddy publishes ports.** `backend` is `internal: true` (no gateway, no route out). The worker runs on the host because it needs the Docker socket, so it reaches Postgres and Valkey through **Unix sockets** bind-mounted under `/run/codejudge`. There is no TCP port, not even on loopback. `/run/codejudge` is `0750 root:codejudge` (created by tmpfiles), so only the worker's group can reach the sockets.
+- **Passwords everywhere.** The official Postgres image defaults to `local all all trust`, which makes any socket user a superuser. `POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256 --auth-host=scram-sha-256` makes socket connections need the password too. Valkey runs with `--requirepass`.
+- **Memory budget (2 GiB t3.small).** The containers' hard limits add up to about 800 MiB. The rest covers the OS, dockerd/containerd, the worker (`MemoryMax=256M`) and one sandbox at a time (`JUDGE_CONCURRENCY=1`). Each sandbox container carries its own memory limit (the problem's limit, ≤ 256 MB for the current problems), plus the compile container. A 1–2 GB swap file on the host is recommended as a safety net. Sandbox containers set memory equal to memory-swap, so they can't use it.
+- **Images and versions** follow the two-week rule. Caddy 2.11.6 and 2.11.7 were under 14 days old, so this uses 2.11.4; Node is 22.23.3. The API runs its TypeScript with tsx, now a runtime dependency, because Node's built-in type stripping can't run TypeScript parameter properties.
+- **Logs:** json-file, 10 MB × 3 per container.
+
+**Caddy behavior:**
+- Automatic HTTPS for `$CODEJUDGE_DOMAIN` (default `judge.dhruvgoyal.tech`, ACME contact `$ACME_EMAIL`), and HTTP redirects to HTTPS.
+- `/api/*` goes to the API with the prefix stripped, using `flush_interval -1` so SSE streams aren't buffered.
+- Hashed `/assets/*` files are cached as immutable for a year. A missing asset is a real **404**, not the SPA page, and error responses are `no-store`.
+- Every other path serves `index.html` with `no-cache`.
+- Every response, errors included, gets HSTS, `nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin` and a restrictive `Permissions-Policy`, with no `Server` header.
+
+**Local verification** ran on Docker Desktop as project `codejudge-prodtest`, using [`deploy/compose.prod.localtest.yaml`](../deploy/compose.prod.localtest.yaml). That override uses domain `localhost` with Caddy's internal CA and ports 8081/8444, turns the socket directories into named volumes, and publishes Postgres on 127.0.0.1:55433 only so `judge-admin` can import. Results:
+- `compose config`: in production only Caddy publishes ports; `backend` is internal; all limits and restart policies are as listed above.
+- Build and `up --wait`: all four services healthy; migrations applied; 5 problems imported.
+- Through Caddy: `/`, `/problems/range-ledger` (an SPA deep link), `/api/health` and `/api/problems` return 200; `/assets/nope.js` returns 404 with `no-store`; HTTP returns 308 to HTTPS.
+- **One proxy hop:** 21 requests to `/api/auth/github`, each with a different forged `X-Forwarded-For`, gave 20 × 302 and then 429. They all landed in one bucket because Caddy replaces untrusted XFF and the API trusts exactly one hop.
+
+## 6a.3 API production settings and the page CSP
+
+- **Production settings:** `TRUST_PROXY=1` (exactly one hop, Caddy), `PUBLIC_ORIGIN=https://judge.dhruvgoyal.tech`, and `NODE_ENV=production`. The last gives the `__Host-cj_session` and `__Host-cj_oauth` cookies, which are `Secure`, `HttpOnly`, `SameSite=Lax` and `Path=/` (Phase 5).
+- **Startup checks.** The config now refuses to start in production without `TRUST_PROXY`, since otherwise all clients would share one per-IP bucket. It also refuses an http `PUBLIC_ORIGIN` and missing GitHub credentials (`api/test/config.test.ts`).
+- **Two CSPs, because a CSP only protects the document it arrives with.** The API serves only JSON and SSE, so helmet sends `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` plus `X-Frame-Options: DENY`. The page's policy has to arrive with the HTML and with the worker scripts, which Caddy serves. It is defined once, in the Caddyfile's `(csp)` snippet, and applied to the SPA and to `/assets/*`.
+
+The page policy is tested against the production build (`web/e2e-prod/csp.spec.ts`, run with `npx playwright test -c playwright.prod.config.ts`). The app, Monaco (loading, highlighting, editing, language switch, theme switch and its web worker), the profile and the login-error banner all run with **zero CSP violations** and no console errors.
+
+| Directive | Value | Why |
+|---|---|---|
+| `default-src` | `'none'` | Deny by default; everything needed is listed below. |
+| `script-src` | `'self'` | Only our bundled modules. No inline scripts and no `eval` (the build has no inline script, and Monaco needs no eval). |
+| `style-src` | `'self' 'unsafe-inline'` | **Required by Monaco**, which injects `<style>` elements and `style=""` attributes at runtime. Without it the experiment showed `style-src-elem` and `style-src-attr` violations and an unstyled editor. Hashes can't cover runtime-generated styles. The risk is CSS injection only; scripts stay locked. |
+| `img-src` | `'self' https://avatars.githubusercontent.com` | GitHub avatars. `data:` was not needed (experiment). |
+| `font-src` | `'self'` | `data:` was not needed (experiment). |
+| `connect-src` | `'self'` | fetch and SSE to `/api` only. |
+| `worker-src` | `'self'` | Monaco's editor worker is a same-origin file; `blob:` was not needed (experiment). |
+| `manifest-src` | `'self'` | |
+| `base-uri` | `'none'` | No `<base>` hijacking. |
+| `form-action` | `'self'` | No form posts elsewhere (login is a link). |
+| `frame-ancestors` | `'none'` | No framing (clickjacking). |
+| `object-src` | `'none'` | No plugins. |
+| `require-trusted-types-for` | `'script'` | DOM-XSS sinks (`innerHTML`, script URLs, `new Worker(url)`) accept only Trusted Types. The worker URL now goes through our `codejudge-worker` policy, which accepts only same-origin `/assets/*.js` (or Vite's paths in dev). |
+| `trusted-types` | `codejudge-worker defaultWorkerFactory diffEditorWidget diffReview domLineBreaksComputer editorViewLayer richScreenReaderContent standaloneColorizer tokenizeToString` | Exactly the policies the app creates, recorded at runtime; any other policy name is refused. In the experiment, allowing only ours broke Monaco. **Re-run the prod CSP test after any Monaco upgrade.** |
+| `upgrade-insecure-requests` | | Defence in depth. |
+
+**Experiments** (`CSP_EXPERIMENTS=1`; each tightens one thing on top of the served policy):
+- `style-src` without `'unsafe-inline'` → violations.
+- `trusted-types` without Monaco's names → editor broken.
+- Earlier runs, before tightening, showed that removing `worker-src blob:`, `font-src data:` and `img-src data:` produced no violations, so they were removed.
+
+Monaco is trimmed (no find widget, suggestions or context menu; Phase 4), so policies belonging to contributions it doesn't include aren't needed.
