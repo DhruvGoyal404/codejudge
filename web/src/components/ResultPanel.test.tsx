@@ -11,6 +11,7 @@ const samples: Sample[] = [
 
 const done = (over: Partial<Submission>): Submission => ({
   id: "s1",
+  mine: false,
   problem_slug: "range-ledger",
   language: "cpp",
   status: "done",

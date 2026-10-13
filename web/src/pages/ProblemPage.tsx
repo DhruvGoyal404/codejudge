@@ -4,11 +4,12 @@ import Markdown from "react-markdown";
 import { useParams } from "react-router";
 
 import { api, ApiError, LANGUAGES, MAX_SOURCE_BYTES, NetworkError, submitErrorMessage, type Language, type Problem } from "../api.ts";
-import { ErrorBanner } from "../components/Layout.tsx";
+import { ErrorBanner, LoginLink } from "../components/Layout.tsx";
 import { ResultPanel } from "../components/ResultPanel.tsx";
 import { VerdictBadge } from "../components/VerdictBadge.tsx";
 import { judgeReducer, type JudgeEvent } from "../lib/judgeState.ts";
 import { drafts, mySubmissions } from "../lib/storage.ts";
+import { useMe } from "../lib/useMe.ts";
 import { useSubmissionStream } from "../lib/useSubmissionStream.ts";
 
 const CodeEditor = lazy(() => import("../editor/CodeEditor.tsx"));
@@ -44,6 +45,8 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
   const [lang, setLang] = useState<Language>("cpp");
   const [code, setCode] = useState(() => drafts.get(problem.slug, "cpp") ?? TEMPLATES.cpp);
   const [state, dispatch] = useReducer(judgeReducer, { phase: "idle" });
+  const me = useMe();
+  const loggedOut = me.data === null;
   const [mine, setMine] = useState(() => mySubmissions.list(problem.slug));
   const stableDispatch = useCallback((e: JudgeEvent) => dispatch(e), []);
   const activeId = "id" in state ? state.id : null;
@@ -71,7 +74,7 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
   });
   const tooBig = new TextEncoder().encode(code).length > MAX_SOURCE_BYTES;
   const busy = state.phase === "submitting" || state.phase === "queued" || state.phase === "running";
-  const canSubmit = !busy && !tooBig && code.trim().length > 0;
+  const canSubmit = !loggedOut && !busy && !tooBig && code.trim().length > 0;
   const doSubmit = useCallback(() => {
     if (canSubmit) submit.mutate();
   }, [canSubmit, submit]);
@@ -131,15 +134,21 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            onClick={doSubmit}
-            disabled={!canSubmit}
-            className="ml-auto rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            title="Submit (Ctrl+Enter)"
-          >
-            {busy ? "Judging…" : "Submit"}
-          </button>
+          {loggedOut ? (
+            <LoginLink className="ml-auto rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700">
+              Log in to submit
+            </LoginLink>
+          ) : (
+            <button
+              type="button"
+              onClick={doSubmit}
+              disabled={!canSubmit}
+              className="ml-auto rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Submit (Ctrl+Enter)"
+            >
+              {busy ? "Judging…" : "Submit"}
+            </button>
+          )}
         </div>
         {tooBig && (
           <div className="px-3 pt-2">

@@ -15,6 +15,15 @@ export interface ProblemSummary {
   title: string;
   time_limit_ms: number;
   memory_limit_mb: number;
+  /** For the logged-in user: some AC / submissions but no AC / none (or logged out). */
+  my_status: "solved" | "attempted" | null;
+}
+
+export interface User {
+  id: number;
+  github_id: number;
+  login: string;
+  avatar_url: string | null;
 }
 
 export interface Sample {
@@ -56,6 +65,9 @@ export interface Submission {
   started_at: string | null;
   finished_at: string | null;
   tests: TestResult[];
+  /** True when the logged-in user owns it; only then is `source` present. */
+  mine: boolean;
+  source?: string;
 }
 
 /** HTTP error from the API (has a status code and the server's message). */
@@ -64,6 +76,8 @@ export class ApiError extends Error {
     readonly status: number,
     message: string,
     readonly details?: unknown,
+    /** Seconds, from Retry-After on 429. */
+    readonly retryAfter?: number,
   ) {
     super(message);
   }
@@ -84,12 +98,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new ApiError(res.status, body?.error ?? `HTTP ${res.status}`, body?.details);
+    const ra = Number(res.headers.get("retry-after"));
+    throw new ApiError(res.status, body?.error ?? `HTTP ${res.status}`, body?.details, Number.isFinite(ra) && ra > 0 ? ra : undefined);
   }
   return body as T;
 }
 
+/** Where "Log in with GitHub" goes; the API returns the browser to `next` afterwards. */
+export function loginUrl(next: string): string {
+  return `/api/auth/github?next=${encodeURIComponent(next)}`;
+}
+
 export const api = {
+  /** The logged-in user, or null when logged out. */
+  me: () =>
+    request<User>("/me").catch((err) => {
+      if (err instanceof ApiError && err.status === 401) return null;
+      throw err;
+    }),
+  /** 204 has no body; request() resolves it to null. */
+  logout: () => request<null>("/auth/logout", { method: "POST" }),
   problems: () => request<{ problems: ProblemSummary[] }>("/problems").then((r) => r.problems),
   problem: (slug: string) => request<Problem>(`/problems/${encodeURIComponent(slug)}`),
   submission: (id: string) => request<Submission>(`/submissions/${encodeURIComponent(id)}`),
@@ -112,9 +140,20 @@ export function submitErrorMessage(err: unknown): string {
       return first ? `Invalid submission: ${first[0]} — ${first[1][0]}` : `Invalid submission: ${err.message}`;
     }
     if (err.status === 404) return "This problem no longer exists.";
+    if (err.status === 401) return "You are logged out. Log in to submit.";
+    if (err.status === 409) return "You already have 2 submissions being judged. Wait for one to finish.";
+    if (err.status === 429) {
+      return err.retryAfter ? `Too many submissions. Try again in ${formatWait(err.retryAfter)}.` : "Too many submissions. Try again later.";
+    }
     return `Submission failed: ${err.message}`;
   }
   return "Submission failed unexpectedly.";
+}
+
+function formatWait(s: number): string {
+  if (s < 90) return `${s} s`;
+  if (s < 2 * 3600) return `${Math.ceil(s / 60)} min`;
+  return `${Math.ceil(s / 3600)} h`;
 }
 
 export const VERDICT_LABEL: Record<Verdict, string> = {

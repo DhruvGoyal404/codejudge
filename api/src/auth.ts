@@ -27,6 +27,21 @@ const GitHubUser = z.object({
   avatar_url: z.url().nullish(),
 });
 
+/**
+ * Where to send the browser after login: a same-origin path only (no open
+ * redirect). Anything else, including "//host", "/\host" and absolute URLs,
+ * becomes "/".
+ */
+export function safeNext(raw: unknown, origin: string): string {
+  if (typeof raw !== "string" || raw.length > 512 || !raw.startsWith("/") || /[\\\u0000-\u001f]/.test(raw)) return "/";
+  try {
+    const u = new URL(raw, origin);
+    return u.origin === origin ? u.pathname + u.search + u.hash : "/";
+  } catch {
+    return "/";
+  }
+}
+
 interface AuthDeps {
   db: Db;
   redis: Redis;
@@ -61,12 +76,13 @@ export function authRouter({ db, redis, sessions, config, log }: AuthDeps) {
     next();
   });
 
-  r.get("/auth/github", async (_req, res) => {
+  r.get("/auth/github", async (req, res) => {
     const { id } = credentials();
     const state = newToken();
     const verifier = newToken(); // 43 chars of base64url: a valid PKCE code_verifier
     const challenge = createHash("sha256").update(verifier).digest("base64url");
-    await redis.set(stateKey(state), verifier, "EX", OAUTH_STATE_TTL_S);
+    const next = safeNext(req.query.next, config.PUBLIC_ORIGIN);
+    await redis.set(stateKey(state), JSON.stringify({ verifier, next }), "EX", OAUTH_STATE_TTL_S);
     res.cookie(sessions.oauthCookieName, state, sessions.cookieOptions(OAUTH_STATE_TTL_S * 1000));
     const url = new URL("/login/oauth/authorize", config.GITHUB_OAUTH_URL);
     url.search = new URLSearchParams({
@@ -88,8 +104,9 @@ export function authRouter({ db, redis, sessions, config, log }: AuthDeps) {
     const { code, state, error } = q.data;
     if (!state || !cookieState || !safeEqual(state, cookieState)) return fail(res, "state");
     // Consume the state before anything else can fail: it never works twice.
-    const verifier = await redis.getdel(stateKey(state));
-    if (!verifier) return fail(res, "state");
+    const record = await redis.getdel(stateKey(state));
+    if (!record) return fail(res, "state");
+    const { verifier, next } = JSON.parse(record) as { verifier: string; next: string };
     if (error) return fail(res, "denied"); // e.g. access_denied: the user cancelled
     if (!code) return fail(res, "github");
     const creds = credentials();
@@ -107,7 +124,7 @@ export function authRouter({ db, redis, sessions, config, log }: AuthDeps) {
     const userId = await db.upsertUser(gh.id, gh.login, gh.avatar_url ?? null);
     if (req.sessionId) await db.deleteSession(req.sessionId); // no session fixation / stacking
     await sessions.create(res, userId);
-    res.redirect(302, `${config.PUBLIC_ORIGIN}/`);
+    res.redirect(302, `${config.PUBLIC_ORIGIN}${next}`);
   });
 
   r.post("/auth/logout", async (req, res) => {

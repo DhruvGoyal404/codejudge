@@ -5,6 +5,7 @@ import { judgeReducer, stageLabel, type JudgeEvent, type JudgeState } from "./ju
 
 const sub = (over: Partial<Submission> = {}): Submission => ({
   id: "s1",
+  mine: false,
   problem_slug: "ledger-total",
   language: "cpp",
   status: "done",

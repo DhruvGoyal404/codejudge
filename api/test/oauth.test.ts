@@ -349,3 +349,23 @@ describe("configuration", () => {
     expect(oauthLine).not.toMatch(/Domain=/);
   });
 });
+
+describe("post-login redirect (next)", () => {
+  it("returns to a same-origin path given as ?next=", async () => {
+    const r0 = await request(app).get("/auth/github?next=%2Fproblems%2Fledger-total%3Ftab%3D1");
+    const url = new URL(r0.headers.location!);
+    const state = url.searchParams.get("state")!;
+    const oauthCookie = `cj_oauth=${cookieValue(cookieLine(r0, "cj_oauth"))}`;
+    const r = await callback(`code=${approve(url.searchParams.get("code_challenge")!, ghUser())}&state=${state}`, oauthCookie);
+    expect(r.headers.location).toBe(`${ORIGIN}/problems/ledger-total?tab=1`);
+  });
+
+  it("safeNext rejects anything that is not a same-origin path", async () => {
+    const { safeNext } = await import("../src/auth.ts");
+    expect(safeNext("/problems/x", ORIGIN)).toBe("/problems/x");
+    expect(safeNext("/a/../b?c=1#d", ORIGIN)).toBe("/b?c=1#d");
+    for (const bad of ["//evil.example/x", "/\\evil.example", "https://evil.example", "evil", "", "/\u0000x", "/x\ny", 42, undefined, ["/a"]]) {
+      expect(safeNext(bad, ORIGIN), String(bad)).toBe("/");
+    }
+  });
+});
