@@ -19,11 +19,54 @@ export class Db {
     await this.pool.query("SELECT 1");
   }
 
-  async listProblems() {
+  /**
+   * Problem list; for a logged-in user each row also carries my_status
+   * ('solved' = some AC, 'attempted' = submissions but no AC, else null).
+   * One query (LEFT JOIN + GROUP BY); userId null = anonymous.
+   */
+  async listProblems(userId: number | null) {
     const r = await this.pool.query(
-      `SELECT slug, title, time_limit_ms, memory_limit_mb FROM problems ORDER BY slug`,
+      `SELECT p.slug, p.title, p.time_limit_ms, p.memory_limit_mb,
+              CASE WHEN bool_or(s.verdict = 'AC') THEN 'solved'
+                   WHEN count(s.id) > 0 THEN 'attempted' END AS my_status
+         FROM problems p
+         LEFT JOIN submissions s ON s.problem_id = p.id AND s.user_id = $1
+        GROUP BY p.id
+        ORDER BY p.slug`,
+      [userId],
     );
     return r.rows;
+  }
+
+  /**
+   * A user's submissions, newest first, keyset-paginated on (created_at, id).
+   * `after` is the (created_at as Postgres text, id) of the last row of the
+   * previous page; text keeps microsecond precision (a JS Date would not).
+   * Returns limit+1 rows at most so the caller can tell if there is more.
+   */
+  async listUserSubmissions(
+    userId: number,
+    f: { problem?: string; verdict?: string; after?: { t: string; id: string }; limit: number },
+  ) {
+    const r = await this.pool.query(
+      `SELECT s.id, p.slug AS problem_slug, p.title AS problem_title, s.language, s.status, s.verdict,
+              s.max_cpu_ms, s.max_rss_kb, s.created_at, s.finished_at, s.created_at::text AS cursor_t
+         FROM submissions s JOIN problems p ON p.id = s.problem_id
+        WHERE s.user_id = $1
+          AND ($2::text IS NULL OR p.slug = $2)
+          AND ($3::text IS NULL OR s.verdict = $3)
+          AND ($4::timestamptz IS NULL OR (s.created_at, s.id) < ($4::timestamptz, $5::uuid))
+        ORDER BY s.created_at DESC, s.id DESC
+        LIMIT $6`,
+      [userId, f.problem ?? null, f.verdict ?? null, f.after?.t ?? null, f.after?.id ?? null, f.limit + 1],
+    );
+    return r.rows as ({ id: string; cursor_t: string } & Record<string, unknown>)[];
+  }
+
+  /** The source of a submission, only if userId owns it (else null). */
+  async getOwnSource(id: string, userId: number): Promise<string | null> {
+    const r = await this.pool.query(`SELECT source FROM submissions WHERE id = $1 AND user_id = $2`, [id, userId]);
+    return r.rows[0]?.source ?? null;
   }
 
   /** Statement + public samples only. Hidden tests are not in the database at all. */

@@ -19,6 +19,28 @@ export const MAX_ACTIVE_PER_USER = 2;
 
 const Slug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
 const SubmissionId = z.uuid();
+const VERDICTS = ["AC", "WA", "CE", "RE", "TLE", "MLE", "OLE", "IE"] as const;
+const Cursor = z.object({ t: z.string().min(1).max(64), id: z.uuid() }).strict();
+const HistoryQuery = z
+  .object({
+    problem: Slug.optional(),
+    verdict: z.enum(VERDICTS).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    cursor: z
+      .string()
+      .max(200)
+      .transform((c, ctx) => {
+        try {
+          return Cursor.parse(JSON.parse(Buffer.from(c, "base64url").toString("utf8")));
+        } catch {
+          ctx.addIssue({ code: "custom", message: "invalid cursor" });
+          return z.NEVER;
+        }
+      })
+      .optional(),
+  })
+  .strict();
+const encodeCursor = (t: string, id: string) => Buffer.from(JSON.stringify({ t, id })).toString("base64url");
 const NewSubmission = z
   .object({
     problemSlug: Slug,
@@ -66,7 +88,25 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
   app.use(authRouter({ db, redis: queue.redis, sessions, config, log }));
 
   app.get("/me", (req, res) => {
+    res.set("Cache-Control", "private, no-store");
     res.json(requireUser(req));
+  });
+
+  // My submissions: newest first, keyset pagination on (created_at, id),
+  // optional problem / verdict filters. Opaque cursor = next_cursor.
+  app.get("/me/submissions", async (req, res) => {
+    const user = requireUser(req);
+    const q = HistoryQuery.safeParse(req.query);
+    if (!q.success) throw new HttpError(400, "invalid query", z.flattenError(q.error));
+    const { problem, verdict, limit, cursor } = q.data;
+    const rows = await db.listUserSubmissions(user.id, { problem, verdict, after: cursor, limit });
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    res.set("Cache-Control", "private, no-store");
+    res.json({
+      submissions: page.map(({ cursor_t: _t, ...s }) => s),
+      next_cursor: rows.length > limit && last ? encodeCursor(last.cursor_t, last.id) : null,
+    });
   });
 
   app.get("/health", async (_req, res) => {
@@ -77,8 +117,10 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
     res.status(pgOk && vkOk ? 200 : 503).json({ ok: pgOk && vkOk, postgres: pgOk, valkey: vkOk });
   });
 
-  app.get("/problems", async (_req, res) => {
-    res.json({ problems: await db.listProblems() });
+  app.get("/problems", async (req, res) => {
+    // Per-user solved/attempted badges when logged in (my_status), else null.
+    res.set("Cache-Control", "private, no-store");
+    res.json({ problems: await db.listProblems(req.user?.id ?? null) });
   });
 
   app.get("/problems/:slug", async (req, res) => {
@@ -121,7 +163,10 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
     if (!id.success) throw new HttpError(400, "invalid submission id");
     const s = await db.getSubmission(id.data);
     if (!s) throw new HttpError(404, "submission not found");
-    res.json(s);
+    // The source is returned only to its owner (never in SSE events).
+    const source = req.user ? await db.getOwnSource(id.data, req.user.id) : null;
+    res.set("Cache-Control", "private, no-store");
+    res.json(source === null ? { ...s, mine: false } : { ...s, mine: true, source });
   });
 
   // SSE: current state first, then every change, then the final verdict; then close.
