@@ -308,3 +308,50 @@ The scratch databases were dropped afterwards. CI runs `shellcheck --severity=wa
 - **Tests:**
   - Unit (fakes): a failing guard gives an error frame, no ready frame, and no test runs.
   - Integration: `TestBatchCrossTestState` now also requires that planting a POSIX mqueue and SysV shm/msg/sem fails with "Operation not permitted". Locally (runc) the whole sandbox suite passes; under runsc it is checked in CI once C++ compiles there (fix 2).
+
+### 2. Seccomp under gVisor: a runtime-specific profile (`clone3`)
+
+**What CI showed (diagnosed with strace and syscall probes, `release-20260921.0`):**
+
+| | runc + profile | runsc `--oci-seccomp` + profile |
+|---|---|---|
+| `clone3` (rule `errnoRet: 38`) | ENOSYS | **EPERM** |
+| any denied syscall with `defaultErrnoRet: 38` (tested on a copy) | ENOSYS | **EPERM** |
+| `posix_spawn` / `pthread_create` | work (glibc falls back to `clone`) | **fail** |
+| `fork`, `clone(CLONE_VM\|CLONE_VFORK)` | work | work |
+
+Docker passes `errnoRet: 38` in the OCI spec, but gVisor's `--oci-seccomp` ignores **every** `errnoRet` and returns EPERM. glibc ≥ 2.34 uses `clone3` in `posix_spawn` and `pthread_create`, and falls back to `clone` only on ENOSYS. Under runsc, g++ therefore couldn't start `cc1plus` (every C++ submission became CE), and every multithreaded program (std::thread, Python threading, and in Phase 5.5 the JVM and Node) would fail.
+
+**Fix, decided by the owner: a runtime-specific profile.**
+- **runc:** `sandbox/seccomp/default.json`, unchanged. `clone3` returns ENOSYS, glibc falls back to `clone`, and the profile filters `clone`'s flags, so no namespace creation is possible.
+- **runsc:** derived in memory (`gVisorProfile`). `clone3` is taken out of its ERRNO rule and allowed for both compile and run containers. A unit test checks that nothing else changes.
+
+**Threat-model argument.** The base profile denies `clone3` because seccomp can't inspect its flags, which sit in a struct in memory; under runc an unfiltered `clone3` would reach the host kernel's namespace code. Under runsc, the program's `clone3` is handled by gVisor's Sentry, a user-space kernel, and never reaches the host kernel, which removes that reason. Capabilities stay dropped and no-new-privileges stays on.
+
+**Tests (both runtimes):**
+- `TestThreads` (std::thread and Python threading) passes.
+- `TestClone3`: plain `clone3` returns ENOSYS under runc and succeeds under runsc. Namespace flags must fail under both.
+
+**Open finding (awaiting the owner's decision):** under runsc, `clone3(CLONE_NEWUSER)` and `clone3(CLONE_NEWNS)` **succeed**, while `CLONE_NEWPID` fails with EPERM. Dropped capabilities don't stop them: unprivileged user namespaces need no capability on Linux either (Docker blocks them only by filtering `clone`/`unshare` arguments, which isn't possible for `clone3`), and `CLONE_NEWNS` without `CAP_SYS_ADMIN` succeeding looks like a gVisor permission-check gap. These namespaces exist only inside the Sentry, but they widen the Sentry surface a program can reach. `TestClone3` keeps failing under runsc until this is decided.
+
+Upstream report draft: [docs/upstream/gvisor-errnoret-issue.md](upstream/gvisor-errnoret-issue.md). It covers the errnoRet behaviour, with the `CLONE_NEWNS` observation as a separate note.
+
+### 3. Process limits that keep judge-exec alive
+
+**Findings:**
+- **IE even under runc.** The container's pids cgroup (64) is shared by judge-exec and the program. A thread bomb filled it, judge-exec's Go runtime then couldn't create an OS thread, and judge-exec died, giving IE.
+- **Under runsc it's worse.** The host pids cgroup counts gVisor's own tasks (Sentry threads and systrap stub processes per guest address space). A 32-process guest fork bomb already exceeded 64 host tasks and killed the sandbox.
+- **Crashing multithreaded programs hung.** With `RLIMIT_CORE=0` and a host `core_pattern` that pipes to a helper (WSL2 here; apport or systemd-coredump on Ubuntu), the kernel still runs the dump. A crash with threads alive took seconds, ending as TLE instead of RE.
+
+**Fix:**
+- **`RLIMIT_NPROC`.** judge-exec `--nproc` sets it on the program; fork and clone fail with EAGAIN at the limit. It's 48 under runc and 32 under runsc, below the pids budget with headroom for judge-exec. The pids cgroup stays as the outer layer: 64 under runc, and 256 under runsc, because there it bounds gVisor's own tasks while the Sentry enforces the guest limit.
+- **A uid per container.** Each container now runs as its own random unprivileged uid (200 000 to 2·10⁹) instead of the shared 65534. `RLIMIT_NPROC` counts a uid's tasks host-wide (there's no user-namespace remapping), so a shared uid would let one submission's tasks count against another's. It remains non-root, with no capabilities and no-new-privileges. **This changes the wording of the sandbox invariant "non-root user 65534"** to "a non-root uid unique to the container".
+- **`RLIMIT_CORE=1`** instead of 0. The kernel refuses pipe dumps at a limit of 1, and 1 byte is below any file dump's minimum.
+
+**Tests (both runtimes):**
+- An unhandled thread bomb ends in **RE** (the uncaught `std::system_error` aborts it), with judge-exec alive.
+- A fork bomb that handles EAGAIN is OK, and its process count stays below the binding limit (runsc: 23 started).
+- The same fork bomb twice in one batch: both OK, and the container keeps working.
+- A segfault with threads alive is RE in under 1 s.
+
+A program that handles hitting the limit and exits normally gets its normal verdict. One that ignores the failure and keeps looping is stopped by the CPU or wall limit (TLE). Either way judge-exec stays alive, so the result is never IE.
