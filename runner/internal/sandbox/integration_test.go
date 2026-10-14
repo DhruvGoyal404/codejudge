@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -69,8 +70,13 @@ func fixture(t *testing.T, name string) []byte {
 func langOf(t *testing.T, file string) lang.Lang {
 	t.Helper()
 	name := "cpp"
-	if strings.HasSuffix(file, ".py") {
+	switch {
+	case strings.HasSuffix(file, ".py"):
 		name = "python"
+	case strings.HasSuffix(file, ".java"):
+		name = "java"
+	case strings.HasSuffix(file, ".js"):
+		name = "javascript"
 	}
 	l, err := lang.Get(name)
 	if err != nil {
@@ -110,7 +116,7 @@ func wantStatus(t *testing.T, res *Result, want string) {
 }
 
 func TestOK(t *testing.T) {
-	for _, f := range []string{"ok.cpp", "ok.py"} {
+	for _, f := range []string{"ok.cpp", "ok.py", "ok.java", "ok.js"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "40 2\n", std)
 			wantStatus(t, res, StatusOK)
@@ -122,7 +128,7 @@ func TestOK(t *testing.T) {
 }
 
 func TestCE(t *testing.T) {
-	for _, f := range []string{"ce.cpp", "ce.py"} {
+	for _, f := range []string{"ce.cpp", "ce.py", "ce.java", "ce.js", "nomain.java"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "", std)
 			wantStatus(t, res, StatusCE)
@@ -148,40 +154,49 @@ func TestRE(t *testing.T) {
 			t.Fatalf("exit = %d, want 3", res.ExitCode)
 		}
 	})
-	t.Run("python-exception", func(t *testing.T) {
-		res := execute(t, "exc.py", "", std)
-		wantStatus(t, res, StatusRE)
-		if !strings.Contains(res.Stderr, "ValueError: boom") {
-			t.Fatalf("stderr missing traceback: %q", res.Stderr)
-		}
-	})
+	for f, want := range map[string]string{
+		"exc.py":   "ValueError: boom",
+		"exc.java": "java.lang.IllegalStateException: boom",
+		"exc.js":   "Error: boom",
+	} {
+		t.Run("exception/"+f, func(t *testing.T) {
+			res := execute(t, f, "", std)
+			wantStatus(t, res, StatusRE)
+			if !strings.Contains(res.Stderr, want) {
+				t.Fatalf("stderr missing %q: %q", want, res.Stderr)
+			}
+		})
+	}
 }
 
 func TestTLE(t *testing.T) {
-	t.Run("busy-loop-cpu", func(t *testing.T) {
-		res := execute(t, "busy.cpp", "", std)
-		wantStatus(t, res, StatusTLE)
-		if res.CPUMs < std.TimeLimit.Milliseconds() {
-			t.Fatalf("cpu = %dms, expected > limit", res.CPUMs)
-		}
-	})
-	t.Run("sleep-forever-wall", func(t *testing.T) {
-		res := execute(t, "sleep.cpp", "", std)
-		wantStatus(t, res, StatusTLE)
-		if res.CPUMs > 200 {
-			t.Fatalf("cpu = %dms; a sleeper should use ~0 CPU, so this must be the wall limit", res.CPUMs)
-		}
-		if res.WallMs < WallLimit(std.TimeLimit).Milliseconds() {
-			t.Fatalf("wall = %dms, want >= %v", res.WallMs, WallLimit(std.TimeLimit))
-		}
-	})
+	for _, ext := range []string{"cpp", "java", "js"} {
+		t.Run("busy-loop-cpu/"+ext, func(t *testing.T) {
+			res := execute(t, "busy."+ext, "", std)
+			wantStatus(t, res, StatusTLE)
+			if res.CPUMs < std.TimeLimit.Milliseconds() {
+				t.Fatalf("cpu = %dms, expected > limit", res.CPUMs)
+			}
+		})
+		t.Run("sleep-forever-wall/"+ext, func(t *testing.T) {
+			res := execute(t, "sleep."+ext, "", std)
+			wantStatus(t, res, StatusTLE)
+			// A sleeper uses ~0 CPU (runtimes: start-up only), so this is the wall limit.
+			if res.CPUMs > 600 {
+				t.Fatalf("cpu = %dms; expected a wall-limit kill", res.CPUMs)
+			}
+			if res.WallMs < WallLimit(std.TimeLimit).Milliseconds() {
+				t.Fatalf("wall = %dms, want >= %v", res.WallMs, WallLimit(std.TimeLimit))
+			}
+		})
+	}
 }
 
 func TestMLE(t *testing.T) {
 	// 64 MB limit; generous CPU so MLE (not TLE) is the binding limit even on
 	// this host's slow page-fault path (see docs/PHASE0.md V2).
 	lim := Limits{TimeLimit: 5 * time.Second, MemoryMB: 64}
-	for _, f := range []string{"mle.cpp", "mle.py"} {
+	for _, f := range []string{"mle.cpp", "mle.py", "mle.java", "mle.js"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "", lim)
 			wantStatus(t, res, StatusMLE)
@@ -191,10 +206,16 @@ func TestMLE(t *testing.T) {
 
 func TestOLE(t *testing.T) {
 	lim := Limits{TimeLimit: 2 * time.Second, MemoryMB: 256, OutputBytes: 1 << 20}
-	res := execute(t, "ole.cpp", "", lim)
-	wantStatus(t, res, StatusOLE)
-	if int64(len(res.Stdout)) > lim.OutputBytes {
-		t.Fatalf("returned stdout %d bytes > cap %d", len(res.Stdout), lim.OutputBytes)
+	// The JVM ignores SIGXFSZ and Node buffers failed writes: judge-exec stops
+	// the program when stdout reaches the cap, so all report OLE.
+	for _, f := range []string{"ole.cpp", "ole.java", "ole.js"} {
+		t.Run(f, func(t *testing.T) {
+			res := execute(t, f, "", lim)
+			wantStatus(t, res, StatusOLE)
+			if int64(len(res.Stdout)) > lim.OutputBytes {
+				t.Fatalf("returned stdout %d bytes > cap %d", len(res.Stdout), lim.OutputBytes)
+			}
+		})
 	}
 }
 
@@ -353,7 +374,7 @@ func TestReaperInstances(t *testing.T) {
 // clone3; under runc it falls back to clone on ENOSYS, under runsc clone3 is
 // allowed by the gVisor profile variant).
 func TestThreads(t *testing.T) {
-	for _, f := range []string{"threads.cpp", "threads.py"} {
+	for _, f := range []string{"threads.cpp", "threads.py", "threads.java"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "", std)
 			wantStatus(t, res, StatusOK)
@@ -489,5 +510,43 @@ func TestUIDsUniqueAcrossLiveContainers(t *testing.T) {
 	t.Logf("%d runs, %d overlapping cross-sandbox pairs", len(runs), crossOverlaps)
 	if len(runs) != 2*perSandbox || crossOverlaps == 0 {
 		t.Fatalf("test did not exercise concurrent allocation: %d runs, %d cross-sandbox overlaps", len(runs), crossOverlaps)
+	}
+}
+
+// Deep recursion works: -Xss (Java) and --stack-size (Node) are derived from
+// the memory limit, below RLIMIT_STACK.
+func TestDeepRecursion(t *testing.T) {
+	for _, f := range []string{"recursion.java", "recursion.js"} {
+		t.Run(f, func(t *testing.T) {
+			res := execute(t, f, "", std)
+			wantStatus(t, res, StatusOK)
+			if strings.TrimSpace(res.Stdout) != "200000" {
+				t.Fatalf("stdout %q", res.Stdout)
+			}
+		})
+	}
+}
+
+// The runtimes' own threads fit their process budget with room to spare
+// (calibrates lang.ExtraTasks; logged per runtime).
+func TestRuntimeThreadsFit(t *testing.T) {
+	for _, f := range []string{"threadcount.java", "threadcount.js"} {
+		t.Run(f, func(t *testing.T) {
+			res := execute(t, f, "", std)
+			wantStatus(t, res, StatusOK)
+			n, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
+			if err != nil {
+				t.Fatalf("stdout %q", res.Stdout)
+			}
+			l := langOf(t, f)
+			budget := runcNproc + l.ExtraTasks
+			if IsGVisor(os.Getenv("JUDGE_TEST_RUNTIME")) {
+				budget = runscNproc + l.ExtraTasks
+			}
+			t.Logf("%s: %d threads at start-up, process budget %d", f, n, budget)
+			if n > budget/2 {
+				t.Fatalf("%d start-up threads leave too little of the %d budget", n, budget)
+			}
+		})
 	}
 }

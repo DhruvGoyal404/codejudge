@@ -10,14 +10,11 @@ import { VerdictBadge } from "../components/VerdictBadge.tsx";
 import { judgeReducer, type JudgeEvent } from "../lib/judgeState.ts";
 import { drafts } from "../lib/storage.ts";
 import { useMe } from "../lib/useMe.ts";
+import { TEMPLATES } from "../lib/templates.ts";
 import { useSubmissionStream } from "../lib/useSubmissionStream.ts";
 
 const CodeEditor = lazy(() => import("../editor/CodeEditor.tsx"));
 
-const TEMPLATES: Record<Language, string> = {
-  cpp: "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    ios::sync_with_stdio(false);\n    cin.tie(nullptr);\n\n    return 0;\n}\n",
-  python: "import sys\n\ndef main():\n    data = sys.stdin.read().split()\n\nmain()\n",
-};
 
 export function ProblemPage({ dark }: { dark: boolean }) {
   const { slug = "" } = useParams();

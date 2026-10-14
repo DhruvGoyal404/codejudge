@@ -69,10 +69,7 @@ func problemsDir(t *testing.T) string {
 
 func judgeFile(t *testing.T, p *problem.Problem, file string, opt Options) *SubmissionResult {
 	t.Helper()
-	name := "cpp"
-	if filepath.Ext(file) == ".py" {
-		name = "python"
-	}
+	name := map[string]string{".cpp": "cpp", ".py": "python", ".java": "java", ".js": "javascript"}[filepath.Ext(file)]
 	l, err := lang.Get(name)
 	if err != nil {
 		t.Fatal(err)
@@ -105,17 +102,17 @@ func TestSeedProblems(t *testing.T) {
 				t.Fatalf("%d samples / %d hidden tests", len(p.Samples), n)
 			}
 			for _, c := range []struct{ file, want string }{
-				{"ref.cpp", AC}, {"ref.py", AC}, {"wrong.cpp", WA}, {"slow.cpp", TLE},
+				{"ref.cpp", AC}, {"ref.py", AC}, {"ref.java", AC}, {"ref.js", AC}, {"wrong.cpp", WA}, {"slow.cpp", TLE},
 			} {
 				res := judgeFile(t, p, c.file, Options{})
 				if res.Verdict != c.want {
 					t.Errorf("%s: verdict %s (%s), want %s", c.file, res.Verdict, res.Reason, c.want)
 				}
-				if c.file == "ref.py" {
-					// Clear margin: the Python reference must use at most half of its
+				if c.file == "ref.py" || c.file == "ref.java" || c.file == "ref.js" {
+					// Clear margin: a non-C++ reference must use at most half of its
 					// effective (multiplied) time limit on every test.
 					if res.MaxCPUMs*2 > res.TimeLimitMs {
-						t.Errorf("python reference max cpu %dms is not within 50%% of its %dms limit", res.MaxCPUMs, res.TimeLimitMs)
+						t.Errorf("%s max cpu %dms is not within 50%% of its %dms limit", c.file, res.MaxCPUMs, res.TimeLimitMs)
 					}
 				}
 			}

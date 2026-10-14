@@ -121,7 +121,7 @@ func (s *Sandbox) Compile(ctx context.Context, l lang.Lang, src []byte) (*Compil
 		"--stderr-cap", strconv.Itoa(stderrCap),
 		"--max-tar-bytes", strconv.Itoa(maxSourceBytes),
 		"--max-files", "1",
-		"--nproc", strconv.Itoa(s.nprocLimit()),
+		"--nproc", strconv.Itoa(s.nprocLimit() + l.ExtraTasks),
 	}
 	for _, a := range l.Artifacts {
 		cmd = append(cmd, "--artifact", a)
@@ -130,7 +130,7 @@ func (s *Sandbox) Compile(ctx context.Context, l lang.Lang, src []byte) (*Compil
 
 	cr, err := s.runContainer(ctx, containerSpec{
 		Role: "compile", ImageKey: l.CompileImage, Cmd: cmd,
-		MemoryBytes: compileMemoryMB << 20, NanoCPUs: runCPUs, PidsLimit: s.pidsLimit(),
+		MemoryBytes: compileMemoryMB << 20, NanoCPUs: runCPUs, PidsLimit: s.pidsLimit() + int64(l.ExtraTasks),
 		BoxMB: compileBoxMB, TmpMB: compileTmpMB,
 		StdinTar: in, StdoutCap: compileOutCap + 1<<20,
 		Deadline: compileWallMs*time.Millisecond + hostGrace,
@@ -210,15 +210,15 @@ func (s *Sandbox) Run(ctx context.Context, c *Compiled, stdin []byte, lim Limits
 	memBytes := lim.MemoryMB << 20
 	outMB := (lim.OutputBytes + (1<<20 - 1)) >> 20
 	boxMB := int64(len(in))>>20 + 2*outMB + 8 // inputs + stdout + stderr files + slack
-	containerMem := memBytes + (helperHeadroomMB+boxMB+runTmpMB)<<20
+	containerMem := memBytes + (c.Lang.MemOverheadMB+helperHeadroomMB+boxMB+runTmpMB)<<20
 
 	cmd := []string{"run",
 		"--cpu-ms", strconv.FormatInt(lim.TimeLimit.Milliseconds(), 10),
 		"--wall-ms", strconv.FormatInt(wall.Milliseconds(), 10),
 		"--fsize", strconv.FormatInt(lim.OutputBytes, 10),
 		"--stack", strconv.FormatInt(memBytes, 10),
-		"--nproc", strconv.Itoa(s.nprocLimit()),
-		"--mem-kb", strconv.FormatInt(lim.MemoryMB*1024, 10),
+		"--nproc", strconv.Itoa(s.nprocLimit() + c.Lang.ExtraTasks),
+		"--mem-kb", strconv.FormatInt((lim.MemoryMB+c.Lang.MemOverheadMB)*1024, 10),
 		"--stdout-cap", strconv.FormatInt(lim.OutputBytes, 10),
 		"--stderr-cap", strconv.Itoa(stderrCap),
 		"--stdin", "input",
@@ -226,11 +226,11 @@ func (s *Sandbox) Run(ctx context.Context, c *Compiled, stdin []byte, lim Limits
 		"--max-files", strconv.Itoa(len(files)),
 		"--",
 	}
-	cmd = append(cmd, c.Lang.RunCmd...)
+	cmd = append(cmd, lang.Expand(c.Lang.RunCmd, lim.MemoryMB)...)
 
 	cr, cerr := s.runContainer(ctx, containerSpec{
 		Role: "run", ImageKey: c.Lang.RunImage, Cmd: cmd,
-		MemoryBytes: containerMem, NanoCPUs: runCPUs, PidsLimit: s.pidsLimit(),
+		MemoryBytes: containerMem, NanoCPUs: runCPUs, PidsLimit: s.pidsLimit() + int64(c.Lang.ExtraTasks),
 		BoxMB: boxMB, TmpMB: runTmpMB,
 		StdinTar: in,
 		// Frame = base64(stdout + stderr) + small JSON envelope.
@@ -238,7 +238,7 @@ func (s *Sandbox) Run(ctx context.Context, c *Compiled, stdin []byte, lim Limits
 		Deadline:  wall + hostGrace,
 	})
 
-	ev := runEvidence{limits: lim, oomKilled: cr.OOMKilled, hostDeadline: cr.DeadlineHit, hostErr: cerr}
+	ev := runEvidence{limits: lim, lang: c.Lang, oomKilled: cr.OOMKilled, hostDeadline: cr.DeadlineHit, hostErr: cerr}
 	if cr.StdoutCapHit && cerr == nil {
 		ev.hostErr = fmt.Errorf("result frame exceeded %d bytes", (lim.OutputBytes+stderrCap)*4/3+64<<10)
 	}

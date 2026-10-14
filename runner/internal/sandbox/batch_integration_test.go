@@ -56,7 +56,7 @@ func runBatchFixture(t *testing.T, file string, inputs []string, lim Limits) []*
 }
 
 func TestBatchOK(t *testing.T) {
-	for _, f := range []string{"ok.cpp", "ok.py"} {
+	for _, f := range []string{"ok.cpp", "ok.py", "ok.java", "ok.js"} {
 		t.Run(f, func(t *testing.T) {
 			res := runBatchFixture(t, f, []string{"1 2\n", "40 2\n", "-5 5\n"}, std)
 			for i, want := range []string{"3", "42", "0"} {
@@ -73,7 +73,21 @@ func TestBatchOK(t *testing.T) {
 // its stdout/stderr files and the directory it is listing may appear.
 func TestBatchFDs(t *testing.T) {
 	allowed := map[string]bool{"/box/input": true, "/box/.stdout": true, "/box/.stderr": true}
-	for _, f := range []string{"fds.cpp", "fds.py"} {
+	// The JVM and Node open their own files, epoll/eventfd handles and pipes;
+	// sockets and anything else are still rejected. (That judge-exec passes
+	// only 0-2 to the program is proven exactly by the C++/Python variants.)
+	runtimeOwn := func(f, target string) bool {
+		switch {
+		case strings.HasSuffix(f, ".java"):
+			return strings.HasPrefix(target, "/opt/java/") || target == "/box/main.jar" ||
+				strings.HasPrefix(target, "anon_inode:") || strings.HasPrefix(target, "pipe:") || strings.HasPrefix(target, "/dev/")
+		case strings.HasSuffix(f, ".js"):
+			return strings.HasPrefix(target, "anon_inode:") || strings.HasPrefix(target, "pipe:") ||
+				strings.HasPrefix(target, "/usr/") || strings.HasPrefix(target, "/dev/") || target == "/box/main.js"
+		}
+		return false
+	}
+	for _, f := range []string{"fds.cpp", "fds.py", "fds.java", "fds.js"} {
 		t.Run(f, func(t *testing.T) {
 			for i, res := range runBatchFixture(t, f, []string{"first", "second"}, std) {
 				wantStatus(t, res, StatusOK)
@@ -83,7 +97,7 @@ func TestBatchFDs(t *testing.T) {
 					if !ok {
 						t.Fatalf("test %d: unparseable line %q", i+1, line)
 					}
-					if !allowed[target] && !strings.HasPrefix(target, "/proc/") {
+					if !allowed[target] && !strings.HasPrefix(target, "/proc/") && !runtimeOwn(f, target) {
 						t.Fatalf("test %d: program holds unexpected descriptor %q", i+1, line)
 					}
 					seen[target] = true
@@ -101,7 +115,7 @@ func TestBatchFDs(t *testing.T) {
 // Reading past the end of its own input must never yield a later test's bytes.
 func TestBatchStdinOverread(t *testing.T) {
 	inputs := []string{"MARK-1", "MARK-2", "MARK-3"}
-	for _, f := range []string{"overread.cpp", "overread.py"} {
+	for _, f := range []string{"overread.cpp", "overread.py", "overread.java", "overread.js"} {
 		t.Run(f, func(t *testing.T) {
 			for i, res := range runBatchFixture(t, f, inputs, std) {
 				wantStatus(t, res, StatusOK)
@@ -118,35 +132,46 @@ func TestBatchStdinOverread(t *testing.T) {
 // yet, earlier ones (and anything the program left behind) have been wiped.
 func TestBatchHiddenInputs(t *testing.T) {
 	inputs := []string{"SECRET-1", "SECRET-2", "SECRET-3"}
-	for i, res := range runBatchFixture(t, "snoop.py", inputs, std) {
-		wantStatus(t, res, StatusOK)
-		if !strings.Contains(res.Stdout, "own: SECRET-"+fmt.Sprint(i+1)) {
-			t.Fatalf("test %d: own input missing: %q", i+1, res.Stdout)
-		}
-		for j := range inputs {
-			if j != i && strings.Contains(res.Stdout, inputs[j]) {
-				t.Fatalf("test %d saw %s: %q", i+1, inputs[j], res.Stdout)
+	for _, f := range []string{"snoop.py", "snoop.java", "snoop.js"} {
+		t.Run(f, func(t *testing.T) {
+			for i, res := range runBatchFixture(t, f, inputs, std) {
+				wantStatus(t, res, StatusOK)
+				if !strings.Contains(res.Stdout, "own: SECRET-"+fmt.Sprint(i+1)) {
+					t.Fatalf("test %d: own input missing: %q", i+1, res.Stdout)
+				}
+				for j := range inputs {
+					if j != i && strings.Contains(res.Stdout, inputs[j]) {
+						t.Fatalf("test %d saw %s: %q", i+1, inputs[j], res.Stdout)
+					}
+				}
+				if strings.Contains(res.Stdout, "LEFTOVER") {
+					t.Fatalf("test %d found files left by an earlier test: %q", i+1, res.Stdout)
+				}
 			}
-		}
-		if strings.Contains(res.Stdout, "LEFTOVER") {
-			t.Fatalf("test %d found files left by an earlier test: %q", i+1, res.Stdout)
-		}
+		})
 	}
 }
 
 // A1 result-integrity tests, in batch mode: verdicts reflect the real
 // program, and the batch stays valid (nonce/seq) for the following test.
 func TestBatchVerdictForgery(t *testing.T) {
-	for _, f := range []string{"forge.cpp", "forge.py"} {
+	for _, f := range []string{"forge.cpp", "forge.py", "forge.java", "forge.js"} {
 		t.Run(f, func(t *testing.T) {
 			for i, res := range runBatchFixture(t, f, []string{"", ""}, std) {
 				wantStatus(t, res, StatusRE)
 				if res.ExitCode != 3 {
 					t.Fatalf("test %d exit %d, want 3", i+1, res.ExitCode)
 				}
-				if !strings.Contains(res.Stderr, "open /proc/1/fd/1: Permission denied") ||
-					strings.Contains(res.Stderr, "INJECTED") || strings.Contains(res.Stderr, "child:") {
+				if !strings.Contains(res.Stderr, "open /proc/1/fd/1: Permission denied") || strings.Contains(res.Stderr, "INJECTED") {
 					t.Fatalf("test %d: forgery made progress: %q", i+1, res.Stderr)
+				}
+				// The forked child must not get to act before it is reaped. The JVM
+				// takes ~0.4 s to exit, so its child may run, but only its own
+				// output is affected (the verdict above is still RE 3) and its
+				// attempt on judge-exec's channel must have been denied too.
+				if strings.Contains(res.Stderr, "child:") &&
+					(!strings.HasSuffix(f, ".java") || !strings.Contains(res.Stderr, "child: open /proc/1/fd/1: Permission denied")) {
+					t.Fatalf("test %d: forked child acted: %q", i+1, res.Stderr)
 				}
 			}
 		})

@@ -106,7 +106,7 @@ func runOne(o RunConfig, inputPath string) Result {
 	defer wall.Stop()
 	poll := time.NewTicker(5 * time.Millisecond)
 	defer poll.Stop()
-	var wallKilled, memKilled bool
+	var wallKilled, memKilled, outKilled bool
 	var peakSeenKB int64
 	var res waitResult
 loop:
@@ -125,6 +125,16 @@ loop:
 						memKilled = true
 						_ = syscall.Kill(-pid, syscall.SIGKILL)
 					}
+				}
+			}
+			// Output limit: stop the program as soon as stdout reaches the cap.
+			// RLIMIT_FSIZE alone isn't enough: runtimes that ignore SIGXFSZ (the
+			// JVM) or buffer failed writes (Node) would spin into TLE or grow
+			// into MLE instead of reporting OLE.
+			if o.mode != "compile" && o.fsize > 0 && !outKilled {
+				if st, err := out.Stat(); err == nil && st.Size() >= o.fsize {
+					outKilled = true
+					_ = syscall.Kill(-pid, syscall.SIGKILL)
 				}
 			}
 		}
@@ -172,7 +182,7 @@ loop:
 	f.Stdout, f.StdoutTruncated, size = readCapped(stdoutPath, o.stdoutCap)
 	f.StdoutBytes = size
 	f.Stderr, f.StderrTruncated, _ = readCapped(stderrPath, o.stderrCap)
-	f.OutputLimitHit = (o.fsize > 0 && size >= o.fsize) || f.Signal == int(syscall.SIGXFSZ)
+	f.OutputLimitHit = outKilled || (o.fsize > 0 && size >= o.fsize) || f.Signal == int(syscall.SIGXFSZ)
 	return f
 }
 

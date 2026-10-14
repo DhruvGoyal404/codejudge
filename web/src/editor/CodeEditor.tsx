@@ -2,10 +2,11 @@
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { useEffect, useRef } from "react";
 
+import type { Language } from "../api.ts";
 import { monaco } from "./monaco.ts";
 
 export interface CodeEditorProps {
-  language: "cpp" | "python";
+  language: Language;
   value: string;
   onChange?: (value: string) => void;
   onSubmit?: () => void;

@@ -13,7 +13,7 @@ import type { Queue } from "./queue.ts";
 import { requireUser, Sessions } from "./sessions.ts";
 import { testAuthRouter } from "./testAuth.ts";
 
-export const LANGUAGES = ["cpp", "python"] as const;
+export const LANGUAGES = ["cpp", "python", "java", "javascript"] as const;
 export const MAX_SOURCE_BYTES = 64 * 1024;
 /** At most this many of a user's submissions may be queued|running at once. */
 export const MAX_ACTIVE_PER_USER = 2;

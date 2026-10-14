@@ -1,6 +1,11 @@
 package sandbox
 
-import "github.com/DhruvGoyal404/codejudge/runner/internal/protocol"
+import (
+	"bytes"
+
+	"github.com/DhruvGoyal404/codejudge/runner/internal/lang"
+	"github.com/DhruvGoyal404/codejudge/runner/internal/protocol"
+)
 
 // Verdict statuses. AC/WA (output comparison) arrive in Phase 2.
 const (
@@ -27,6 +32,7 @@ type runEvidence struct {
 	hostDeadline bool            // host-side outer deadline fired
 	hostErr      error           // docker / transport / parse failure
 	limits       Limits
+	lang         lang.Lang // MemOverheadMB (RSS ceiling) and OOMMarkers
 }
 
 // classify applies the precedence IE > MLE > TLE > OLE > RE > OK.
@@ -57,6 +63,9 @@ func classify(ev runEvidence) (status, reason string) {
 		return StatusIE, "judge-exec: " + f.Error
 	}
 	limKB := ev.limits.MemoryMB * 1024
+	if limKB > 0 {
+		limKB += ev.lang.MemOverheadMB * 1024 // the runtime's own memory (JVM, V8) is not the program's
+	}
 	if ev.oomKilled || f.Status == protocol.StatusMemKilled || (limKB > 0 && f.MaxRSSKB > limKB) {
 		return StatusMLE, ""
 	}
@@ -67,6 +76,14 @@ func classify(ev runEvidence) (status, reason string) {
 		return StatusOLE, ""
 	}
 	if f.Signal != 0 || f.ExitCode != 0 || f.Status == protocol.StatusSignaled {
+		// A runtime that ran out of heap (java.lang.OutOfMemoryError, V8 "heap
+		// out of memory", Python MemoryError) exceeded the memory limit.
+		// (The JVM's ExitOnOutOfMemoryError message goes to stdout.)
+		for _, m := range ev.lang.OOMMarkers {
+			if bytes.Contains(f.Stderr, []byte(m)) || bytes.Contains(f.Stdout, []byte(m)) {
+				return StatusMLE, "runtime out of memory"
+			}
+		}
 		return StatusRE, ""
 	}
 	return StatusOK, ""

@@ -20,7 +20,7 @@ import (
 //	JUDGE_BENCH=1 go test -p 1 -tags integration -run TestBenchSubmissions -count=1 -v -timeout 90m ./internal/judge/
 //
 // Optional comma-separated filters: JUDGE_BENCH_PROBLEMS, JUDGE_BENCH_FILES
-// (ref.cpp,ref.py), JUDGE_BENCH_MODES (batch,per-test). Never run this at the
+// (ref.cpp,ref.py,ref.java,ref.js), JUDGE_BENCH_MODES (batch,per-test). Never run this at the
 // same time as an integration suite on the dev machine.
 func TestBenchSubmissions(t *testing.T) {
 	if os.Getenv("JUDGE_BENCH") != "1" {
@@ -33,7 +33,7 @@ func TestBenchSubmissions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, file := range filter("JUDGE_BENCH_FILES", []string{"ref.cpp", "ref.py"}) {
+		for _, file := range filter("JUDGE_BENCH_FILES", []string{"ref.cpp", "ref.py", "ref.java", "ref.js"}) {
 			for _, mode := range filter("JUDGE_BENCH_MODES", []string{ModeBatch, ModePerTest}) {
 				var total, compile []time.Duration
 				for i := 0; i < runs; i++ {

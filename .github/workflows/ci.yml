@@ -8,6 +8,10 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Nightly: the full matrix again (all four languages, both runtimes) against
+  # whatever the private problems repo holds now.
+  schedule:
+    - cron: "17 21 * * *"
 
 permissions:
   contents: read
@@ -165,7 +169,7 @@ jobs:
   sandbox:
     name: Sandbox integration (${{ matrix.runtime }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -173,8 +177,17 @@ jobs:
     defaults:
       run:
         working-directory: runner
+    env:
+      CODEJUDGE_PROBLEMS_TESTS_DIR: ${{ github.workspace }}/problems-private
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          repository: DhruvGoyal404/codejudge-problems
+          ssh-key: ${{ secrets.PROBLEMS_DEPLOY_KEY }}
+          path: problems-private
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: runner/go.mod
@@ -219,6 +232,16 @@ jobs:
         run: |
           set -o pipefail
           go test -p 1 -tags integration -count=1 -timeout 40m -v ./internal/sandbox/ 2>&1 | tee "$RUNNER_TEMP/sandbox-${{ matrix.runtime }}.log"
+      # Every seed problem judged with its C++/Python/Java/JS references (AC,
+      # non-C++ within 50% of the multiplied limit) and wrong/slow (WA/TLE).
+      # The max_cpu lines are the time-multiplier calibration data.
+      - name: Seed problems, all reference languages
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          JUDGE_TEST_RUNTIME: ${{ matrix.runtime == 'runsc' && 'runsc' || '' }}
+        run: |
+          set -o pipefail
+          go test -p 1 -tags integration -count=1 -timeout 30m -v -run 'TestSeedProblems' ./internal/judge/ 2>&1 | tee "$RUNNER_TEMP/seed-${{ matrix.runtime }}.log"
       - name: Summary
         if: always()
         run: |
@@ -230,4 +253,11 @@ jobs:
             grep -E '^(--- (PASS|FAIL|SKIP)|ok|FAIL|PASS)' "$log" | sed 's/ (.*//' | sort | uniq -c | sort -rn | head -5
             grep -E '^--- FAIL' "$log" || true
             echo '```'
+            seed="$RUNNER_TEMP/seed-${{ matrix.runtime }}.log"
+            if [ -f "$seed" ]; then
+              echo "### Seed problems: reference max CPU (ms / effective limit)"
+              echo '```'
+              grep -oE '[a-z-]+/(ref|wrong|slow)\.[a-z]+ \[[a-z-]+\] -> [A-Z]+|max_cpu=[0-9]+ms/[0-9]+ms' "$seed" | paste - - || true
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

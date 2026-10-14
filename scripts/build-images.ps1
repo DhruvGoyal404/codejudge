@@ -21,9 +21,12 @@ $imgDir  = Join-Path $root 'sandbox/images' # '/' works on Windows and on Linux 
 $lock    = Join-Path $imgDir 'images.lock.json'
 
 $images = [ordered]@{
-  'cpp-compile' = 'cpp-compile.Dockerfile'
-  'cpp-run'     = 'cpp-run.Dockerfile'
-  'python'      = 'python.Dockerfile'
+  'cpp-compile'  = 'cpp-compile.Dockerfile'
+  'cpp-run'      = 'cpp-run.Dockerfile'
+  'python'       = 'python.Dockerfile'
+  'java-compile' = 'java-compile.Dockerfile'
+  'java-run'     = 'java-run.Dockerfile'
+  'node'         = 'node.Dockerfile'
 }
 
 $result = [ordered]@{}

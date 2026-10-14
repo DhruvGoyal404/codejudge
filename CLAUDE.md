@@ -38,10 +38,10 @@ Go: system 1.22.5; runner/ pins toolchain go1.27.2 via go.mod (auto-downloaded).
 ## Sandbox invariants (never weaken without explicit approval)
 
 - Always: `--network none`, `--ipc none`, memory+memory-swap equal, `--cpus`, `--pids-limit`, `--read-only` rootfs, `--cap-drop ALL`, `no-new-privileges`, non-root uid unique among live containers (allocator, range [1e9, 1e9+1e6), host overlap check; RLIMIT_NPROC counts per uid), explicit seccomp profile `sandbox/seccomp/default.json` (engine default is unconfined on this host; under runsc a derived variant that only additionally allows clone3, see docs/PHASE6.md 6a.7), log driver none.
-- judge-exec limits for the program: RLIMIT_NPROC (48 runc / 32 runsc, below the pids cgroup), RLIMIT_CORE=1 (0 does not stop piped core dumps). SysV IPC and POSIX mqueues are denied by seccomp; the batch IPC guard fails closed.
+- judge-exec limits for the program: RLIMIT_NPROC (48 runc / 32 runsc, below the pids cgroup; Java/JS add `lang.ExtraTasks` to both), RLIMIT_CORE=1 (0 does not stop piped core dumps). SysV IPC and POSIX mqueues are denied by seccomp; the batch IPC guard fails closed.
 - No host bind mounts. Code and input go in as a tar stream on stdin.
 - Every container is force-removed on every path (success, error, timeout, panic); a startup reaper removes stale `judge.managed` containers.
-- Images pinned by digest. Compiler never present in run images.
+- Images pinned by digest. Compiler never present in run images (java-run is a JRE: no javac). Languages: cpp, python, java (Temurin 21, class Main), javascript (Node 22); runtime heap flags = problem memory limit, container memory = limit + `lang.MemOverheadMB`; see docs/PHASE5_5.md.
 - Untrusted output is always size-capped before being read into memory.
 - judge-exec runs non-dumpable (PR_SET_DUMPABLE=0) and drops catchable terminating signals; batch frames are validated (nonce + seq) by the host.
 - Batch mode: between tests reset /box, /tmp, /dev/mqueue and all SysV IPC objects; fail closed if any reset fails. Hidden-test output is never returned.

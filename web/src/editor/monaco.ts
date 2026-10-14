@@ -1,11 +1,14 @@
 // Monaco, bundled locally (no CDN), trimmed to what the judge needs:
-// the editor core, C++ and Python syntax support, and the base editor worker.
+// the editor core, C++/Python/Java/JavaScript syntax support (Monarch
+// tokenizers only) and the base editor worker.
 // No TypeScript/JSON/CSS/HTML language services are pulled in.
 import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor/editor/editor.api";
 import editorWorkerUrl from "monaco-editor/editor/editor.worker?worker&url";
 import "monaco-editor/languages/definitions/cpp/register";
 import "monaco-editor/languages/definitions/python/register";
+import "monaco-editor/languages/definitions/java/register";
+import "monaco-editor/languages/definitions/javascript/register";
 
 // The production CSP enforces Trusted Types for scripts (require-trusted-types-for
 // 'script'): a Worker URL must come from a policy. This one only accepts our

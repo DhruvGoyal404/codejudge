@@ -16,6 +16,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/DhruvGoyal404/codejudge/runner/internal/boxtar"
+	"github.com/DhruvGoyal404/codejudge/runner/internal/lang"
 	"github.com/DhruvGoyal404/codejudge/runner/internal/protocol"
 )
 
@@ -39,6 +40,7 @@ type Batch struct {
 	dead      bool
 	closeOnce sync.Once
 	release   func()
+	lang      lang.Lang
 	// releaseUID frees the container's uid (after removal).
 	releaseUID func()
 }
@@ -92,7 +94,7 @@ func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTest
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	b := &Batch{s: s, nonce: hex.EncodeToString(nonceRaw), lim: lim, wall: WallLimit(lim.TimeLimit), frames: make(chan frameOrErr, 2)}
+	b := &Batch{s: s, nonce: hex.EncodeToString(nonceRaw), lim: lim, lang: c.Lang, wall: WallLimit(lim.TimeLimit), frames: make(chan frameOrErr, 2)}
 	var once sync.Once
 	b.release = func() { once.Do(func() { <-s.sem }) }
 	b.ctx, b.cancel = context.WithTimeout(ctx, batchDeadline(nTests, lim.TimeLimit))
@@ -104,21 +106,21 @@ func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTest
 	sp := containerSpec{
 		Role: "batch", ImageKey: c.Lang.RunImage, KeepStdinOpen: true,
 		// judge-exec keeps a copy of the program tar in memory: add progMB to headroom.
-		MemoryBytes: memBytes + (helperHeadroomMB+progMB+boxMB+runTmpMB)<<20,
-		NanoCPUs:    runCPUs, PidsLimit: s.pidsLimit(), BoxMB: boxMB, TmpMB: runTmpMB,
+		MemoryBytes: memBytes + (c.Lang.MemOverheadMB+helperHeadroomMB+progMB+boxMB+runTmpMB)<<20,
+		NanoCPUs:    runCPUs, PidsLimit: s.pidsLimit() + int64(c.Lang.ExtraTasks), BoxMB: boxMB, TmpMB: runTmpMB,
 		Cmd: append([]string{"run", "--batch",
 			"--cpu-ms", strconv.FormatInt(lim.TimeLimit.Milliseconds(), 10),
 			"--wall-ms", strconv.FormatInt(b.wall.Milliseconds(), 10),
 			"--fsize", strconv.FormatInt(lim.OutputBytes, 10),
 			"--stack", strconv.FormatInt(memBytes, 10),
-			"--nproc", strconv.Itoa(s.nprocLimit()),
-			"--mem-kb", strconv.FormatInt(lim.MemoryMB*1024, 10),
+			"--nproc", strconv.Itoa(s.nprocLimit() + c.Lang.ExtraTasks),
+			"--mem-kb", strconv.FormatInt((lim.MemoryMB+c.Lang.MemOverheadMB)*1024, 10),
 			"--stdout-cap", strconv.FormatInt(lim.OutputBytes, 10),
 			"--stderr-cap", strconv.Itoa(stderrCap),
 			"--max-tar-bytes", strconv.Itoa(len(program)),
 			"--max-files", strconv.Itoa(len(c.Files)),
 			"--max-input-bytes", strconv.Itoa(maxInput),
-			"--"}, c.Lang.RunCmd...),
+			"--"}, lang.Expand(c.Lang.RunCmd, lim.MemoryMB)...),
 	}
 
 	fail := func(err error) (*Batch, error) {
@@ -229,7 +231,7 @@ func (b *Batch) Run(input []byte) (*Result, error) {
 		b.seq++
 		f := fe.f
 		res := &Result{RunMs: time.Since(start).Milliseconds()}
-		res.Status, res.Reason = classify(runEvidence{frame: &f, limits: b.lim})
+		res.Status, res.Reason = classify(runEvidence{frame: &f, limits: b.lim, lang: b.lang})
 		fillFromFrame(res, &f)
 		return res, nil
 	case <-timer.C:
@@ -251,7 +253,7 @@ func fillFromFrame(res *Result, f *protocol.Frame) {
 func (b *Batch) died(start time.Time, cause error) *Result {
 	oom := b.stopAndInspect()
 	res := &Result{RunMs: time.Since(start).Milliseconds(), OOMKilled: oom}
-	res.Status, res.Reason = classify(runEvidence{oomKilled: oom, hostErr: cause, limits: b.lim})
+	res.Status, res.Reason = classify(runEvidence{oomKilled: oom, hostErr: cause, limits: b.lim, lang: b.lang})
 	if !oom {
 		res.Reason = cause.Error()
 	}

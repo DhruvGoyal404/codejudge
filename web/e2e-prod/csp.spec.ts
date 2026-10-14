@@ -65,6 +65,10 @@ async function useEditor(page: Page) {
   // Language switch (tokenizer swap) and dark theme (Monaco injects theme CSS).
   await page.getByLabel("Language").selectOption("python");
   await expect(page.locator(".view-lines")).toContainText("import sys");
+  await page.getByLabel("Language").selectOption("java");
+  await expect(page.locator(".view-lines")).toContainText("public class Main");
+  await page.getByLabel("Language").selectOption("javascript");
+  await expect(page.locator(".view-lines")).toContainText("readFileSync");
   await page.getByRole("button", { name: /Switch to (dark|light) mode/ }).click();
   await expect(page.locator(".monaco-editor.vs-dark, .monaco-editor.vs").first()).toBeVisible();
 }
