@@ -413,8 +413,9 @@ func TestCrashWithThreads(t *testing.T) {
 	}
 }
 
-// N containers that are alive at the same time never share a uid, even when
-// two independent sandboxes (as two worker processes would) allocate at once.
+// Containers that are alive at the same time never share a uid, even when
+// two independent sandboxes (as two worker processes would) allocate at
+// once. A uid may be reused only after its previous container is gone.
 func TestUIDsUniqueAcrossLiveContainers(t *testing.T) {
 	seccomp, err := FindRepoFile("sandbox/seccomp/default.json")
 	if err != nil {
@@ -434,37 +435,59 @@ func TestUIDsUniqueAcrossLiveContainers(t *testing.T) {
 		defer s.Close()
 		sbs = append(sbs, s)
 	}
+	type run struct {
+		sandbox    int
+		uid, gid   uint64
+		start, end int64
+	}
 	l := langOf(t, "uid.py")
 	src := fixture(t, "uid.py")
 	var mu sync.Mutex
-	uids := map[string]int{}
+	var runs []run
 	var wg sync.WaitGroup
-	for _, s := range sbs {
+	for si, s := range sbs {
 		for i := 0; i < perSandbox; i++ {
 			wg.Add(1)
-			go func(s *Sandbox) {
+			go func(si int, s *Sandbox) {
 				defer wg.Done()
 				res, err := s.Execute(context.Background(), l, src, nil, std)
 				if err != nil || res.Status != StatusOK {
 					t.Errorf("run: %v %+v", err, res)
 					return
 				}
+				var r run
+				r.sandbox = si
+				if _, err := fmt.Sscanf(strings.TrimSpace(res.Stdout), "%d %d %d %d", &r.uid, &r.gid, &r.start, &r.end); err != nil {
+					t.Errorf("parse %q: %v", res.Stdout, err)
+					return
+				}
 				mu.Lock()
-				uids[strings.TrimSpace(res.Stdout)]++
+				runs = append(runs, r)
 				mu.Unlock()
-			}(s)
+			}(si, s)
 		}
 	}
 	wg.Wait()
-	t.Logf("uids: %v", uids)
-	if len(uids) != 2*perSandbox {
-		t.Fatalf("%d distinct uid:gid pairs for %d overlapping containers: %v", len(uids), 2*perSandbox, uids)
-	}
-	for k, n := range uids {
-		var uid, gid uint64
-		if _, err := fmt.Sscanf(k, "%d %d", &uid, &gid); err != nil || n != 1 || uid != gid ||
-			uid < SandboxUIDBase || uid >= SandboxUIDBase+SandboxUIDCount {
-			t.Fatalf("bad uid entry %q x%d", k, n)
+	overlap := func(a, b run) bool { return a.start < b.end && b.start < a.end }
+	crossOverlaps := 0
+	for i, a := range runs {
+		if a.uid != a.gid || a.uid < SandboxUIDBase || a.uid >= SandboxUIDBase+SandboxUIDCount {
+			t.Fatalf("bad uid/gid %d/%d", a.uid, a.gid)
 		}
+		for _, b := range runs[i+1:] {
+			if !overlap(a, b) {
+				continue
+			}
+			if a.sandbox != b.sandbox {
+				crossOverlaps++
+			}
+			if a.uid == b.uid {
+				t.Fatalf("uid %d shared by two containers alive at the same time: %+v %+v", a.uid, a, b)
+			}
+		}
+	}
+	t.Logf("%d runs, %d overlapping cross-sandbox pairs", len(runs), crossOverlaps)
+	if len(runs) != 2*perSandbox || crossOverlaps == 0 {
+		t.Fatalf("test did not exercise concurrent allocation: %d runs, %d cross-sandbox overlaps", len(runs), crossOverlaps)
 	}
 }
