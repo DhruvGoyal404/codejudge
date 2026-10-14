@@ -1,8 +1,35 @@
 # Phase 6a — Production prep (local only)
 
-Status: **6a.2–6a.6 done; 6a.1 (hidden-tests split) awaits approval; gVisor is not production-ready yet (6a.5).** Nothing here touches AWS. Pieces land one commit each; history is **not** rewritten until the hidden-tests split (6a.1) is approved.
+Status: **6a.1–6a.6 done; gVisor fixes in progress (6a.7).** Nothing here touches AWS. Pieces land one commit each; history was rewritten once, for the hidden-tests split (6a.1), with the old repository deleted and recreated rather than force-pushed.
 
-## 6a.1 Hidden-tests split — PLAN (awaiting approval; nothing executed)
+## 6a.1 Hidden-tests split (executed)
+
+### Executed (2026-10-14)
+
+Approved with changes: `wrong.cpp`/`slow.cpp` stay private with the references; the docs no longer say which hidden test catches which bug, and that is scrubbed from history too; **no force-push**: the old GitHub repo was deleted and recreated empty, then the rewritten history was pushed; `*.out` is ignored only under `runner/`; and CI checks that the public samples byte-match the private copies.
+
+1. **Private repo** `codejudge-problems` (`8920f2b`): 5 problems' `tests/` (102 files, including the expected outputs, all stored byte-exact under `-text`), `gen/` and `solutions/`. Regenerating with `make-tests.py --tests-root` reproduces every file byte for byte.
+2. **Public repo:**
+   - Each problem keeps `problem.yaml`, `statement.md` and `samples/`.
+   - The loader takes tests from `CODEJUDGE_PROBLEMS_TESTS_DIR`. In the split layout it refuses a public `tests/` folder and requires `samples/` to byte-match the hidden tests.
+   - The content hash is unchanged by the move. New tools: `judge-admin check` and `scripts/sync-samples.py [--check]`.
+   - `problems/*/samples/*` are `-text`, so Windows checkouts never convert them to CRLF.
+3. **Acceptance:** `judge-admin import` from the split layout reports **unchanged** for all 5 problems. Go unit tests, the API tests (85), API e2e (8), Playwright (10) and the judge integration suite all pass on the split layout.
+4. **Backups** in `E:\Dhruv\_backups`, all verified: a mirror plus bundle of GitHub at `3e3d55a`, and a bundle of the local repo.
+5. **Rewrite** (`git filter-repo --invert-paths` on the three path globs, plus `--replace-text` and `--replace-message` rules for the wording that tied bugs to hidden tests). Verified before pushing:
+   - No `tests`/`gen`/`solutions` path in any commit.
+   - None of the scrubbed phrases appear in any blob or commit message.
+   - Tip tree identical to the pre-rewrite tip; 62 commits.
+   - The secret scan finds no live values.
+   - Of 128 private files, only the 20 public sample copies are present, plus the 2-byte value `1\n`, which also exists as two public sample outputs. Nothing in history links that blob to a hidden path.
+6. **New repo** (private): rewritten `main` pushed as `f885722`, normal push. A read-only deploy key on `codejudge-problems` and the secret `PROBLEMS_DEPLOY_KEY` on `codejudge` give CI access. The working copy was reset to the new history, and its old objects were pruned.
+7. **CI on the new repo:**
+   - `problems` (no hidden data tracked, samples byte-match, packages load) ✅
+   - API (problems seeded from the private repo) ✅
+   - Go unit and lint ✅, web ✅, sandbox under runc ✅
+   - Sandbox under runsc ❌, as expected until 6a.7.
+
+### The plan as approved
 
 ### What is secret today
 
