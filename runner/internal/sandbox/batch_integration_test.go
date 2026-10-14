@@ -210,6 +210,19 @@ func TestBatchOversizedInput(t *testing.T) {
 	}
 }
 
+// A fork bomb hitting the process limit in one batch test leaves judge-exec
+// alive and the next test in the same container unaffected.
+func TestBatchProcessLimit(t *testing.T) {
+	res := runBatchFixture(t, "fork.cpp", []string{"", ""}, std)
+	for i, r := range res {
+		wantStatus(t, r, StatusOK)
+		var started, failed int
+		if _, err := fmt.Sscanf(strings.TrimSpace(r.Stdout), "started=%d failed=%d", &started, &failed); err != nil || failed == 0 {
+			t.Fatalf("test %d: %q (%v)", i+1, r.Stdout, err)
+		}
+	}
+}
+
 // Nothing planted in one test survives into the next: /dev/shm (not even
 // mounted under --ipc none), POSIX message queues, and System V shm/msg/sem.
 func TestBatchCrossTestState(t *testing.T) {

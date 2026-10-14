@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,8 +24,25 @@ import (
 // LabelManaged marks every container (and image) this project creates.
 const LabelManaged = "judge.managed"
 
-// sandboxUser is "nobody:nogroup"; containers never run as root.
-const sandboxUser = "65534:65534"
+// Containers never run as root. Each container gets its own random,
+// unprivileged uid (= gid) from [sandboxUIDMin, sandboxUIDMax), not shared
+// with any other container or host user: RLIMIT_NPROC counts every task of a
+// uid host-wide (no user-namespace remapping), so a shared uid (e.g. 65534)
+// would let one submission's processes count against another's.
+const (
+	sandboxUIDMin = 200_000
+	sandboxUIDMax = 2_000_000_000
+)
+
+// sandboxUser returns a fresh "uid:gid" for one container.
+func sandboxUser() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err) // crypto/rand does not fail on supported platforms
+	}
+	uid := sandboxUIDMin + binary.BigEndian.Uint64(b[:])%(sandboxUIDMax-sandboxUIDMin)
+	return fmt.Sprintf("%d:%d", uid, uid)
+}
 
 // Options configures a Sandbox.
 type Options struct {
@@ -241,7 +259,7 @@ func (s *Sandbox) containerConfigs(image string, sp containerSpec) (*container.C
 	cfg := &container.Config{
 		Image:           image,
 		Cmd:             sp.Cmd,
-		User:            sandboxUser,
+		User:            sandboxUser(),
 		WorkingDir:      "/box",
 		AttachStdin:     true,
 		AttachStdout:    true,

@@ -109,6 +109,7 @@ func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTest
 			"--wall-ms", strconv.FormatInt(b.wall.Milliseconds(), 10),
 			"--fsize", strconv.FormatInt(lim.OutputBytes, 10),
 			"--stack", strconv.FormatInt(memBytes, 10),
+			"--nproc", strconv.Itoa(s.nprocLimit()),
 			"--mem-kb", strconv.FormatInt(lim.MemoryMB*1024, 10),
 			"--stdout-cap", strconv.FormatInt(lim.OutputBytes, 10),
 			"--stderr-cap", strconv.Itoa(stderrCap),

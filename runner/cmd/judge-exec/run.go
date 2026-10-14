@@ -71,7 +71,7 @@ func runOne(o RunConfig, inputPath string) Result {
 		cpuSec = (o.cpuMs+999)/1000 + 1 // time limit rounded up, +1s
 	}
 	argv := append([]string{"judge-exec", "__child",
-		strconv.FormatInt(cpuSec, 10), strconv.FormatInt(o.fsize, 10), strconv.FormatInt(o.stack, 10), "--"}, o.cmd...)
+		strconv.FormatInt(cpuSec, 10), strconv.FormatInt(o.fsize, 10), strconv.FormatInt(o.stack, 10), strconv.FormatInt(o.nproc, 10), "--"}, o.cmd...)
 
 	start := time.Now()
 	pid, err := syscall.ForkExec(self, argv, &syscall.ProcAttr{

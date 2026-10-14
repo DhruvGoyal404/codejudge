@@ -217,6 +217,17 @@ func TestNetworkBlocked(t *testing.T) {
 	}
 }
 
+// A program that doesn't handle hitting the process/thread limit dies (RE),
+// and judge-exec survives to report it: never IE (under runsc, RLIMIT_NPROC
+// keeps guest tasks inside the container's pids budget).
+func TestProcessLimitUnhandled(t *testing.T) {
+	res := execute(t, "threadbomb.cpp", "", std)
+	wantStatus(t, res, StatusRE)
+	if strings.Contains(res.Stdout, "unreachable") {
+		t.Fatalf("no process limit: %q", res.Stdout)
+	}
+}
+
 func TestProcessLimit(t *testing.T) {
 	res := execute(t, "fork.cpp", "", std)
 	wantStatus(t, res, StatusOK)
@@ -373,5 +384,15 @@ func TestClone3(t *testing.T) {
 		if !strings.HasPrefix(got[ns], "errno=") {
 			t.Errorf("clone3 with %s: %q, want failure", ns, got[ns])
 		}
+	}
+}
+
+// A multithreaded program that crashes is RE at once, not a slow core dump
+// that runs into the wall limit.
+func TestCrashWithThreads(t *testing.T) {
+	res := execute(t, "segv_threads.cpp", "", std)
+	wantStatus(t, res, StatusRE)
+	if res.WallMs > 1000 {
+		t.Fatalf("crash took %d ms (core dump not suppressed?)", res.WallMs)
 	}
 }

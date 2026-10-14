@@ -17,6 +17,7 @@ type options struct {
 	wallMs      int64
 	fsize       int64 // RLIMIT_FSIZE bytes; 0 = unlimited
 	stack       int64 // RLIMIT_STACK bytes; 0 = inherit
+	nproc       int64 // RLIMIT_NPROC for the program (tasks of its uid); 0 = inherit
 	memKB       int64 // kill when peak RSS (VmHWM) exceeds this; 0 = off
 	stdoutCap   int64
 	stderrCap   int64

@@ -29,8 +29,17 @@ const (
 	stderrCap        = 64 << 10
 	maxInputBytes    = 16 << 20
 	runPids          = 64
-	runCPUs          = 1_000_000_000 // 1 CPU
-	hostGrace        = 20 * time.Second
+	// RLIMIT_NPROC for programs (judge-exec --nproc). It counts every task of
+	// the program's uid, judge-exec's own threads included; each container has
+	// its own uid (sandboxUser), so the count is per container. It must stay
+	// below runPids with headroom for judge-exec, or a thread/fork bomb fills
+	// the pids cgroup and judge-exec's Go runtime can't create a thread (IE).
+	// Under runsc each guest task also costs host threads in the Sentry, which
+	// the pids cgroup counts, so the limit is lower there.
+	runcNproc  = 48
+	runscNproc = 32
+	runCPUs    = 1_000_000_000 // 1 CPU
+	hostGrace  = 20 * time.Second
 
 	compileMemoryMB = 1024
 	compileBoxMB    = 128
@@ -74,6 +83,14 @@ type Compiled struct {
 
 // Compile runs the language's compile step. On a compilation error it returns
 // (nil, *Result with Status CE, nil).
+// nprocLimit is the program's RLIMIT_NPROC for this sandbox's runtime (see runscNproc).
+func (s *Sandbox) nprocLimit() int {
+	if IsGVisor(s.opts.Runtime) {
+		return runscNproc
+	}
+	return runcNproc
+}
+
 func (s *Sandbox) Compile(ctx context.Context, l lang.Lang, src []byte) (*Compiled, *Result, error) {
 	if len(src) > maxSourceBytes {
 		return nil, &Result{Status: StatusCE, Reason: fmt.Sprintf("source larger than %d bytes", maxSourceBytes)}, nil
@@ -89,6 +106,7 @@ func (s *Sandbox) Compile(ctx context.Context, l lang.Lang, src []byte) (*Compil
 		"--stderr-cap", strconv.Itoa(stderrCap),
 		"--max-tar-bytes", strconv.Itoa(maxSourceBytes),
 		"--max-files", "1",
+		"--nproc", strconv.Itoa(s.nprocLimit()),
 	}
 	for _, a := range l.Artifacts {
 		cmd = append(cmd, "--artifact", a)
@@ -184,6 +202,7 @@ func (s *Sandbox) Run(ctx context.Context, c *Compiled, stdin []byte, lim Limits
 		"--wall-ms", strconv.FormatInt(wall.Milliseconds(), 10),
 		"--fsize", strconv.FormatInt(lim.OutputBytes, 10),
 		"--stack", strconv.FormatInt(memBytes, 10),
+		"--nproc", strconv.Itoa(s.nprocLimit()),
 		"--mem-kb", strconv.FormatInt(lim.MemoryMB*1024, 10),
 		"--stdout-cap", strconv.FormatInt(lim.OutputBytes, 10),
 		"--stderr-cap", strconv.Itoa(stderrCap),

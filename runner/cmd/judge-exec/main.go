@@ -57,6 +57,7 @@ func parse(args []string) (options, error) {
 	fs.Int64Var(&o.wallMs, "wall-ms", 10000, "")
 	fs.Int64Var(&o.fsize, "fsize", 0, "")
 	fs.Int64Var(&o.stack, "stack", 0, "")
+	fs.Int64Var(&o.nproc, "nproc", 0, "")
 	fs.Int64Var(&o.memKB, "mem-kb", 0, "")
 	fs.Int64Var(&o.stdoutCap, "stdout-cap", 64<<10, "")
 	fs.Int64Var(&o.stderrCap, "stderr-cap", 64<<10, "")
@@ -141,16 +142,22 @@ func harden() {
 // program. rlimits are process-wide, so setting them here (before exec) is
 // safe even though the Go runtime is multi-threaded.
 //
-//	__child CPU_SEC FSIZE STACK -- CMD...
+//	__child CPU_SEC FSIZE STACK NPROC -- CMD...
+//
+// rlimitNPROC is RLIMIT_NPROC on Linux (x86-64 and arm64); the syscall
+// package does not export it.
+const rlimitNPROC = 6
+
 func childMain(args []string) {
-	if len(args) < 5 || args[3] != "--" {
+	if len(args) < 6 || args[4] != "--" {
 		fmt.Fprintln(os.Stderr, "judge-exec: bad __child args")
 		os.Exit(127)
 	}
 	cpuSec, _ := strconv.ParseUint(args[0], 10, 64)
 	fsize, _ := strconv.ParseUint(args[1], 10, 64)
 	stack, _ := strconv.ParseUint(args[2], 10, 64)
-	cmd := args[4:]
+	nproc, _ := strconv.ParseUint(args[3], 10, 64)
+	cmd := args[5:]
 
 	set := func(res int, cur, max uint64) {
 		if err := syscall.Setrlimit(res, &syscall.Rlimit{Cur: cur, Max: max}); err != nil {
@@ -158,7 +165,12 @@ func childMain(args []string) {
 			os.Exit(127)
 		}
 	}
-	set(syscall.RLIMIT_CORE, 0, 0)
+	// RLIMIT_CORE=1, not 0: when the host's core_pattern pipes to a helper
+	// (WSL2, apport, systemd-coredump) the kernel ignores a limit of 0 and
+	// still runs the dump, which makes a crashing multithreaded program hang
+	// for seconds (seen as TLE instead of RE). A limit of 1 makes the kernel
+	// refuse pipe dumps, and 1 byte is below any file dump's minimum.
+	set(syscall.RLIMIT_CORE, 1, 1)
 	if cpuSec > 0 {
 		set(syscall.RLIMIT_CPU, cpuSec, cpuSec+1) // SIGXCPU at soft, SIGKILL at hard
 	}
@@ -167,6 +179,13 @@ func childMain(args []string) {
 	}
 	if stack > 0 {
 		set(syscall.RLIMIT_STACK, stack, stack)
+	}
+	if nproc > 0 {
+		// Process/thread limit for the program: fork/clone fail with EAGAIN at
+		// the limit, so a fork bomb can't exhaust the container's tasks and
+		// take judge-exec (or, under gVisor, the Sentry) down with it. The
+		// container's pids limit stays as the outer layer.
+		set(rlimitNPROC, nproc, nproc)
 	}
 
 	path := cmd[0]
