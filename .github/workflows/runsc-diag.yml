@@ -71,6 +71,8 @@ jobs:
               docker run --rm --runtime "$rt" --network none --security-opt "$opt" --security-opt no-new-privileges --cap-drop ALL --user 65534                 -v /tmp/probe:/p:ro --entrypoint /p/spawnprobe "$id" 2>&1 || true
             done
           done
+      - name: Experiment (profile copy, repo unchanged) - defaultErrnoRet 38 (ENOSYS)
+        run: bash .github/diag/experiment.sh
       - name: Syscalls that returned EPERM (errno=1) under runsc-dbg
         if: always()
         run: |
