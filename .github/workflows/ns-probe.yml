@@ -1,0 +1,32 @@
+# TEMPORARY: one-iteration probe (6a.7 namespace decision); removed afterwards.
+name: ns-probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install gVisor 20260921.0
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          base="https://storage.googleapis.com/gvisor/releases/release/20260921.0/x86_64"
+          curl -fsSLO "$base/gvisor.tar.zstd"; curl -fsSLO "$base/gvisor.tar.zstd.sha512"
+          sha512sum -c gvisor.tar.zstd.sha512
+          mkdir gvisor && tar --zstd -xf gvisor.tar.zstd -C gvisor
+          sudo install -m 0755 "$(find gvisor -type f -name runsc | head -1)" /usr/local/bin/runsc
+          shim=$(find gvisor -type f -name containerd-shim-runsc-v1 | head -1)
+          [ -n "$shim" ] && sudo install -m 0755 "$shim" /usr/local/bin/containerd-shim-runsc-v1
+          sudo runsc install -- --oci-seccomp
+          sudo systemctl restart docker
+      - name: Build sandbox images
+        run: pwsh -NoProfile -File scripts/build-images.ps1
+      - name: Probe
+        run: bash .github/diag/ns-probe.sh
