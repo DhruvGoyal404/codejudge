@@ -41,7 +41,7 @@ type Options struct {
 // the concurrency semaphore.
 type Sandbox struct {
 	cli     *client.Client
-	seccomp string            // compacted JSON, inlined into SecurityOpt as the CLI does
+	seccomp string            // compacted JSON, inlined into SecurityOpt as the CLI does (runsc: gVisorProfile variant)
 	images  map[string]string // lock key -> image ID (sha256:...)
 	sem     chan struct{}
 	opts    Options
@@ -89,7 +89,14 @@ func New(ctx context.Context, o Options) (*Sandbox, error) {
 			return nil, fmt.Errorf("container runtime %q is not registered with the Docker engine (install it, e.g. runsc install, and restart dockerd)", o.Runtime)
 		}
 	}
-	s := &Sandbox{cli: cli, seccomp: compact.String(), images: images, sem: make(chan struct{}, o.Concurrency), opts: o}
+	profile := compact.String()
+	if IsGVisor(o.Runtime) {
+		if profile, err = gVisorProfile(raw); err != nil {
+			cli.Close()
+			return nil, err
+		}
+	}
+	s := &Sandbox{cli: cli, seccomp: profile, images: images, sem: make(chan struct{}, o.Concurrency), opts: o}
 	if _, err := s.Reap(ctx); err != nil {
 		cli.Close()
 		return nil, fmt.Errorf("startup reaper: %w", err)

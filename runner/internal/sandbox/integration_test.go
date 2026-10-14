@@ -333,3 +333,45 @@ func TestReaperInstances(t *testing.T) {
 		t.Error("container of a live instance was reaped")
 	}
 }
+
+// Multithreaded programs work under both runtimes (glibc pthread_create uses
+// clone3; under runc it falls back to clone on ENOSYS, under runsc clone3 is
+// allowed by the gVisor profile variant).
+func TestThreads(t *testing.T) {
+	for _, f := range []string{"threads.cpp", "threads.py"} {
+		t.Run(f, func(t *testing.T) {
+			res := execute(t, f, "", std)
+			wantStatus(t, res, StatusOK)
+			if strings.TrimSpace(res.Stdout) != "threads=8 sum=499999500000" {
+				t.Fatalf("stdout %q", res.Stdout)
+			}
+		})
+	}
+}
+
+// clone3 per runtime: ENOSYS under runc (the base profile), allowed under
+// runsc (gVisor variant), and namespace creation fails under both.
+func TestClone3(t *testing.T) {
+	res := execute(t, "clone3.cpp", "", std)
+	wantStatus(t, res, StatusOK)
+	got := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+		if k, v, ok := strings.Cut(line, ": "); ok {
+			got[k] = v
+		}
+	}
+	runtime := os.Getenv("JUDGE_TEST_RUNTIME")
+	t.Logf("runtime %q: %v", runtime, got)
+	if IsGVisor(runtime) {
+		if got["plain"] != "ok" {
+			t.Errorf("plain clone3 under runsc: %q, want ok", got["plain"])
+		}
+	} else if !strings.HasPrefix(got["plain"], "errno=38") {
+		t.Errorf("plain clone3 under runc: %q, want ENOSYS (errno=38)", got["plain"])
+	}
+	for _, ns := range []string{"newuser", "newpid", "newns"} {
+		if !strings.HasPrefix(got[ns], "errno=") {
+			t.Errorf("clone3 with %s: %q, want failure", ns, got[ns])
+		}
+	}
+}
