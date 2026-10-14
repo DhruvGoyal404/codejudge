@@ -59,6 +59,18 @@ jobs:
             docker run --rm --runtime runsc --network none --security-opt "$opt" -v /tmp/hi.cpp:/src/hi.cpp:ro --entrypoint sh "$id" \
               -c 'cd /tmp && g++ -O2 -o hi /src/hi.cpp; echo "g++ exit=$?"' 2>&1 | tail -20 || true
           done
+      - name: Process-creation probe under runc / runsc, with and without our profile
+        run: |
+          id=$(jq -r '."cpp-compile"' sandbox/images/images.lock.json)
+          mkdir -p /tmp/probe && cp .github/diag/spawnprobe.c /tmp/probe/ && chmod 777 /tmp/probe
+          docker run --rm --network none -v /tmp/probe:/p --entrypoint sh "$id" -c 'gcc -O1 -static -o /p/spawnprobe /p/spawnprobe.c && echo built'
+          prof="seccomp=$(pwd)/sandbox/seccomp/default.json"
+          for rt in runc runsc; do
+            for opt in "$prof" "seccomp=unconfined"; do
+              echo "===== $rt, ${opt%%=*}=${opt##*/}"
+              docker run --rm --runtime "$rt" --network none --security-opt "$opt" --security-opt no-new-privileges --cap-drop ALL --user 65534                 -v /tmp/probe:/p:ro --entrypoint /p/spawnprobe "$id" 2>&1 || true
+            done
+          done
       - name: Syscalls that returned EPERM (errno=1) under runsc-dbg
         if: always()
         run: |
