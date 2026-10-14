@@ -2,8 +2,11 @@
 //
 //	judge-admin import problems/            # validate every package, upsert metadata + content_hash + samples
 //	judge-admin import problems/ledger-total
+//	judge-admin check problems/             # validate only (no database): bounds, tests, public samples
+//	                                        # byte-identical to the hidden ones; prints content hashes
 //
-// Database: $CODEJUDGE_DATABASE_URL.
+// Database: $CODEJUDGE_DATABASE_URL. Hidden tests: $CODEJUDGE_PROBLEMS_TESTS_DIR
+// (the private problems repo; unset = <package>/tests).
 package main
 
 import (
@@ -18,29 +21,57 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 3 || os.Args[1] != "import" {
-		fmt.Fprintln(os.Stderr, "usage: judge-admin import <problems-dir | problem-dir>")
+	if len(os.Args) != 3 || (os.Args[1] != "import" && os.Args[1] != "check") {
+		fmt.Fprintln(os.Stderr, "usage: judge-admin import|check <problems-dir | problem-dir>")
 		os.Exit(2)
 	}
-	if err := importCmd(os.Args[2]); err != nil {
+	cmd := importCmd
+	if os.Args[1] == "check" {
+		cmd = checkCmd
+	}
+	if err := cmd(os.Args[2]); err != nil {
 		fmt.Fprintln(os.Stderr, "judge-admin:", err)
 		os.Exit(1)
 	}
 }
 
-func importCmd(path string) error {
+// loadAll validates every package under path; the first bad one is an error.
+func loadAll(path string) ([]*problem.Problem, error) {
 	dirs, err := packageDirs(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	// Validate everything first: a bad package aborts the import before any write.
 	var probs []*problem.Problem
 	for _, d := range dirs {
 		p, err := problem.Load(d)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		probs = append(probs, p)
+	}
+	return probs, nil
+}
+
+func checkCmd(path string) error {
+	probs, err := loadAll(path)
+	if err != nil {
+		return err
+	}
+	for _, p := range probs {
+		h, err := p.ContentHash()
+		if err != nil {
+			return fmt.Errorf("%s: %w", p.ID, err)
+		}
+		fmt.Printf("%-18s ok %s (%d tests, %d samples) tests from %s\n", p.ID, h[:19], len(p.Tests), len(p.Samples), p.TestsDir)
+	}
+	return nil
+}
+
+func importCmd(path string) error {
+	// Validate everything first: a bad package aborts the import before any write.
+	probs, err := loadAll(path)
+	if err != nil {
+		return err
 	}
 	url, err := store.DatabaseURL()
 	if err != nil {

@@ -7,7 +7,9 @@ package judge
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,13 +51,20 @@ func must(err error) {
 
 var seedProblems = []string{"ledger-total", "range-ledger", "courier-grid", "rising-towers", "farthest-beacons"}
 
+// problemsDir is the public problems/ directory. Tests that judge the seed
+// problems need their hidden tests and solutions (the private problems repo,
+// $CODEJUDGE_PROBLEMS_TESTS_DIR); without them they skip.
 func problemsDir(t *testing.T) string {
 	t.Helper()
 	p, err := sandbox.FindRepoFile("problems/ledger-total/problem.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return filepath.Dir(filepath.Dir(p))
+	dir := filepath.Dir(filepath.Dir(p))
+	if _, err := problem.Load(filepath.Join(dir, "ledger-total")); err != nil && errors.Is(err, fs.ErrNotExist) {
+		t.Skipf("hidden tests not available (set %s to a checkout of the private problems repo): %v", problem.TestsRootEnv, err)
+	}
+	return dir
 }
 
 func judgeFile(t *testing.T, p *problem.Problem, file string, opt Options) *SubmissionResult {
@@ -68,7 +77,7 @@ func judgeFile(t *testing.T, p *problem.Problem, file string, opt Options) *Subm
 	if err != nil {
 		t.Fatal(err)
 	}
-	src, err := os.ReadFile(filepath.Join(p.Dir, "solutions", file))
+	src, err := os.ReadFile(filepath.Join(p.SolutionsDir(), file))
 	if err != nil {
 		t.Fatal(err)
 	}

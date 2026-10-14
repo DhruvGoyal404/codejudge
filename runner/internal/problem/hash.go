@@ -17,15 +17,26 @@ import (
 // slash-separated relative path and contents, length-prefixed, in sorted
 // order, so the hash is identical on every OS and filesystem.
 func (p *Problem) ContentHash() (string, error) {
-	files := []string{"problem.yaml", "statement.md"}
+	// Relative names are fixed ("tests/NN.in" etc.) whatever directory the
+	// tests are read from, so the hash is the same for the single-directory
+	// and the split (public + private) layouts.
+	paths := map[string]string{
+		"problem.yaml": filepath.Join(p.Dir, "problem.yaml"),
+		"statement.md": filepath.Join(p.Dir, "statement.md"),
+	}
 	for _, t := range p.Tests {
-		files = append(files, "tests/"+filepath.Base(t.InputPath), "tests/"+filepath.Base(t.OutputPath))
+		paths["tests/"+filepath.Base(t.InputPath)] = t.InputPath
+		paths["tests/"+filepath.Base(t.OutputPath)] = t.OutputPath
+	}
+	files := make([]string, 0, len(paths))
+	for rel := range paths {
+		files = append(files, rel)
 	}
 	sort.Strings(files)
 	h := sha256.New()
 	var lenBuf [8]byte
 	for _, rel := range files {
-		f, err := os.Open(filepath.Join(p.Dir, filepath.FromSlash(rel)))
+		f, err := os.Open(paths[rel])
 		if err != nil {
 			return "", err
 		}

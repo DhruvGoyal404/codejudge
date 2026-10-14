@@ -245,7 +245,7 @@ describe("sweeper: stuck running submission", () => {
 
   it("a running submission with an old started_at and no stream entry completes", async () => {
     const source = (await import("node:fs")).readFileSync(
-      (await import("node:path")).join((await import("./harness.ts")).PROBLEMS, "ledger-total", "solutions", "ref.cpp"),
+      (await import("./harness.ts")).solutionPath("ledger-total", "ref.cpp"),
       "utf8",
     );
     const r = await s.d.db.pool.query(

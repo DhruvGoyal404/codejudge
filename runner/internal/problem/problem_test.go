@@ -22,6 +22,7 @@ samples: ["02", "01"]
 
 func writePkg(t *testing.T, yaml string, files map[string]string) string {
 	t.Helper()
+	t.Setenv(TestsRootEnv, "") // single-directory packages, whatever the environment says
 	dir := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(filepath.Join(dir, "tests"), 0o755); err != nil {
 		t.Fatal(err)

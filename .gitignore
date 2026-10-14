@@ -18,7 +18,9 @@ coverage/
 *.so
 *.dylib
 *.test
-*.out
+# Go coverage/profile output only (problem expected outputs are NOT ignored;
+# they live in the private problems repo, and public samples/*.out are tracked)
+runner/**/*.out
 go.work
 go.work.sum
 vendor/

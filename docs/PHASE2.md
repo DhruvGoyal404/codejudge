@@ -162,15 +162,17 @@ judge-run judge --problem problems/<slug> --lang cpp|python --src FILE [--run-al
 
 ## Seed problems
 
-All five are original statements. Each has 2 samples and 8–9 hidden tests, including edge cases and n = 10⁵ large tests from `gen/gen.py`. Expected outputs come from the Python reference (`scripts/make-tests.py`) and are cross-checked by the C++ reference getting AC. `farthest-beacons` is also brute-force-checked on 300 random cases by `gen/check_ref.py`.
+All five are original statements. Each has 2 samples plus hidden tests, generated deterministically (the generators, hidden tests and solutions live in the private problems repo since Phase 6a). Expected outputs come from the Python reference (`scripts/make-tests.py`) and are cross-checked by the C++ reference getting AC. `farthest-beacons` is also brute-force-checked on random cases.
 
-| Problem | Task | Wrong solution fails on | Slow solution | Integration result |
+Each problem has a deliberately wrong and a deliberately slow solution; the integration suite requires ref.cpp / ref.py / wrong.cpp / slow.cpp to get AC / AC / WA / TLE. (Which test catches which mistake is not documented: that would describe the hidden tests.)
+
+| Problem | Task | Wrong solution's mistake | Slow solution | Integration result |
 |---|---|---|---|---|
-| ledger-total | 64-bit sum | 32-bit overflow | O(n²) prefix recomputation | AC / AC / WA / TLE |
-| range-ledger | range sums | off-by-one (sample 01) | O(n·q) | AC / AC / WA / TLE |
-| courier-grid | grid BFS | 0 instead of −1 when unreachable | quadratic Jacobi relaxation | AC / AC / WA / TLE |
-| rising-towers | strict LIS | non-strict (`upper_bound`) on all-equal heights | O(n²) DP | AC / AC / WA / TLE |
-| farthest-beacons | diameter of a point set (float) | distances from the first point only | all pairs O(n²) | AC / AC / WA / TLE |
+| ledger-total | 64-bit sum | 32-bit accumulator | O(n²) prefix recomputation | AC / AC / WA / TLE |
+| range-ledger | range sums | off-by-one (already fails sample 01) | O(n·q) | AC / AC / WA / TLE |
+| courier-grid | grid BFS | wrong value for unreachable cells | quadratic Jacobi relaxation | AC / AC / WA / TLE |
+| rising-towers | strict LIS | non-strict comparison (`upper_bound`) | O(n²) DP | AC / AC / WA / TLE |
+| farthest-beacons | diameter of a point set (float) | distances from one point only | all pairs O(n²) | AC / AC / WA / TLE |
 
 The slow solutions are asymptotically slower: ~5·10⁹ to 3·10¹⁰ steps on the large tests. They TLE via SIGXCPU at about 2.1 s of CPU at TL 1 s, or 3.2 s at TL 2 s.
 

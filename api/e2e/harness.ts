@@ -13,6 +13,12 @@ import { createTestUser, deleteTestUsers, ORIGIN, testDeps, type TestDeps } from
 export const REPO = fileURLToPath(new URL("../../", import.meta.url));
 export const RUNNER = join(REPO, "runner");
 export const PROBLEMS = join(REPO, "problems");
+/**
+ * Hidden tests and solutions: the private problems repo
+ * ($CODEJUDGE_PROBLEMS_TESTS_DIR); without it, the single-directory layout.
+ */
+export const TESTS_ROOT = process.env.CODEJUDGE_PROBLEMS_TESTS_DIR ?? PROBLEMS;
+export const solutionPath = (slug: string, file: string) => join(TESTS_ROOT, slug, "solutions", file);
 const WORKER_BIN = join(RUNNER, process.platform === "win32" ? "judge-worker.exe" : "judge-worker");
 const ADMIN_BIN = join(RUNNER, process.platform === "win32" ? "judge-admin.exe" : "judge-admin");
 
@@ -87,7 +93,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
     },
     killWorker,
     async submit(slug, file) {
-      const source = readFileSync(join(PROBLEMS, slug, "solutions", file), "utf8");
+      const source = readFileSync(solutionPath(slug, file), "utf8");
       const language = file.endsWith(".py") ? "python" : "cpp";
       // A user per submission: POST requires a session, and each user may
       // have at most 2 queued|running submissions.

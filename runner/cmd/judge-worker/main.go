@@ -5,6 +5,8 @@
 //	CODEJUDGE_DATABASE_URL   postgres://...                 (required)
 //	CODEJUDGE_VALKEY_URL     redis://127.0.0.1:56379        (required)
 //	CODEJUDGE_PROBLEMS_DIR   problems/                      (default: find repo problems/)
+//	CODEJUDGE_PROBLEMS_TESTS_DIR  checkout of the private problems repo (hidden
+//	                         tests: <dir>/<slug>/tests); unset = problems/<slug>/tests
 //	JUDGE_WORKER_ID          unique id (default hostname-pid-random)
 //	JUDGE_CONCURRENCY        2
 //	JUDGE_MAX_DELIVERIES     3

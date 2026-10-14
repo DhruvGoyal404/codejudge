@@ -4,7 +4,7 @@ A LeetCode-style online judge: users submit code, which is compiled and run agai
 
 > **Status:** Phase 5 complete — GitHub login, sessions, rate limits and submission history ([docs/PHASE5.md](docs/PHASE5.md)), on top of the Phase 4 web frontend (Vite + React 19 + Monaco, live judging over SSE) and the Phase 3 service (Express API + Valkey Streams + Go workers + Postgres).
 
-> ⚠️ **Keep this repository private.** `problems/*/tests/` contains the **hidden test data** (inputs and expected outputs) of every problem, plus reference solutions. Anyone who can read the repo can read the hidden tests. It must stay private until Phase 6 decides where hidden tests live (for example, a separate private store mounted only on workers).
+> **Hidden test data is not in this repository.** Hidden tests (inputs and expected outputs), generators and reference/wrong/slow solutions live in the private repo `DhruvGoyal404/codejudge-problems`. This repo has only each problem's `problem.yaml`, `statement.md` and `samples/` (byte-identical copies of the sample tests). Point the tools at a checkout of the private repo with `CODEJUDGE_PROBLEMS_TESTS_DIR`. Never commit `tests/`, `gen/` or `solutions/` here: the loader refuses a public package that contains `tests/` when the variable is set. See [docs/PHASE6.md](docs/PHASE6.md) § 6a.1.
 
 ## Design principles
 - One run container per submission (batch mode), reset between tests; no host bind mounts (program and inputs go in over stdin).
@@ -27,7 +27,8 @@ A LeetCode-style online judge: users submit code, which is compiled and run agai
 powershell -File scripts/build-images.ps1            # build sandbox images, write images.lock.json
 cd runner
 go build -o judge-run.exe ./cmd/judge-run
-./judge-run.exe judge --problem ../problems/ledger-total --lang cpp --src ../problems/ledger-total/solutions/ref.cpp
+$env:CODEJUDGE_PROBLEMS_TESTS_DIR = "<checkout of codejudge-problems>"   # hidden tests + solutions
+./judge-run.exe judge --problem ../problems/ledger-total --lang cpp --src "$env:CODEJUDGE_PROBLEMS_TESTS_DIR/ledger-total/solutions/ref.cpp"
 ./judge-run.exe --lang cpp --src prog.cpp --stdin in.txt --time-limit 2s --memory-limit 256   # single run
 go test ./...                                                       # unit tests
 go test -p 1 -tags integration -count=1 -v ./internal/sandbox/ ./internal/judge/   # needs Docker

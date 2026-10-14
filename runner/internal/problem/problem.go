@@ -1,8 +1,17 @@
-// Package problem loads and validates on-disk problem packages:
+// Package problem loads and validates on-disk problem packages.
+//
+// Public part (the codejudge repo):
 //
 //	problems/<slug>/problem.yaml
 //	problems/<slug>/statement.md
-//	problems/<slug>/tests/NN.in, NN.out
+//	problems/<slug>/samples/NN.in, NN.out   (the tests listed in samples:)
+//
+// Hidden part (the private problems repo, $CODEJUDGE_PROBLEMS_TESTS_DIR):
+//
+//	<slug>/tests/NN.in, NN.out              (every test, samples included)
+//
+// Without CODEJUDGE_PROBLEMS_TESTS_DIR the tests are read from
+// problems/<slug>/tests (single-directory packages: fixtures, local work).
 package problem
 
 import (
@@ -35,6 +44,10 @@ const (
 	MaxTotalBytes    = 64 << 20 // all .in + .out
 )
 
+// TestsRootEnv names the directory holding <slug>/tests for every problem
+// (a checkout of the private problems repo).
+const TestsRootEnv = "CODEJUDGE_PROBLEMS_TESTS_DIR"
+
 // DefaultMultipliers apply to languages a problem does not list.
 var DefaultMultipliers = map[string]float64{"cpp": 1.0, "python": 2.0}
 
@@ -45,7 +58,8 @@ var (
 
 // Problem is a validated problem package.
 type Problem struct {
-	Dir         string
+	Dir         string // the public package (problem.yaml, statement.md, samples/)
+	TestsDir    string // where tests/NN.* were read from
 	ID          string
 	Title       string
 	TimeLimit   time.Duration
@@ -64,6 +78,11 @@ type Test struct {
 	InputPath  string
 	OutputPath string
 }
+
+// SolutionsDir is where the reference and fixture solutions live: next to
+// the tests (the private problems repo, or the package itself without a
+// tests root). Only tools and tests use them; judging never does.
+func (p *Problem) SolutionsDir() string { return filepath.Join(filepath.Dir(p.TestsDir), "solutions") }
 
 // Input reads the test input.
 func (t Test) Input() ([]byte, error) { return os.ReadFile(t.InputPath) }
@@ -90,16 +109,24 @@ type rawProblem struct {
 	Samples        []string           `yaml:"samples"`
 }
 
-// Load reads and validates the problem package in dir.
+// Load reads and validates the problem package in dir, taking its tests from
+// $CODEJUDGE_PROBLEMS_TESTS_DIR/<slug>/tests when that is set.
 func Load(dir string) (*Problem, error) {
-	p, err := load(dir)
+	return LoadFrom(dir, os.Getenv(TestsRootEnv))
+}
+
+// LoadFrom is Load with an explicit tests root ("" = dir/tests). With a
+// tests root, the public package must not contain tests/ and must contain
+// samples/ copies that are byte-identical to the hidden sample tests.
+func LoadFrom(dir, testsRoot string) (*Problem, error) {
+	p, err := load(dir, testsRoot)
 	if err != nil {
 		return nil, fmt.Errorf("problem %s: %w", filepath.Base(dir), err)
 	}
 	return p, nil
 }
 
-func load(dir string) (*Problem, error) {
+func load(dir, testsRoot string) (*Problem, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "problem.yaml"))
 	if err != nil {
 		return nil, err
@@ -135,7 +162,7 @@ func load(dir string) (*Problem, error) {
 		return nil, err
 	}
 
-	p := &Problem{Dir: dir, ID: rp.ID, Title: rp.Title, TimeLimit: tl, MemoryMB: rp.MemoryLimit, Checker: rp.Checker, Samples: rp.Samples, Multipliers: map[string]float64{}}
+	p := &Problem{Dir: dir, TestsDir: filepath.Join(dir, "tests"), ID: rp.ID, Title: rp.Title, TimeLimit: tl, MemoryMB: rp.MemoryLimit, Checker: rp.Checker, Samples: rp.Samples, Multipliers: map[string]float64{}}
 	for l, m := range DefaultMultipliers {
 		p.Multipliers[l] = m
 	}
@@ -163,15 +190,61 @@ func load(dir string) (*Problem, error) {
 	}
 	p.Statement = string(st)
 
+	if testsRoot != "" {
+		// Split layout: hidden tests must never sit in the public package.
+		if _, err := os.Stat(filepath.Join(dir, "tests")); err == nil {
+			return nil, fmt.Errorf("public package has tests/ but %s is set: hidden tests belong in %s", TestsRootEnv, testsRoot)
+		}
+		p.TestsDir = filepath.Join(testsRoot, slug, "tests")
+	}
 	if err := p.loadTests(); err != nil {
+		return nil, err
+	}
+	if err := p.checkSamples(testsRoot != ""); err != nil {
 		return nil, err
 	}
 	return p, nil
 }
 
+// checkSamples verifies the public samples/ copies: each listed sample must
+// be byte-identical to the judged test of the same name (users must see
+// exactly what is judged). Required in the split layout; checked if present
+// otherwise.
+func (p *Problem) checkSamples(required bool) error {
+	dir := filepath.Join(p.Dir, "samples")
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) && !required {
+			return nil
+		}
+		return fmt.Errorf("samples/: %w", err)
+	}
+	for _, t := range p.Tests {
+		if !t.Sample {
+			continue
+		}
+		for _, pair := range [][2]string{{t.InputPath, t.Name + ".in"}, {t.OutputPath, t.Name + ".out"}} {
+			judged, err := os.ReadFile(pair[0])
+			if err != nil {
+				return err
+			}
+			public, err := os.ReadFile(filepath.Join(dir, pair[1]))
+			if err != nil {
+				return fmt.Errorf("samples/%s: %w", pair[1], err)
+			}
+			if !bytes.Equal(judged, public) {
+				return fmt.Errorf("samples/%s differs from the judged tests/%s", pair[1], pair[1])
+			}
+		}
+	}
+	return nil
+}
+
 func (p *Problem) loadTests() error {
-	testsDir := filepath.Join(p.Dir, "tests")
+	testsDir := p.TestsDir
 	entries, err := os.ReadDir(testsDir)
+	if os.IsNotExist(err) && os.Getenv(TestsRootEnv) == "" {
+		return fmt.Errorf("%w (hidden tests live in the private problems repo: set %s to its checkout)", err, TestsRootEnv)
+	}
 	if err != nil {
 		return err
 	}

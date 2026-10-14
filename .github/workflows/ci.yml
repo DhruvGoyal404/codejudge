@@ -53,8 +53,41 @@ jobs:
         working-directory: .
         run: shellcheck --severity=warning deploy/backup/*.sh
 
+  # Hidden tests live in the private codejudge-problems repo, read through a
+  # read-only deploy key (secret PROBLEMS_DEPLOY_KEY). Fork PRs get no secrets,
+  # so jobs that need it run only for this repo's own pushes and PRs.
+  problems:
+    name: Problems (public samples match the hidden copies)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      CODEJUDGE_PROBLEMS_TESTS_DIR: ${{ github.workspace }}/problems-private
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: DhruvGoyal404/codejudge-problems
+          ssh-key: ${{ secrets.PROBLEMS_DEPLOY_KEY }}
+          path: problems-private
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: runner/go.mod
+          cache-dependency-path: runner/go.sum
+      - name: No hidden data in the public repo
+        run: |
+          if git ls-files 'problems/*/tests/*' 'problems/*/gen/*' 'problems/*/solutions/*' | grep .; then
+            echo "hidden problem data is tracked in the public repo"; exit 1
+          fi
+      - name: Samples byte-match the hidden copies
+        run: python3 scripts/sync-samples.py --check
+      - name: Every package loads (bounds, tests, samples) with stable hashes
+        working-directory: runner
+        run: go run ./cmd/judge-admin check ../problems
+
   api:
     name: API tests (Postgres + Valkey)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -76,6 +109,12 @@ jobs:
       CODEJUDGE_VALKEY_URL: redis://127.0.0.1:56379
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: DhruvGoyal404/codejudge-problems
+          ssh-key: ${{ secrets.PROBLEMS_DEPLOY_KEY }}
+          path: problems-private
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: runner/go.mod
@@ -90,12 +129,11 @@ jobs:
           docker run --rm --network host -v "$PWD/db:/db:ro"
           -e DATABASE_URL="$CODEJUDGE_DATABASE_URL" -e DBMATE_MIGRATIONS_DIR=/db/migrations -e DBMATE_NO_DUMP_SCHEMA=true
           ghcr.io/amacneil/dbmate:2.36.0@sha256:520c740c6e0ad73fde2cd1ea7e2b779aaf789d22aca8858f87a478e7094535fb up
-      # Expected outputs (*.out) are not in git; regenerate them, then import.
-      # (After the hidden-tests split this step reads the private problems repo.)
-      - name: Seed problems
-        run: |
-          python3 scripts/make-tests.py
-          cd runner && go run ./cmd/judge-admin import ../problems
+      - name: Seed problems (hidden tests from the private repo)
+        env:
+          CODEJUDGE_PROBLEMS_TESTS_DIR: ${{ github.workspace }}/problems-private
+        working-directory: runner
+        run: go run ./cmd/judge-admin import ../problems
       - name: Install
         working-directory: api
         run: npm ci --no-audit --no-fund

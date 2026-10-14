@@ -48,7 +48,7 @@ problems/<slug>/samples/NN.in, NN.out    <slug>/solutions/ref.cpp, ref.py, wrong
 
 - Tests that need real problems and solutions (`internal/judge` problem matrix, `api/e2e`, Playwright) resolve them through `CODEJUDGE_PROBLEMS_TESTS_DIR` and **skip with a clear message** when it is unset.
 - A small, deliberately public fixture problem under `runner/internal/judge/testdata/problems/` (its own tests and AC/WA/TLE/RE solutions, no secrets) keeps the judge integration path covered in public CI.
-- The one literal hidden-test reference in code (`api/test/api.test.ts`) is replaced by an assertion that no non-sample test data appears.
+- The one test that referred to hidden test content (`api/test/api.test.ts`) instead asserts that the returned samples equal the public `samples/` files byte for byte.
 - Optional later: CI reads the private repo through a read-only deploy key (a GitHub secret) to run the full problem matrix on `main` only.
 
 ### Execution order (after approval)
@@ -96,8 +96,8 @@ problems/<slug>/samples/NN.in, NN.out    <slug>/solutions/ref.cpp, ref.py, wrong
 
 ### Open points for you
 
-- Redact the docs that name which hidden test catches each wrong solution (`docs/PHASE2.md`: "32-bit overflow") in a normal commit? They contain no test data, only the kind of edge case; I'd generalise them (no history rewrite for docs).
-- Keep `wrong.cpp` / `slow.cpp` private with the refs (my recommendation) or publish them as examples?
+- ~~Redact the docs that name which hidden test catches each wrong solution?~~ **Decided:** reworded (PHASE2.md no longer says which test catches which bug), and the old wording is scrubbed from history in the rewrite.
+- ~~Keep `wrong.cpp` / `slow.cpp` private?~~ **Decided:** private, with the references.
 
 ## 6a.2 Production compose
 

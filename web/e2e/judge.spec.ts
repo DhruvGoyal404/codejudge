@@ -4,12 +4,12 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 import { enterCode as pasteCode } from "./helpers.ts";
-import { REPO } from "./stack.ts";
+import { REPO, solutionPath } from "./stack.ts";
 
 // range-ledger: its wrong solution (off-by-one) fails on SAMPLE 01, so the WA
 // case exercises the sample diff view.
 const SLUG = "range-ledger";
-const solution = (file: string) => readFileSync(join(REPO, "problems", SLUG, "solutions", file), "utf8");
+const solution = (file: string) => readFileSync(solutionPath(SLUG, file), "utf8");
 const SHOTS = process.env.PHASE4_SCREENSHOTS === "1"; // write docs/img/phase4-*.png
 const shot = async (page: Page, name: string) => {
   if (SHOTS) await page.screenshot({ path: join(REPO, "docs", "img", `phase4-${name}.png`) });

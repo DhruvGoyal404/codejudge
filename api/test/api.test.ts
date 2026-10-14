@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
 
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -71,8 +73,9 @@ describe("health and problems", () => {
     expect(r.body.statement_md).toContain("Ledger Total");
     expect(r.body.samples.map((s: { name: string }) => s.name)).toEqual(["01", "02"]);
     expect(r.body).not.toHaveProperty("id");
-    // Only the public samples are returned.
-    expect(r.body.samples).toHaveLength(2);
+    // Exactly the public samples (problems/<slug>/samples), byte for byte.
+    const pub = (f: string) => readFileSync(fileURLToPath(new URL(`../../problems/ledger-total/samples/${f}`, import.meta.url)), "utf8");
+    expect(r.body.samples).toEqual(["01", "02"].map((n) => ({ name: n, input: pub(`${n}.in`), output: pub(`${n}.out`) })));
   });
 
   it("rejects bad and unknown slugs", async () => {

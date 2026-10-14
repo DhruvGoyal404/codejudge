@@ -5,7 +5,7 @@ LeetCode-style online judge. Researcher (web Claude) writes specs; you implement
 ## Architecture
 
 Target: React+Monaco → API (Express+TS) → Postgres; API → Valkey Streams → Go worker → sandbox containers.
-Built so far (Phases 3–5): `web/` (Vite 8 + React 19 + Monaco, dev proxy /api → API) → `api/` (Express 5, TS) ↔ Postgres 18 + Valkey 9.1 (compose) ↔ `runner/cmd/judge-worker` (Go) → sandbox. `judge-admin import problems/` loads problem metadata + content_hash + samples; test files stay on disk for workers only. See docs/PHASE3.md. Auth (GitHub OAuth, sessions), limits and history: docs/PHASE5.md; GitHub credentials in gitignored `api/.env` (see `api/.env.example`).
+Built so far (Phases 3–5): `web/` (Vite 8 + React 19 + Monaco, dev proxy /api → API) → `api/` (Express 5, TS) ↔ Postgres 18 + Valkey 9.1 (compose) ↔ `runner/cmd/judge-worker` (Go) → sandbox. `judge-admin import problems/` loads problem metadata + content_hash + samples; test files stay on disk for workers only. Hidden tests, generators and solutions live in the PRIVATE repo `codejudge-problems` (`$CODEJUDGE_PROBLEMS_TESTS_DIR/<slug>/{tests,gen,solutions}`); this repo has `problems/<slug>/{problem.yaml,statement.md,samples/}` only. See docs/PHASE3.md. Auth (GitHub OAuth, sessions), limits and history: docs/PHASE5.md; GitHub credentials in gitignored `api/.env` (see `api/.env.example`).
 
 Compose (project `codejudge`, credentials in gitignored `.env`):
 - `docker compose up -d --wait` · `docker compose run --rm migrate up` · `docker compose down` (volumes kept)
@@ -47,6 +47,7 @@ Go: system 1.22.5; runner/ pins toolchain go1.27.2 via go.mod (auto-downloaded).
 - Frontend: statements render with react-markdown `skipHtml` (never raw HTML); Monaco is bundled locally (no CDN) and lazy-loaded; all localStorage access is wrapped in try/catch; failed hidden tests show only number + status.
 - Only sample tests may carry program stdout (DB CHECK constraint); progress events are not persisted (API replays the latest per running submission).
 - Hidden tests are never served: the API has no access to test files; only samples (copied into `problem_samples` at import) are returned.
+- Hidden tests, generators and solutions are NEVER committed to this (public) repo; they live only in the private problems repo. Public `samples/` must byte-match the private sample tests (loader + `judge-admin check` + CI). Docs never say which hidden test catches which bug.
 - Results are written only with a fenced write (`WHERE attempt = $mine AND status = 'running'`); a stale worker discards its result and does not XACK.
 - XACK only after the result commit. Events go to `judge:events` after every state change.
 - Workers verify the on-disk problem content_hash against the DB before judging (mismatch → IE).

@@ -1,15 +1,14 @@
 // Phase 5 browser flows: logged-out state, history / detail / profile, owner-only
 // code, logout. Users come from the TEST-ONLY auth shortcut (never GitHub).
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
 import { BASE_URL, enterCode, newUserContext } from "./helpers.ts";
-import { REPO } from "./stack.ts";
+import { solutionPath } from "./stack.ts";
 
 const SLUG = "range-ledger";
-const REF = readFileSync(join(REPO, "problems", SLUG, "solutions", "ref.cpp"), "utf8");
+const REF = readFileSync(solutionPath(SLUG, "ref.cpp"), "utf8");
 
 test.describe("logged out", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
