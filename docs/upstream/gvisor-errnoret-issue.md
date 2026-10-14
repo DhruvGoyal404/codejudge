@@ -1,4 +1,4 @@
-# DRAFT: gVisor issue (not filed; to be filed by the repository owner)
+# DRAFT: public gVisor GitHub issue (not filed; to be filed by the repository owner)
 
 **Title:** `--oci-seccomp` ignores `errnoRet` (per-rule and `defaultErrnoRet`); denied syscalls always return EPERM, which breaks glibc's clone3 → clone fallback
 
@@ -82,12 +82,8 @@ To check `defaultErrnoRet`, repeat with `jq '.defaultErrnoRet = 38' profile.json
 ## Impact
 
 - Any workload whose profile maps `clone3` to ENOSYS (Docker's default does) can't spawn processes through `posix_spawn` or create threads with `pthread_create` under `runsc --oci-seccomp`. That covers compilers (g++ → cc1plus), JVMs, Node.js, and C++/Python threading.
-- The workaround is to allow `clone3` outright in the profile used with runsc. That gives up the reason the profile denies it, which under runc is real: unfiltered namespace flags.
+- The workaround is to allow `clone3` outright in the profile used with runsc. That gives up the reason the profile denies it in the first place: seccomp cannot inspect clone3's flags.
 
 ## Suggested fix
 
 When converting the OCI `LinuxSeccomp` spec, honour `errnoRet` on each syscall rule and `defaultErrnoRet` on the profile. If a profile asks for an errno that can't be honoured, failing closed with an error at container start would be preferable to substituting EPERM.
-
-## Possibly related (separate observation, to file separately if confirmed)
-
-Under the same setup with `clone3` allowed, `clone3(CLONE_NEWNS)` **succeeds** for an unprivileged process with all capabilities dropped. On Linux that requires `CAP_SYS_ADMIN` in the caller's user namespace and fails with EPERM. `clone3(CLONE_NEWPID)` correctly fails with EPERM. `clone3(CLONE_NEWUSER)` also succeeds, which is consistent with Linux, where unprivileged user namespaces are allowed. Reproducer: a `clone3` call with a `struct clone_args` whose `.flags = CLONE_NEWNS` and `.exit_signal = SIGCHLD`.

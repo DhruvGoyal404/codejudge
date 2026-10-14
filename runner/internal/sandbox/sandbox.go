@@ -7,13 +7,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -24,25 +24,8 @@ import (
 // LabelManaged marks every container (and image) this project creates.
 const LabelManaged = "judge.managed"
 
-// Containers never run as root. Each container gets its own random,
-// unprivileged uid (= gid) from [sandboxUIDMin, sandboxUIDMax), not shared
-// with any other container or host user: RLIMIT_NPROC counts every task of a
-// uid host-wide (no user-namespace remapping), so a shared uid (e.g. 65534)
-// would let one submission's processes count against another's.
-const (
-	sandboxUIDMin = 200_000
-	sandboxUIDMax = 2_000_000_000
-)
-
-// sandboxUser returns a fresh "uid:gid" for one container.
-func sandboxUser() string {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic(err) // crypto/rand does not fail on supported platforms
-	}
-	uid := sandboxUIDMin + binary.BigEndian.Uint64(b[:])%(sandboxUIDMax-sandboxUIDMin)
-	return fmt.Sprintf("%d:%d", uid, uid)
-}
+// Containers never run as root: each runs as its own uid from the sandbox
+// uid range (uid.go), unique among live containers.
 
 // Options configures a Sandbox.
 type Options struct {
@@ -61,6 +44,7 @@ type Sandbox struct {
 	cli     *client.Client
 	seccomp string            // compacted JSON, inlined into SecurityOpt as the CLI does (runsc: gVisorProfile variant)
 	images  map[string]string // lock key -> image ID (sha256:...)
+	uids    *uidAllocator
 	sem     chan struct{}
 	opts    Options
 }
@@ -114,7 +98,12 @@ func New(ctx context.Context, o Options) (*Sandbox, error) {
 			return nil, err
 		}
 	}
-	s := &Sandbox{cli: cli, seccomp: profile, images: images, sem: make(chan struct{}, o.Concurrency), opts: o}
+	if err := checkUIDRange("/etc/passwd", "/etc/group", "/etc/subuid", "/etc/subgid"); err != nil {
+		cli.Close()
+		return nil, fmt.Errorf("sandbox uid range: %w", err)
+	}
+	s := &Sandbox{cli: cli, seccomp: profile, images: images, sem: make(chan struct{}, o.Concurrency), opts: o,
+		uids: newUIDAllocator(SandboxUIDBase, SandboxUIDCount, self.ID)}
 	if _, err := s.Reap(ctx); err != nil {
 		cli.Close()
 		return nil, fmt.Errorf("startup reaper: %w", err)
@@ -254,12 +243,14 @@ func randName() string {
 
 // containerConfigs builds the hardened container configuration shared by
 // single-run and batch containers (see CLAUDE.md "Sandbox invariants").
-func (s *Sandbox) containerConfigs(image string, sp containerSpec) (*container.Config, *container.HostConfig) {
+func (s *Sandbox) containerConfigs(image string, sp containerSpec, uid uint32) (*container.Config, *container.HostConfig) {
 	pids := sp.PidsLimit
+	labels := sp.labels()
+	labels[labelUID] = strconv.FormatUint(uint64(uid), 10)
 	cfg := &container.Config{
 		Image:           image,
 		Cmd:             sp.Cmd,
-		User:            sandboxUser(),
+		User:            fmt.Sprintf("%d:%d", uid, uid),
 		WorkingDir:      "/box",
 		AttachStdin:     true,
 		AttachStdout:    true,
@@ -267,7 +258,7 @@ func (s *Sandbox) containerConfigs(image string, sp containerSpec) (*container.C
 		OpenStdin:       true,
 		StdinOnce:       !sp.KeepStdinOpen,
 		NetworkDisabled: true,
-		Labels:          sp.labels(),
+		Labels:          labels,
 	}
 	hc := &container.HostConfig{
 		Runtime:        s.opts.Runtime, // "" = engine default
@@ -320,13 +311,11 @@ func (s *Sandbox) runContainer(ctx context.Context, sp containerSpec) (res conta
 	dctx, cancel := context.WithTimeout(ctx, sp.Deadline)
 	defer cancel()
 
-	cfg, hc := s.containerConfigs(image, sp)
-
-	created, err := s.cli.ContainerCreate(dctx, client.ContainerCreateOptions{Name: randName(), Config: cfg, HostConfig: hc})
+	id, releaseUID, err := s.createContainer(dctx, image, sp)
 	if err != nil {
 		return res, fmt.Errorf("create: %w", err)
 	}
-	id := created.ID
+	defer releaseUID() // runs after the removal below (defers are LIFO)
 	defer func() {
 		// Fresh context: must run even if ctx/dctx are cancelled or we panicked.
 		rctx, rcancel := context.WithTimeout(context.Background(), 30*time.Second)

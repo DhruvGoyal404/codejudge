@@ -39,6 +39,8 @@ type Batch struct {
 	dead      bool
 	closeOnce sync.Once
 	release   func()
+	// releaseUID frees the container's uid (after removal).
+	releaseUID func()
 }
 
 type frameOrErr struct {
@@ -118,19 +120,19 @@ func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTest
 			"--max-input-bytes", strconv.Itoa(maxInput),
 			"--"}, c.Lang.RunCmd...),
 	}
-	cfg, hc := s.containerConfigs(image, sp)
 
 	fail := func(err error) (*Batch, error) {
 		b.Close()
 		return nil, err
 	}
-	created, err := s.cli.ContainerCreate(b.ctx, client.ContainerCreateOptions{Name: randName(), Config: cfg, HostConfig: hc})
+	id, releaseUID, err := s.createContainer(b.ctx, image, sp)
 	if err != nil {
 		b.release()
 		b.cancel()
 		return nil, fmt.Errorf("create: %w", err)
 	}
-	b.id = created.ID
+	b.id = id
+	b.releaseUID = releaseUID
 	b.att, err = s.cli.ContainerAttach(b.ctx, b.id, client.ContainerAttachOptions{Stream: true, Stdin: true, Stdout: true, Stderr: true})
 	if err != nil {
 		return fail(fmt.Errorf("attach: %w", err))
@@ -305,6 +307,9 @@ func (b *Batch) Close() {
 		}
 		if b.id != "" {
 			_ = b.s.removeContainer(b.id)
+		}
+		if b.releaseUID != nil {
+			b.releaseUID()
 		}
 		b.cancel()
 		b.release()

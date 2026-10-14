@@ -384,11 +384,23 @@ func TestClone3(t *testing.T) {
 	} else if !strings.HasPrefix(got["plain"], "errno=38") {
 		t.Errorf("plain clone3 under runc: %q, want ENOSYS (errno=38)", got["plain"])
 	}
-	for _, ns := range []string{"newuser", "newpid", "newns"} {
-		if !strings.HasPrefix(got[ns], "errno=") {
-			t.Errorf("clone3 with %s: %q, want failure", ns, got[ns])
-		}
+	// CLONE_NEWPID needs CAP_SYS_ADMIN: it must fail under both runtimes.
+	if !strings.HasPrefix(got["newpid"], "errno=") {
+		t.Errorf("clone3 with newpid: %q, want failure", got["newpid"])
 	}
+	if !IsGVisor(runtime) {
+		// runc: every clone3 is ENOSYS (glibc falls back to the filtered clone).
+		for _, ns := range []string{"newuser", "newns"} {
+			if !strings.HasPrefix(got[ns], "errno=") {
+				t.Errorf("clone3 with %s under runc: %q, want failure", ns, got[ns])
+			}
+		}
+		return
+	}
+	// runsc: user/mount namespace results are recorded, not asserted (they
+	// would exist only inside the Sentry; accepted risk, docs/PHASE6.md 6a.7),
+	// so a change in gVisor's behaviour shows up in the log.
+	t.Logf("ACCEPTED RISK under runsc: clone3 newuser=%q newns=%q", got["newuser"], got["newns"])
 }
 
 // A multithreaded program that crashes is RE at once, not a slow core dump
@@ -398,5 +410,61 @@ func TestCrashWithThreads(t *testing.T) {
 	wantStatus(t, res, StatusRE)
 	if res.WallMs > 1000 {
 		t.Fatalf("crash took %d ms (core dump not suppressed?)", res.WallMs)
+	}
+}
+
+// N containers that are alive at the same time never share a uid, even when
+// two independent sandboxes (as two worker processes would) allocate at once.
+func TestUIDsUniqueAcrossLiveContainers(t *testing.T) {
+	seccomp, err := FindRepoFile("sandbox/seccomp/default.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := FindRepoFile("sandbox/images/images.lock.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const perSandbox = 6
+	var sbs []*Sandbox
+	for i := 0; i < 2; i++ {
+		s, err := New(context.Background(), Options{SeccompPath: seccomp, ImagesLockPath: lock, Concurrency: perSandbox, Runtime: os.Getenv("JUDGE_TEST_RUNTIME")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		sbs = append(sbs, s)
+	}
+	l := langOf(t, "uid.py")
+	src := fixture(t, "uid.py")
+	var mu sync.Mutex
+	uids := map[string]int{}
+	var wg sync.WaitGroup
+	for _, s := range sbs {
+		for i := 0; i < perSandbox; i++ {
+			wg.Add(1)
+			go func(s *Sandbox) {
+				defer wg.Done()
+				res, err := s.Execute(context.Background(), l, src, nil, std)
+				if err != nil || res.Status != StatusOK {
+					t.Errorf("run: %v %+v", err, res)
+					return
+				}
+				mu.Lock()
+				uids[strings.TrimSpace(res.Stdout)]++
+				mu.Unlock()
+			}(s)
+		}
+	}
+	wg.Wait()
+	t.Logf("uids: %v", uids)
+	if len(uids) != 2*perSandbox {
+		t.Fatalf("%d distinct uid:gid pairs for %d overlapping containers: %v", len(uids), 2*perSandbox, uids)
+	}
+	for k, n := range uids {
+		var uid, gid uint64
+		if _, err := fmt.Sscanf(k, "%d %d", &uid, &gid); err != nil || n != 1 || uid != gid ||
+			uid < SandboxUIDBase || uid >= SandboxUIDBase+SandboxUIDCount {
+			t.Fatalf("bad uid entry %q x%d", k, n)
+		}
 	}
 }
