@@ -28,7 +28,14 @@ const (
 	runTmpMB         = 16 // /tmp tmpfs in run containers (charged to the cgroup)
 	stderrCap        = 64 << 10
 	maxInputBytes    = 16 << 20
-	runPids          = 64
+	runPids          = 64 // container pids cgroup under runc
+	// Under runsc the host pids cgroup counts gVisor's own tasks (Sentry
+	// threads, and systrap stub processes per guest address space), not the
+	// program's: a guest fork bomb of 32 processes already exceeded 64 host
+	// tasks and killed the sandbox (IE). The guest's tasks are limited inside
+	// the Sentry by RLIMIT_NPROC (runscNproc); the host cgroup stays as the
+	// outer bound on what the sandbox can consume.
+	runscPids = 256
 	// RLIMIT_NPROC for programs (judge-exec --nproc). It counts every task of
 	// the program's uid, judge-exec's own threads included; each container has
 	// its own uid (sandboxUser), so the count is per container. It must stay
@@ -83,6 +90,14 @@ type Compiled struct {
 
 // Compile runs the language's compile step. On a compilation error it returns
 // (nil, *Result with Status CE, nil).
+// pidsLimit is the container pids cgroup limit for this sandbox's runtime.
+func (s *Sandbox) pidsLimit() int64 {
+	if IsGVisor(s.opts.Runtime) {
+		return runscPids
+	}
+	return runPids
+}
+
 // nprocLimit is the program's RLIMIT_NPROC for this sandbox's runtime (see runscNproc).
 func (s *Sandbox) nprocLimit() int {
 	if IsGVisor(s.opts.Runtime) {
@@ -115,7 +130,7 @@ func (s *Sandbox) Compile(ctx context.Context, l lang.Lang, src []byte) (*Compil
 
 	cr, err := s.runContainer(ctx, containerSpec{
 		Role: "compile", ImageKey: l.CompileImage, Cmd: cmd,
-		MemoryBytes: compileMemoryMB << 20, NanoCPUs: runCPUs, PidsLimit: runPids,
+		MemoryBytes: compileMemoryMB << 20, NanoCPUs: runCPUs, PidsLimit: s.pidsLimit(),
 		BoxMB: compileBoxMB, TmpMB: compileTmpMB,
 		StdinTar: in, StdoutCap: compileOutCap + 1<<20,
 		Deadline: compileWallMs*time.Millisecond + hostGrace,
@@ -215,7 +230,7 @@ func (s *Sandbox) Run(ctx context.Context, c *Compiled, stdin []byte, lim Limits
 
 	cr, cerr := s.runContainer(ctx, containerSpec{
 		Role: "run", ImageKey: c.Lang.RunImage, Cmd: cmd,
-		MemoryBytes: containerMem, NanoCPUs: runCPUs, PidsLimit: runPids,
+		MemoryBytes: containerMem, NanoCPUs: runCPUs, PidsLimit: s.pidsLimit(),
 		BoxMB: boxMB, TmpMB: runTmpMB,
 		StdinTar: in,
 		// Frame = base64(stdout + stderr) + small JSON envelope.

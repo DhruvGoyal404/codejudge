@@ -235,8 +235,12 @@ func TestProcessLimit(t *testing.T) {
 	if _, err := fmt.Sscanf(strings.TrimSpace(res.Stdout), "started=%d failed=%d", &started, &failed); err != nil {
 		t.Fatalf("parse %q: %v", res.Stdout, err)
 	}
-	if started >= runPids || failed == 0 {
-		t.Fatalf("pids limit not enforced: started=%d failed=%d (limit %d)", started, failed, runPids)
+	limit := runcNproc // RLIMIT_NPROC is the binding limit (judge-exec's threads count too)
+	if IsGVisor(os.Getenv("JUDGE_TEST_RUNTIME")) {
+		limit = runscNproc
+	}
+	if started >= limit || failed == 0 {
+		t.Fatalf("process limit not enforced: started=%d failed=%d (limit %d)", started, failed, limit)
 	}
 }
 

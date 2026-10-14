@@ -103,7 +103,7 @@ func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTest
 		Role: "batch", ImageKey: c.Lang.RunImage, KeepStdinOpen: true,
 		// judge-exec keeps a copy of the program tar in memory: add progMB to headroom.
 		MemoryBytes: memBytes + (helperHeadroomMB+progMB+boxMB+runTmpMB)<<20,
-		NanoCPUs:    runCPUs, PidsLimit: runPids, BoxMB: boxMB, TmpMB: runTmpMB,
+		NanoCPUs:    runCPUs, PidsLimit: s.pidsLimit(), BoxMB: boxMB, TmpMB: runTmpMB,
 		Cmd: append([]string{"run", "--batch",
 			"--cpu-ms", strconv.FormatInt(lim.TimeLimit.Milliseconds(), 10),
 			"--wall-ms", strconv.FormatInt(b.wall.Milliseconds(), 10),
