@@ -225,6 +225,16 @@ func TestBatchCrossTestState(t *testing.T) {
 			if strings.Contains(res[0].Stdout, "plant /dev/shm ok") {
 				t.Errorf("/dev/shm is writable despite --ipc none:\n%s", res[0].Stdout)
 			}
+			// The seccomp profile denies System V IPC and POSIX mqueues outright
+			// (EPERM), under runc and under runsc --oci-seccomp: nothing can be
+			// planted, so no reset can be missed.
+			if f == "snoopipc.cpp" {
+				for _, ch := range []string{"plant mqueue", "plant sysv shm", "plant sysv msg", "plant sysv sem"} {
+					if !strings.Contains(res[0].Stdout, ch+" failed: Operation not permitted") {
+						t.Errorf("%s was not denied by seccomp:\n%s", ch, res[0].Stdout)
+					}
+				}
+			}
 		})
 	}
 }

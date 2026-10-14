@@ -29,6 +29,7 @@ type batchDeps struct {
 	reapAll      func()
 	resetWorkDir func(dir string) error
 	cleanIPC     func() error                         // remove every System V IPC object left by the program
+	ipcGuard     func() error                         // once per batch: IPC must be blocked, or cleanable
 	extract      func(programTar []byte) error        // verify + extract program files into the work dir
 	writeInput   func(path string, data []byte) error // create path with mode 0400
 
@@ -69,6 +70,11 @@ func runBatch(cfg RunConfig, d batchDeps) int {
 	}
 	nonce = hex.EncodeToString(payload[:protocol.NonceSize])
 	program := payload[protocol.NonceSize:]
+	// Before any test: a cross-test channel that can't be reset is an error,
+	// never "nothing to clean".
+	if err := d.ipcGuard(); err != nil {
+		return fail(err)
+	}
 	if err := d.extract(program); err != nil { // verify it extracts cleanly
 		return fail(fmt.Errorf("program: %w", err))
 	}

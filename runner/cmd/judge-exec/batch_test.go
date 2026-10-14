@@ -22,6 +22,7 @@ type fakeEnv struct {
 	ipcErr       error
 	ipcCalls     int
 	ipcFailAfter int // fail cleanIPC on this call number (1-based); 0 = never
+	guardErr     error
 	resets       int
 	runResult    func(input []byte) Result
 }
@@ -38,7 +39,8 @@ func (f *fakeEnv) deps(in io.Reader, out io.Writer) batchDeps {
 			}
 			return Result{Status: protocol.StatusExited, Stdout: append([]byte("out:"), data...)}
 		},
-		reapAll: func() { f.log = append(f.log, "reap") },
+		reapAll:  func() { f.log = append(f.log, "reap") },
+		ipcGuard: func() error { return f.guardErr },
 		cleanIPC: func() error {
 			f.ipcCalls++
 			f.log = append(f.log, "ipc")
@@ -176,6 +178,8 @@ func TestBatchErrors(t *testing.T) {
 		"truncated input":             {in: truncated, env: &fakeEnv{}, wantSeq: 0, wantError: "truncated"},
 		"ipc cleanup fails after run": {in: msgs(t, [2]string{"P", "prog"}, [2]string{"T", "x"}, [2]string{"T", "y"}), env: &fakeEnv{ipcFailAfter: 2}, wantSeq: 1, wantError: "System V IPC"},
 		"reset fails after run":       {in: msgs(t, [2]string{"P", "prog"}, [2]string{"T", "x"}, [2]string{"T", "y"}), env: &fakeEnv{resetErr: errors.New("busy"), resetFails: 3}, wantSeq: 1, wantError: "busy"},
+		// IPC available but not enumerable: no test may run (no "nothing to clean").
+		"ipc guard fails": {in: msgs(t, [2]string{"P", "prog"}, [2]string{"T", "x"}), env: &fakeEnv{guardErr: errors.New("System V IPC is available but /proc/sysvipc/shm is missing")}, wantSeq: 0, wantError: "/proc/sysvipc", noReady: true},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -204,6 +208,9 @@ func TestBatchErrors(t *testing.T) {
 			// A failed reset must stop before the next test's input is written.
 			if (name == "reset fails after run" || name == "ipc cleanup fails after run") && strings.Contains(strings.Join(c.env.log, " "), "input(y)") {
 				t.Fatal("next test started after a failed reset")
+			}
+			if name == "ipc guard fails" && strings.Contains(strings.Join(c.env.log, " "), "run(") {
+				t.Fatal("a test ran although the IPC guard failed")
 			}
 		})
 	}

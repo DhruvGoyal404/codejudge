@@ -11,7 +11,35 @@ import (
 	"syscall"
 )
 
-const ipcRMID = 0 // IPC_RMID
+const (
+	ipcRMID    = 0     // IPC_RMID
+	ipcPrivate = 0     // IPC_PRIVATE
+	ipcCreat   = 01000 // IPC_CREAT
+)
+
+// ipcGuard runs once per batch, before the first test. System V IPC (and
+// POSIX mqueues) are denied by the seccomp profile, so shmget must fail with
+// EPERM (seccomp) or ENOSYS. If it works anyway (profile not applied, e.g. a
+// runtime that ignores it), cleaning between tests must still be possible:
+// that needs /proc/sysvipc to enumerate objects. Without it the batch fails
+// closed (error frame) instead of assuming there is "nothing to clean".
+func ipcGuard() error {
+	id, _, e := syscall.Syscall(syscall.SYS_SHMGET, ipcPrivate, 4096, ipcCreat|0o600)
+	switch e {
+	case syscall.EPERM, syscall.ENOSYS:
+		return nil // blocked, as intended
+	case 0:
+		_, _, _ = syscall.Syscall(syscall.SYS_SHMCTL, id, ipcRMID, 0)
+	default:
+		return fmt.Errorf("System V IPC probe: unexpected shmget error %v", e)
+	}
+	for _, t := range sysvTables {
+		if _, err := os.Stat(t.path); err != nil {
+			return fmt.Errorf("System V IPC is available (seccomp did not block shmget) but %s is missing: objects could not be cleaned between tests", t.path)
+		}
+	}
+	return nil
+}
 
 // sysvTables maps each /proc/sysvipc table to the syscall that removes one
 // of its objects. The id is column 2 in every table (after the key).
@@ -61,7 +89,8 @@ func cleanSysVIPC() error {
 }
 
 // sysvIDs lists the object ids in one /proc/sysvipc table. A missing table
-// (kernel without SysV IPC) means there is nothing to clean.
+// means there is nothing to clean only because ipcGuard established at the
+// start of the batch that IPC objects cannot be created at all.
 func sysvIDs(path string) ([]int, error) {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {

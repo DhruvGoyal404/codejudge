@@ -298,3 +298,13 @@ Commands that don't read input get `</dev/null`; otherwise `docker compose exec 
 | `--into-live` confirmed | live DB replaced; counts identical; the full API suite (85 tests) then passed against it |
 
 The scratch databases were dropped afterwards. CI runs `shellcheck --severity=warning` on both scripts and `systemd-analyze verify` on the units. Two info-level notes are intentional: the single quotes make `$POSTGRES_*` expand inside the container.
+
+## 6a.7 gVisor fixes (approved; each tested under runc and runsc)
+
+### 1. System V IPC and POSIX mqueues are denied; the reset can't fail open
+
+- **Seccomp:** the profile no longer allows `shmget shmat shmdt shmctl msgget msgsnd msgrcv msgctl semget semop semtimedop semctl ipc mq_open mq_unlink mq_timedsend mq_timedreceive mq_notify mq_getsetattr`. They fail with the profile's default error, EPERM. Judged programs never need them, and denying them removes the cross-test channel under every runtime.
+- **judge-exec guard:** once per batch, before the first test, judge-exec probes `shmget(IPC_PRIVATE)`. EPERM or ENOSYS is the expected, blocked outcome. If the probe succeeds (a runtime that doesn't apply the profile), judge-exec removes the segment and requires `/proc/sysvipc/{shm,msg,sem}`; if they're missing, it sends an **error frame**, and the submission is IE rather than judged in a box that can't be cleaned. A missing table no longer quietly means "nothing to clean". The per-test `/dev/mqueue` wipe and the SysV cleanup stay in place.
+- **Tests:**
+  - Unit (fakes): a failing guard gives an error frame, no ready frame, and no test runs.
+  - Integration: `TestBatchCrossTestState` now also requires that planting a POSIX mqueue and SysV shm/msg/sem fails with "Operation not permitted". Locally (runc) the whole sandbox suite passes; under runsc it is checked in CI once C++ compiles there (fix 2).

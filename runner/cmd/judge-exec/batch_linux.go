@@ -20,6 +20,7 @@ func realBatchDeps(o options) batchDeps {
 		reapAll:      reapAll,
 		resetWorkDir: resetWorkDir,
 		cleanIPC:     cleanSysVIPC,
+		ipcGuard:     ipcGuard,
 		extract: func(tarBytes []byte) error {
 			return boxtar.Extract(bytes.NewReader(tarBytes), boxDir, boxtar.Limits{MaxBytes: o.maxTarBytes, MaxFiles: o.maxFiles})
 		},
