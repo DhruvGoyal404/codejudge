@@ -62,6 +62,18 @@ The calibration criterion is the one Python already had: **on every seed problem
 | rising-towers (1000 ms) | 27 | 115 | 104 | 114 |
 | farthest-beacons (2000 ms) | 40 | 676 | 362 | 497 |
 
+Linux CI (GitHub `ubuntu-latest`, run 38630724103, commit 238b7e8), max CPU in ms as runc / runsc. gVisor reports CPU in 10 ms steps.
+
+| Problem | ref.py | ref.java | ref.js |
+|---|---|---|---|
+| ledger-total | 35 / 50 | 67 / 130 | 67 / 100 |
+| range-ledger | 158 / 210 | 171 / 280 | 127 / 190 |
+| courier-grid | 256 / 170 | 123 / 170 | 55 / 90 |
+| rising-towers | 68 / 70 | 83 / 150 | 66 / 90 |
+| farthest-beacons | 480 / 410 | 315 / 280 | 318 / 350 |
+
+The worst non-C++ reference uses 13 % of its effective limit on runc (courier-grid Python, 256 of 2000 ms) and 14 % on runsc (range-ledger Java, 280 of 2000 ms).
+
 What the numbers mean:
 - **Java and JavaScript use at most 12.5 % of their 2× limit.** On these inputs their cost is mostly start-up, about 60–110 ms (JVM boot and JIT warm-up; Node boot plus parsing all of stdin as a string). The worst cases are farthest-beacons: sorting 2·10⁵ points, then BigInt cross products in JS.
 - **Why 2.0 rather than less.** A 1.5× multiplier would also pass today. 2.0 is kept for two reasons:
