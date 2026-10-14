@@ -2,6 +2,12 @@
 //
 //	judge-run [run] --lang cpp|python --src FILE [--stdin FILE] --time-limit 2s --memory-limit 256
 //	judge-run judge --problem problems/<slug> --lang cpp|python --src FILE [--run-all] [--mode batch|per-test]
+//	judge-run outputs --lang L --src FILE --inputs DIR --out DIR [--time-limit 10s --memory-limit 1024]
+//
+// outputs is a problem-authoring tool: it runs a reference solution on every
+// DIR/NN.in in one batch container and writes its exact stdout to OUT/NN.out
+// (failing on any non-OK or truncated run). scripts/make-tests.py uses it to
+// cross-check the C++ and Python references byte for byte.
 package main
 
 import (
@@ -11,6 +17,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/DhruvGoyal404/codejudge/runner/internal/judge"
@@ -24,6 +33,13 @@ func main() {
 	if len(args) > 0 && args[0] == "judge" {
 		if err := judgeCmd(args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "judge-run judge:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "outputs" {
+		if err := outputsCmd(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "judge-run outputs:", err)
 			os.Exit(1)
 		}
 		return
@@ -150,4 +166,98 @@ func judgeCmd(args []string) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(res)
+}
+
+func outputsCmd(args []string) error {
+	fs := flag.NewFlagSet("outputs", flag.ContinueOnError)
+	langName := fs.String("lang", "", "language: cpp | python | java | javascript")
+	srcPath := fs.String("src", "", "source file")
+	inDir := fs.String("inputs", "", "directory of NN.in files")
+	outDir := fs.String("out", "", "directory to write NN.out files to")
+	timeLimit := fs.Duration("time-limit", 10*time.Second, "CPU time limit per input")
+	memoryMB := fs.Int64("memory-limit", 1024, "memory limit in MB")
+	outputBytes := fs.Int64("output-limit", problem.MaxExpectedBytes, "stdout limit per input in bytes")
+	seccompPath := fs.String("seccomp", "", "seccomp profile (default: find sandbox/seccomp/default.json)")
+	lockPath := fs.String("images", "", "image lock (default: find sandbox/images/images.lock.json)")
+	runtime := fs.String("runtime", os.Getenv("JUDGE_RUNTIME"), "OCI runtime, e.g. runsc (default: $JUDGE_RUNTIME, else the engine default)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *srcPath == "" || *inDir == "" || *outDir == "" {
+		return fmt.Errorf("--src, --inputs and --out are required")
+	}
+	l, err := lang.Get(*langName)
+	if err != nil {
+		return err
+	}
+	src, err := os.ReadFile(*srcPath)
+	if err != nil {
+		return err
+	}
+	ins, err := filepath.Glob(filepath.Join(*inDir, "*.in"))
+	if err != nil {
+		return err
+	}
+	if len(ins) == 0 {
+		return fmt.Errorf("no .in files in %s", *inDir)
+	}
+	sort.Strings(ins)
+	inputs := make([][]byte, len(ins))
+	maxIn := 0
+	for i, path := range ins {
+		if inputs[i], err = os.ReadFile(path); err != nil {
+			return err
+		}
+		maxIn = max(maxIn, len(inputs[i]))
+	}
+	if *seccompPath == "" {
+		if *seccompPath, err = sandbox.FindRepoFile("sandbox/seccomp/default.json"); err != nil {
+			return err
+		}
+	}
+	if *lockPath == "" {
+		if *lockPath, err = sandbox.FindRepoFile("sandbox/images/images.lock.json"); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(*outDir, 0o755); err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	sb, err := sandbox.New(ctx, sandbox.Options{SeccompPath: *seccompPath, ImagesLockPath: *lockPath, Runtime: *runtime})
+	if err != nil {
+		return err
+	}
+	defer sb.Close()
+	c, cres, err := sb.Compile(ctx, l, src)
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return fmt.Errorf("compile: %s %s\n%s", cres.Status, cres.Reason, cres.Stderr)
+	}
+	lim := sandbox.Limits{TimeLimit: *timeLimit, MemoryMB: *memoryMB, OutputBytes: *outputBytes}
+	b, err := sb.StartBatch(ctx, c, lim, len(inputs), maxIn)
+	if err != nil {
+		return err
+	}
+	defer b.Close()
+	var maxCPU int64
+	for i, in := range inputs {
+		name := strings.TrimSuffix(filepath.Base(ins[i]), ".in")
+		res, err := b.Run(in)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		if res.Status != sandbox.StatusOK || res.StdoutTruncated {
+			return fmt.Errorf("%s: %s %s (truncated=%v)\n%.2000s", name, res.Status, res.Reason, res.StdoutTruncated, res.Stderr)
+		}
+		if err := os.WriteFile(filepath.Join(*outDir, name+".out"), []byte(res.Stdout), 0o644); err != nil {
+			return err
+		}
+		maxCPU = max(maxCPU, res.CPUMs)
+	}
+	fmt.Printf("%d outputs, max cpu %dms\n", len(inputs), maxCPU)
+	return nil
 }

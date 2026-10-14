@@ -1,5 +1,7 @@
 id: courier-grid
 title: Courier Grid
+difficulty: medium
+tags: [graphs, bfs, matrix]
 time_limit: 1s
 memory_limit: 256
 checker:

@@ -65,12 +65,15 @@ describe("health and problems", () => {
     expect(r.status).toBe(200);
     const slugs = r.body.problems.map((p: { slug: string }) => p.slug);
     expect(slugs).toEqual(expect.arrayContaining(["courier-grid", "farthest-beacons", "ledger-total", "range-ledger", "rising-towers"]));
+    const fb = r.body.problems.find((p: { slug: string }) => p.slug === "farthest-beacons");
+    expect(fb).toMatchObject({ difficulty: "hard", tags: ["geometry", "two-pointers", "sorting"] });
   });
 
   it("GET /problems/:slug returns statement and samples only", async () => {
     const r = await request(app).get("/problems/ledger-total");
     expect(r.status).toBe(200);
     expect(r.body.statement_md).toContain("Ledger Total");
+    expect(r.body).toMatchObject({ difficulty: "easy", tags: ["math", "implementation"] });
     expect(r.body.samples.map((s: { name: string }) => s.name)).toEqual(["01", "02"]);
     expect(r.body).not.toHaveProperty("id");
     // Exactly the public samples (problems/<slug>/samples), byte for byte.

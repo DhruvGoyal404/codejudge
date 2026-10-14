@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -41,8 +42,26 @@ const (
 	MaxTests         = sandbox.MaxTests
 	MaxInputBytes    = 16 << 20 // per test
 	MaxExpectedBytes = 16 << 20 // per test
-	MaxTotalBytes    = 64 << 20 // all .in + .out
+	MaxTotalBytes    = 32 << 20 // all .in + .out of one problem
+	MaxTags          = 5
+	// CatalogMinTests is the least number of tests a published problem has
+	// (enforced by judge-admin check, not by Load: fixtures may have fewer).
+	CatalogMinTests = 25
 )
+
+// Difficulties are the allowed values of difficulty: in problem.yaml.
+var Difficulties = []string{"easy", "medium", "hard"}
+
+// Tags is the controlled vocabulary for tags: in problem.yaml (the UI
+// filters on these, so a typo must not create a new tag).
+var Tags = []string{
+	"arrays", "backtracking", "binary-search", "bit-manipulation", "bfs", "brute-force",
+	"combinatorics", "constructive", "dfs", "dynamic-programming", "games", "geometry",
+	"graphs", "greedy", "hashing", "heap", "implementation", "intervals", "math", "matrix",
+	"number-theory", "prefix-sums", "queue", "recursion", "segment-tree", "shortest-paths",
+	"simulation", "sliding-window", "sorting", "stack", "strings", "topological-sort",
+	"trees", "two-pointers", "union-find",
+}
 
 // TestsRootEnv names the directory holding <slug>/tests for every problem
 // (a checkout of the private problems repo).
@@ -62,6 +81,8 @@ type Problem struct {
 	TestsDir    string // where tests/NN.* were read from
 	ID          string
 	Title       string
+	Difficulty  string   // easy | medium | hard
+	Tags        []string // from Tags, in problem.yaml order
 	TimeLimit   time.Duration
 	MemoryMB    int64
 	Checker     checker.Spec
@@ -102,6 +123,8 @@ func (p *Problem) EffectiveTimeLimit(langName string) time.Duration {
 type rawProblem struct {
 	ID             string             `yaml:"id"`
 	Title          string             `yaml:"title"`
+	Difficulty     string             `yaml:"difficulty"`
+	Tags           []string           `yaml:"tags"`
 	TimeLimit      string             `yaml:"time_limit"`
 	MemoryLimit    int64              `yaml:"memory_limit"`
 	Checker        checker.Spec       `yaml:"checker"`
@@ -148,6 +171,20 @@ func load(dir, testsRoot string) (*Problem, error) {
 	if strings.TrimSpace(rp.Title) == "" {
 		return nil, fmt.Errorf("title is required")
 	}
+	if !slices.Contains(Difficulties, rp.Difficulty) {
+		return nil, fmt.Errorf("difficulty %q must be one of %v", rp.Difficulty, Difficulties)
+	}
+	if len(rp.Tags) == 0 || len(rp.Tags) > MaxTags {
+		return nil, fmt.Errorf("tags: need 1..%d, got %d", MaxTags, len(rp.Tags))
+	}
+	for i, tag := range rp.Tags {
+		if !slices.Contains(Tags, tag) {
+			return nil, fmt.Errorf("tag %q is not in the vocabulary (problem.Tags)", tag)
+		}
+		if slices.Contains(rp.Tags[:i], tag) {
+			return nil, fmt.Errorf("tag %q listed twice", tag)
+		}
+	}
 	tl, err := time.ParseDuration(rp.TimeLimit)
 	if err != nil {
 		return nil, fmt.Errorf("time_limit %q: %w", rp.TimeLimit, err)
@@ -162,7 +199,7 @@ func load(dir, testsRoot string) (*Problem, error) {
 		return nil, err
 	}
 
-	p := &Problem{Dir: dir, TestsDir: filepath.Join(dir, "tests"), ID: rp.ID, Title: rp.Title, TimeLimit: tl, MemoryMB: rp.MemoryLimit, Checker: rp.Checker, Samples: rp.Samples, Multipliers: map[string]float64{}}
+	p := &Problem{Dir: dir, TestsDir: filepath.Join(dir, "tests"), ID: rp.ID, Title: rp.Title, Difficulty: rp.Difficulty, Tags: rp.Tags, TimeLimit: tl, MemoryMB: rp.MemoryLimit, Checker: rp.Checker, Samples: rp.Samples, Multipliers: map[string]float64{}}
 	for l, m := range DefaultMultipliers {
 		p.Multipliers[l] = m
 	}

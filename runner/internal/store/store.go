@@ -69,15 +69,16 @@ func UpsertProblem(ctx context.Context, pool *pgxpool.Pool, p *problem.Problem) 
 		res.Changed = old == nil || *old != hash
 		var id int64
 		err := tx.QueryRow(ctx, `
-			INSERT INTO problems (slug, title, statement_md, time_limit_ms, memory_limit_mb, checker, content_hash)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			INSERT INTO problems (slug, title, statement_md, time_limit_ms, memory_limit_mb, checker, content_hash, difficulty, tags)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			ON CONFLICT (slug) DO UPDATE SET
 				title = EXCLUDED.title, statement_md = EXCLUDED.statement_md,
 				time_limit_ms = EXCLUDED.time_limit_ms, memory_limit_mb = EXCLUDED.memory_limit_mb,
 				checker = EXCLUDED.checker, content_hash = EXCLUDED.content_hash,
+				difficulty = EXCLUDED.difficulty, tags = EXCLUDED.tags,
 				updated_at = CASE WHEN problems.content_hash = EXCLUDED.content_hash THEN problems.updated_at ELSE now() END
 			RETURNING id`,
-			p.ID, p.Title, p.Statement, p.TimeLimit.Milliseconds(), p.MemoryMB, checker, hash).Scan(&id)
+			p.ID, p.Title, p.Statement, p.TimeLimit.Milliseconds(), p.MemoryMB, checker, hash, p.Difficulty, p.Tags).Scan(&id)
 		if err != nil {
 			return err
 		}

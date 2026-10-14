@@ -12,9 +12,13 @@ export const MAX_SOURCE_BYTES = 64 * 1024;
 export type Verdict = "AC" | "WA" | "CE" | "RE" | "TLE" | "MLE" | "OLE" | "IE";
 export type Status = "queued" | "running" | "done";
 
+export type Difficulty = "easy" | "medium" | "hard";
+
 export interface ProblemSummary {
   slug: string;
   title: string;
+  difficulty: Difficulty;
+  tags: string[];
   time_limit_ms: number;
   memory_limit_mb: number;
   /** For the logged-in user: some AC / submissions but no AC / none (or logged out). */

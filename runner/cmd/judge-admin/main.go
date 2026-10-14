@@ -3,7 +3,8 @@
 //	judge-admin import problems/            # validate every package, upsert metadata + content_hash + samples
 //	judge-admin import problems/ledger-total
 //	judge-admin check problems/             # validate only (no database): bounds, tests, public samples
-//	                                        # byte-identical to the hidden ones; prints content hashes
+//	                                        # byte-identical to the hidden ones; prints content hashes;
+//	                                        # catalog rules (catalogCheck)
 //
 // Database: $CODEJUDGE_DATABASE_URL. Hidden tests: $CODEJUDGE_PROBLEMS_TESTS_DIR
 // (the private problems repo; unset = <package>/tests).
@@ -62,6 +63,9 @@ func checkCmd(path string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", p.ID, err)
 		}
+		if err := catalogCheck(p); err != nil {
+			return fmt.Errorf("%s: %w", p.ID, err)
+		}
 		fmt.Printf("%-18s ok %s (%d tests, %d samples) tests from %s\n", p.ID, h[:19], len(p.Tests), len(p.Samples), p.TestsDir)
 	}
 	return nil
@@ -93,6 +97,35 @@ func importCmd(path string) error {
 			state = "updated"
 		}
 		fmt.Printf("%-18s %s %s (%d tests, %d samples)\n", res.Slug, state, res.Hash[:19], len(p.Tests), len(p.Samples))
+	}
+	return nil
+}
+
+// catalogCheck applies the rules for a published problem on top of what Load
+// validates: enough tests and, when the private repo is available, the files
+// that produced and cross-check them (scripts/make-tests.py).
+func catalogCheck(p *problem.Problem) error {
+	if len(p.Tests) < problem.CatalogMinTests {
+		return fmt.Errorf("%d tests, a published problem needs at least %d", len(p.Tests), problem.CatalogMinTests)
+	}
+	root := os.Getenv(problem.TestsRootEnv)
+	if root == "" {
+		return nil
+	}
+	priv := filepath.Join(root, p.ID)
+	for _, f := range []string{"gen/gen.py", "gen/validate.py", "solutions/ref.cpp", "solutions/ref.py"} {
+		if _, err := os.Stat(filepath.Join(priv, f)); err != nil {
+			return fmt.Errorf("private repo: %w", err)
+		}
+	}
+	if p.Difficulty != "easy" {
+		slow, err := filepath.Glob(filepath.Join(priv, "solutions", "slow.*"))
+		if err != nil {
+			return err
+		}
+		if len(slow) == 0 {
+			return fmt.Errorf("private repo: a %s problem needs a solutions/slow.* that must TLE", p.Difficulty)
+		}
 	}
 	return nil
 }

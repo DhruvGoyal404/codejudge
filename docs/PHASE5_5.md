@@ -52,7 +52,7 @@ Every image uses the same `judge-exec` builder stage, `USER 65534` and `ENTRYPOI
 
 `problem.DefaultMultipliers`: cpp 1.0, python 2.0, java **2.0**, javascript **2.0**. The effective limit is the problem's `time_limit_ms` × the multiplier. A problem may override this in `problem.yaml`.
 
-The calibration criterion is the one Python already had: **on every seed problem, the reference in each language uses at most 50 % of its effective limit on every test**. `TestSeedProblems` asserts this for `ref.py`, `ref.java` and `ref.js`. The table shows the measurements: max CPU over all tests, local runc, Docker Desktop/WSL2, 2026-10-15.
+The calibration criterion is the one Python already had: **on every seed problem, the reference in each language uses at most 50 % of its effective limit on every test**. `TestProblems` asserts this for `ref.py`, `ref.java` and `ref.js`. The table shows the measurements: max CPU over all tests, local runc, Docker Desktop/WSL2, 2026-10-15.
 
 | Problem (limit) | ref.cpp | ref.py | ref.java | ref.js |
 |---|---|---|---|---|
@@ -111,3 +111,53 @@ Each language opens with a template that reads all of stdin quickly and writes t
 - **Seed problems (`problems_integration_test.go`).** ref.cpp, ref.py, ref.java and ref.js must get AC, with the 50 % margin for non-C++. wrong.cpp must get WA and slow.cpp TLE. The Java/JS references live in the private problems repo next to the others.
 
 Database: migration `20261015000001_more_languages.sql` widens `submissions_language_check` to all four languages. The API's `LANGUAGES` and the web `Language` type follow it.
+
+## P. The problem set
+
+### P0. Schema, authoring pipeline, the five seed problems upgraded
+
+**`problem.yaml` gains two required fields.** The loader rejects a package without them.
+
+```yaml
+difficulty: medium            # easy | medium | hard
+tags: [graphs, bfs, matrix]   # 1..5 tags from the controlled vocabulary problem.Tags
+```
+
+The vocabulary is fixed in `runner/internal/problem/problem.go` so that a typo can't create a new filter value in the UI. Both fields are imported into `problems.difficulty` and `problems.tags` (migration `20261015000002`), and both are served by `GET /problems` and `GET /problems/:slug`.
+
+**Catalog rules.** `judge-admin check` enforces these on top of what `Load` validates; CI runs it in the "Problems" job:
+- At least 25 tests (`CatalogMinTests`) and at most 50 (`MaxTests`).
+- Total test size of at most 32 MB per problem (`MaxTotalBytes`, enforced by `Load`).
+- With the private repo present, every problem must have `gen/gen.py`, `gen/validate.py`, `solutions/ref.cpp` and `solutions/ref.py`.
+- A medium or hard problem must also have a `solutions/slow.*`, which must TLE.
+
+**Private repo layout per problem.**
+- `gen/gen.py DIR` is seeded and writes `DIR/NN.in`.
+- `gen/validate.py` checks one input from stdin. It uses `lib/cjval.py`, a strict reader that enforces single spaces, exact newlines, no trailing data and bounded integers.
+- `solutions/`: `ref.cpp` and `ref.py` (both required), `ref.java` and `ref.js` (optional), and `wrong*` / `slow*` (fixtures).
+- `tests/`: the generated tests.
+
+`lib/cjgen.py` gives generators a common output-directory convention.
+
+**`scripts/make-tests.py`** builds the tests for each problem:
+1. Generate the inputs.
+2. Validate every input.
+3. Run `ref.py` and `ref.cpp` on every input in the real sandbox, using `judge-run outputs` (compile once, one batch container, the exact stdout of each run). The two outputs must be byte-identical.
+4. Write them as `NN.out`, after checking the test count and total size.
+
+`--check` does the same in a temporary directory and requires the committed `tests/` to be exactly what it produces. CI runs that under runc on every push, so a generator, validator or reference that drifts fails the build.
+
+**`TestProblems`** (`runner/internal/judge`) judges every package with every solution it finds:
+- `ref.*` must get AC, and a non-C++ reference must stay within 50 % of its effective limit.
+- `wrong*` must get WA and `slow*` must get TLE.
+- On push CI judges with C++ only (`JUDGE_PROBLEM_LANGS=cpp`); nightly and manual runs use all four languages, under runc and runsc.
+
+**The five seed problems** now have 28 tests each. Tests 01–10/11 (and so the public samples) are byte-for-byte unchanged; the new tests add boundary and stress cases. Each problem also got a validator and its difficulty and tags.
+
+| Problem | Difficulty | Tags | Tests | Size |
+|---|---|---|---|---|
+| ledger-total | easy | math, implementation | 28 | 10.5 MB |
+| range-ledger | easy | arrays, prefix-sums | 28 | 25.6 MB |
+| courier-grid | medium | graphs, bfs, matrix | 28 | 2.7 MB |
+| rising-towers | medium | dynamic-programming, binary-search | 28 | 9.4 MB |
+| farthest-beacons | hard | geometry, two-pointers, sorting | 28 | 11.1 MB |

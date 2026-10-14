@@ -39,7 +39,7 @@ test("problem list -> problem page -> C++ reference is Accepted", async ({ page 
   await shot(page, "live-stages");
 
   await expect(page.getByTestId("result").getByTestId("verdict")).toHaveAttribute("data-verdict", "AC");
-  await expect(page.getByTestId("tests-table").getByRole("row")).toHaveCount(11); // header + 10 tests
+  await expect(page.getByTestId("tests-table").getByRole("row")).toHaveCount(29); // header + 28 tests
   await expect(page.getByTestId("my-submissions").getByRole("listitem")).toHaveCount(1);
   await shot(page, "ac");
 });

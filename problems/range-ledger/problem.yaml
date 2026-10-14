@@ -1,5 +1,7 @@
 id: range-ledger
 title: Range Ledger
+difficulty: easy
+tags: [arrays, prefix-sums]
 time_limit: 1s
 memory_limit: 256
 checker:

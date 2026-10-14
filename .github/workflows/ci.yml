@@ -232,16 +232,24 @@ jobs:
         run: |
           set -o pipefail
           go test -p 1 -tags integration -count=1 -timeout 40m -v ./internal/sandbox/ 2>&1 | tee "$RUNNER_TEMP/sandbox-${{ matrix.runtime }}.log"
-      # Every seed problem judged with its C++/Python/Java/JS references (AC,
-      # non-C++ within 50% of the multiplied limit) and wrong/slow (WA/TLE).
-      # The max_cpu lines are the time-multiplier calibration data.
-      - name: Seed problems, all reference languages
+      # Tests are regenerated from the seeded generators, every input passes
+      # its validator, and ref.cpp / ref.py produce byte-identical outputs
+      # equal to the committed ones (scripts/make-tests.py --check).
+      - name: Problem tests reproduce (validators, C++/Python cross-check)
+        if: matrix.runtime == 'runc' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        working-directory: .
+        run: python3 scripts/make-tests.py --check
+      # Every problem judged with its solutions: ref.* AC (non-C++ within 50%
+      # of the multiplied limit), wrong* WA, slow* TLE. C++ on every push; all
+      # four languages nightly. The max_cpu lines are the calibration data.
+      - name: Problems judged (C++ on push, all languages nightly)
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           JUDGE_TEST_RUNTIME: ${{ matrix.runtime == 'runsc' && 'runsc' || '' }}
+          JUDGE_PROBLEM_LANGS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cpp,python,java,javascript' || 'cpp' }}
         run: |
           set -o pipefail
-          go test -p 1 -tags integration -count=1 -timeout 30m -v -run 'TestSeedProblems' ./internal/judge/ 2>&1 | tee "$RUNNER_TEMP/seed-${{ matrix.runtime }}.log"
+          go test -p 1 -tags integration -count=1 -timeout 30m -v -run 'TestProblems' ./internal/judge/ 2>&1 | tee "$RUNNER_TEMP/seed-${{ matrix.runtime }}.log"
       - name: Summary
         if: always()
         run: |

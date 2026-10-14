@@ -1,5 +1,7 @@
 id: ledger-total
 title: Ledger Total
+difficulty: easy
+tags: [math, implementation]
 time_limit: 1s
 memory_limit: 256
 checker:

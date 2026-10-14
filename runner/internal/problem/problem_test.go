@@ -10,6 +10,8 @@ import (
 
 const goodYAML = `id: demo
 title: Demo
+difficulty: medium
+tags: [math, sorting]
 time_limit: 1s
 memory_limit: 256
 checker:
@@ -68,10 +70,13 @@ func TestLoadGood(t *testing.T) {
 	if p.Checker.Type != "float" {
 		t.Fatalf("checker = %+v", p.Checker)
 	}
+	if p.Difficulty != "medium" || strings.Join(p.Tags, ",") != "math,sorting" {
+		t.Fatalf("difficulty %q tags %v", p.Difficulty, p.Tags)
+	}
 }
 
 func TestDefaultChecker(t *testing.T) {
-	p, err := Load(writePkg(t, "id: demo\ntitle: D\ntime_limit: 1s\nmemory_limit: 64\n", goodTests))
+	p, err := Load(writePkg(t, "id: demo\ntitle: D\ndifficulty: easy\ntags: [math]\ntime_limit: 1s\nmemory_limit: 64\n", goodTests))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +121,12 @@ func TestLoadRejects(t *testing.T) {
 		"sample duplicate":   {sub(`["02", "01"]`, `["02", "02"]`), goodTests, "listed twice"},
 		"no tests":           {goodYAML, map[string]string{"tests/.keep": ""}, "unexpected entry"},
 		"input too big":      {goodYAML, with("tests/03.in", strings.Repeat("x", MaxInputBytes+1)), "bytes >"},
+		"no difficulty":      {sub("difficulty: medium\n", ""), goodTests, "difficulty"},
+		"bad difficulty":     {sub("difficulty: medium", "difficulty: insane"), goodTests, "difficulty"},
+		"no tags":            {sub("tags: [math, sorting]\n", ""), goodTests, "tags: need"},
+		"unknown tag":        {sub("[math, sorting]", "[math, sortng]"), goodTests, "not in the vocabulary"},
+		"duplicate tag":      {sub("[math, sorting]", "[math, math]"), goodTests, "listed twice"},
+		"too many tags":      {sub("[math, sorting]", "[math, sorting, greedy, graphs, bfs, dfs]"), goodTests, "tags: need"},
 		"effective over max": {sub("time_limit: 1s", "time_limit: 4s"), goodTests, "effective time limit"}, // 4s*3 = 12s > 10s
 	}
 	for name, c := range cases {

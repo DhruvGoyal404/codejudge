@@ -12,6 +12,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,30 +92,70 @@ func judgeFile(t *testing.T, p *problem.Problem, file string, opt Options) *Subm
 	return res
 }
 
-func TestSeedProblems(t *testing.T) {
+// TestProblems judges every package in problems/ with every solution in its
+// private solutions/ directory: ref.* must get AC (non-C++ within 50% of the
+// effective limit), wrong*.* WA, slow*.* TLE. JUDGE_PROBLEMS (slugs) and
+// JUDGE_PROBLEM_LANGS (cpp,python,java,javascript) narrow it; CI runs C++ on
+// every push and all languages nightly.
+func TestProblems(t *testing.T) {
 	dir := problemsDir(t)
-	for _, slug := range seedProblems {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var slugs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			slugs = append(slugs, e.Name())
+		}
+	}
+	langs := filter("JUDGE_PROBLEM_LANGS", []string{"cpp", "python", "java", "javascript"})
+	byExt := map[string]string{".cpp": "cpp", ".py": "python", ".java": "java", ".js": "javascript"}
+	for _, slug := range filter("JUDGE_PROBLEMS", slugs) {
 		t.Run(slug, func(t *testing.T) {
 			p, err := problem.Load(filepath.Join(dir, slug))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if n := len(p.Tests) - len(p.Samples); len(p.Samples) != 2 || n < 8 || n > 15 {
-				t.Fatalf("%d samples / %d hidden tests", len(p.Samples), n)
+			if len(p.Samples) < 2 || len(p.Samples) > 3 || len(p.Tests) < problem.CatalogMinTests {
+				t.Fatalf("%d samples / %d tests", len(p.Samples), len(p.Tests))
 			}
-			for _, c := range []struct{ file, want string }{
-				{"ref.cpp", AC}, {"ref.py", AC}, {"ref.java", AC}, {"ref.js", AC}, {"wrong.cpp", WA}, {"slow.cpp", TLE},
-			} {
-				res := judgeFile(t, p, c.file, Options{})
-				if res.Verdict != c.want {
-					t.Errorf("%s: verdict %s (%s), want %s", c.file, res.Verdict, res.Reason, c.want)
+			files, err := os.ReadDir(p.SolutionsDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			seen := map[string]bool{}
+			for _, f := range files {
+				name := f.Name()
+				l, ok := byExt[filepath.Ext(name)]
+				if !ok || !slices.Contains(langs, l) {
+					continue
 				}
-				if c.file == "ref.py" || c.file == "ref.java" || c.file == "ref.js" {
-					// Clear margin: a non-C++ reference must use at most half of its
-					// effective (multiplied) time limit on every test.
-					if res.MaxCPUMs*2 > res.TimeLimitMs {
-						t.Errorf("%s max cpu %dms is not within 50%% of its %dms limit", c.file, res.MaxCPUMs, res.TimeLimitMs)
-					}
+				var want string
+				switch {
+				case strings.HasPrefix(name, "ref."):
+					want = AC
+				case strings.HasPrefix(name, "wrong"):
+					want = WA
+				case strings.HasPrefix(name, "slow"):
+					want = TLE
+				default:
+					t.Fatalf("solutions/%s: name must start with ref., wrong or slow", name)
+				}
+				seen[strings.SplitN(name, ".", 2)[0]+"."+l] = true
+				res := judgeFile(t, p, name, Options{})
+				if res.Verdict != want {
+					t.Errorf("%s: verdict %s (%s), want %s", name, res.Verdict, res.Reason, want)
+				}
+				// Clear margin: a non-C++ reference must use at most half of its
+				// effective (multiplied) time limit on every test.
+				if want == AC && l != "cpp" && res.MaxCPUMs*2 > res.TimeLimitMs {
+					t.Errorf("%s max cpu %dms is not within 50%% of its %dms limit", name, res.MaxCPUMs, res.TimeLimitMs)
+				}
+			}
+			for _, l := range []string{"cpp", "python"} {
+				if slices.Contains(langs, l) && !seen["ref."+l] {
+					t.Errorf("no %s reference", l)
 				}
 			}
 		})

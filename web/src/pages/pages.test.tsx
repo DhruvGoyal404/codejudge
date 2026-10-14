@@ -20,9 +20,9 @@ vi.mock("../editor/CodeEditor.tsx", () => ({
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const ME = { id: 1, github_id: 2, login: "octocat", avatar_url: null };
 const PROBLEMS = [
-  { slug: "ledger-total", title: "Ledger Total", time_limit_ms: 1000, memory_limit_mb: 256, my_status: "solved" },
-  { slug: "range-ledger", title: "Range Ledger", time_limit_ms: 1000, memory_limit_mb: 256, my_status: "attempted" },
-  { slug: "rising-towers", title: "Rising Towers", time_limit_ms: 1000, memory_limit_mb: 256, my_status: null },
+  { slug: "ledger-total", title: "Ledger Total", difficulty: "easy", tags: ["math"], time_limit_ms: 1000, memory_limit_mb: 256, my_status: "solved" },
+  { slug: "range-ledger", title: "Range Ledger", difficulty: "easy", tags: ["prefix-sums"], time_limit_ms: 1000, memory_limit_mb: 256, my_status: "attempted" },
+  { slug: "rising-towers", title: "Rising Towers", difficulty: "medium", tags: ["dynamic-programming"], time_limit_ms: 1000, memory_limit_mb: 256, my_status: null },
 ];
 
 function setup(url: string, element: React.ReactNode, path: string, handler: (path: string) => Response) {

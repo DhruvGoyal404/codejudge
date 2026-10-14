@@ -26,7 +26,7 @@ export class Db {
    */
   async listProblems(userId: number | null) {
     const r = await this.pool.query(
-      `SELECT p.slug, p.title, p.time_limit_ms, p.memory_limit_mb,
+      `SELECT p.slug, p.title, p.difficulty, p.tags, p.time_limit_ms, p.memory_limit_mb,
               CASE WHEN bool_or(s.verdict = 'AC') THEN 'solved'
                    WHEN count(s.id) > 0 THEN 'attempted' END AS my_status
          FROM problems p
@@ -72,7 +72,7 @@ export class Db {
   /** Statement + public samples only. Hidden tests are not in the database at all. */
   async getProblem(slug: string) {
     const p = await this.pool.query(
-      `SELECT id, slug, title, statement_md, time_limit_ms, memory_limit_mb, checker
+      `SELECT id, slug, title, difficulty, tags, statement_md, time_limit_ms, memory_limit_mb, checker
          FROM problems WHERE slug = $1`,
       [slug],
     );
