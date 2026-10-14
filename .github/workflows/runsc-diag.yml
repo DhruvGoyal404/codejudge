@@ -1,0 +1,78 @@
+# TEMPORARY diagnostic (6a.7 fix 2): which syscalls does our seccomp profile
+# deny for the C++ compile under gVisor (runsc --oci-seccomp)? Manual trigger
+# only; removed once the profile is fixed.
+name: runsc-diag
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: runner/go.mod
+          cache-dependency-path: runner/go.sum
+      - name: Install gVisor 20260921.0 with a debug runtime
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          base="https://storage.googleapis.com/gvisor/releases/release/20260921.0/x86_64"
+          curl -fsSLO "$base/gvisor.tar.zstd"; curl -fsSLO "$base/gvisor.tar.zstd.sha512"
+          sha512sum -c gvisor.tar.zstd.sha512
+          mkdir gvisor && tar --zstd -xf gvisor.tar.zstd -C gvisor
+          sudo install -m 0755 "$(find gvisor -type f -name runsc | head -1)" /usr/local/bin/runsc
+          shim=$(find gvisor -type f -name containerd-shim-runsc-v1 | head -1)
+          [ -n "$shim" ] && sudo install -m 0755 "$shim" /usr/local/bin/containerd-shim-runsc-v1
+          sudo mkdir -p /tmp/runsc-logs && sudo chmod 777 /tmp/runsc-logs
+          sudo runsc install -- --oci-seccomp
+          sudo runsc install --runtime runsc-dbg -- --oci-seccomp --strace --debug --debug-log=/tmp/runsc-logs/
+          sudo systemctl restart docker
+          sudo cat /etc/docker/daemon.json
+      - name: Build sandbox images
+        run: pwsh -NoProfile -File scripts/build-images.ps1
+      - name: Compile a trivial C++ program under each runtime
+        working-directory: runner
+        run: |
+          go build -o judge-run ./cmd/judge-run
+          printf '#include <cstdio>\nint main(){std::puts("hi");}\n' > /tmp/hi.cpp
+          for rt in "" runsc runsc-dbg; do
+            echo "===== runtime: ${rt:-default (runc)}"
+            ./judge-run --runtime "$rt" --lang cpp --src /tmp/hi.cpp || true
+          done
+      - name: Compile with the profile removed (seccomp=unconfined) under runsc
+        run: |
+          id=$(jq -r '."cpp-compile"' sandbox/images/images.lock.json)
+          printf '#include <cstdio>\nint main(){std::puts("hi");}\n' > /tmp/hi.cpp
+          for opt in "seccomp=unconfined" "seccomp=$(pwd)/sandbox/seccomp/default.json"; do
+            echo "===== runsc, $opt"
+            docker run --rm --runtime runsc --network none --security-opt "$opt" -v /tmp/hi.cpp:/src/hi.cpp:ro --entrypoint sh "$id" \
+              -c 'cd /tmp && g++ -O2 -o hi /src/hi.cpp; echo "g++ exit=$?"' 2>&1 | tail -20 || true
+          done
+      - name: Syscalls that returned EPERM (errno=1) under runsc-dbg
+        if: always()
+        run: |
+          sudo chmod -R a+r /tmp/runsc-logs || true
+          ls -la /tmp/runsc-logs | head -20
+          grep -h -E 'errno=1 \(operation not permitted\)|= -1 EPERM|EPERM' /tmp/runsc-logs/*.boot* 2>/dev/null \
+            | sed -E 's/^.*(E|X) +//' | grep -oE '[a-z0-9_]+\(' | sort | uniq -c | sort -rn | head -40 || true
+          echo "----- sample lines"
+          grep -h -E 'errno=1 \(operation not permitted\)' /tmp/runsc-logs/*.boot* 2>/dev/null | head -40 || true
+          echo "----- seccomp mentions"
+          grep -h -i 'seccomp' /tmp/runsc-logs/*.boot* 2>/dev/null | head -20 || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: runsc-logs
+          path: /tmp/runsc-logs/
+          retention-days: 3
