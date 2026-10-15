@@ -24,7 +24,7 @@ test.beforeEach(async ({ context, page }) => {
 });
 
 test("problem list -> problem page -> C++ reference is Accepted", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/problems");
   await expect(page.getByRole("heading", { name: "Problems" })).toBeVisible();
   await page.getByRole("link", { name: "Range Ledger" }).click();
   await expect(page.getByRole("heading", { name: "Range Ledger", level: 1 })).toBeVisible();

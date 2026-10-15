@@ -6,11 +6,13 @@ import { ErrorBanner, LoginLink } from "../components/Layout.tsx";
 import { ProblemStatus } from "../components/ProblemStatus.tsx";
 import { VerdictBadge } from "../components/VerdictBadge.tsx";
 import { useMe } from "../lib/useMe.ts";
+import { useTitle } from "../lib/useTitle.ts";
 
 /** The logged-in user's profile: solved/attempted problems and full submission history. */
 export function ProfilePage() {
+  useTitle("Profile");
   const me = useMe();
-  if (me.isPending) return <p className="p-4 text-sm text-zinc-500">Loading…</p>;
+  if (me.isPending) return <p className="p-4 text-sm text-muted">Loading…</p>;
   if (me.isError) return <div className="p-4"><ErrorBanner>{me.error.message}</ErrorBanner></div>;
   if (!me.data) {
     return (
@@ -52,7 +54,7 @@ function Profile({ login, avatar }: { login: string; avatar: string | null }) {
         {avatar && <img src={avatar} alt="" className="h-12 w-12 rounded-full" referrerPolicy="no-referrer" />}
         <div>
           <h1 className="text-xl font-semibold">{login}</h1>
-          <p className="text-sm text-zinc-500" data-testid="profile-stats">
+          <p className="text-sm text-muted" data-testid="profile-stats">
             {problems.data ? `${solved.length} solved · ${attempted.length} attempted` : "…"}
           </p>
         </div>
@@ -62,7 +64,7 @@ function Profile({ login, avatar }: { login: string; avatar: string | null }) {
         <ul className="flex flex-wrap gap-2 text-sm">
           {[...solved, ...attempted].map((p) => (
             <li key={p.slug} className="flex items-center gap-1">
-              <Link to={`/problems/${p.slug}`} className="text-blue-700 hover:underline dark:text-blue-400">
+              <Link to={`/problems/${p.slug}`} className="text-accent underline">
                 {p.title}
               </Link>
               <ProblemStatus status={p.my_status} />
@@ -76,10 +78,10 @@ function Profile({ login, avatar }: { login: string; avatar: string | null }) {
           <h2 className="font-semibold">Submissions</h2>
           <label className="text-sm">
             Problem{" "}
-            <select value={problem} onChange={(e) => setFilter("problem", e.target.value)} className="rounded border border-zinc-300 bg-transparent px-1 py-0.5 dark:border-zinc-700" aria-label="Filter by problem">
-              <option value="" className="text-zinc-900">All</option>
+            <select value={problem} onChange={(e) => setFilter("problem", e.target.value)} className="rounded border border-line bg-canvas px-1 py-0.5" aria-label="Filter by problem">
+              <option value="">All</option>
               {problems.data?.map((p) => (
-                <option key={p.slug} value={p.slug} className="text-zinc-900">
+                <option key={p.slug} value={p.slug}>
                   {p.title}
                 </option>
               ))}
@@ -87,10 +89,10 @@ function Profile({ login, avatar }: { login: string; avatar: string | null }) {
           </label>
           <label className="text-sm">
             Verdict{" "}
-            <select value={verdict ?? ""} onChange={(e) => setFilter("verdict", e.target.value)} className="rounded border border-zinc-300 bg-transparent px-1 py-0.5 dark:border-zinc-700" aria-label="Filter by verdict">
-              <option value="" className="text-zinc-900">All</option>
+            <select value={verdict ?? ""} onChange={(e) => setFilter("verdict", e.target.value)} className="rounded border border-line bg-canvas px-1 py-0.5" aria-label="Filter by verdict">
+              <option value="">All</option>
               {VERDICTS.map((v) => (
-                <option key={v} value={v} className="text-zinc-900">
+                <option key={v} value={v}>
                   {v}
                 </option>
               ))}
@@ -101,11 +103,11 @@ function Profile({ login, avatar }: { login: string; avatar: string | null }) {
         {history.isError && (
           <ErrorBanner>{history.error instanceof NetworkError ? history.error.message : `Could not load submissions: ${history.error.message}`}</ErrorBanner>
         )}
-        {history.isPending && <p className="text-sm text-zinc-500">Loading…</p>}
-        {history.isSuccess && rows.length === 0 && <p className="text-sm text-zinc-500">No submissions yet.</p>}
+        {history.isPending && <p className="text-sm text-muted">Loading…</p>}
+        {history.isSuccess && rows.length === 0 && <p className="text-sm text-muted">No submissions yet.</p>}
         {rows.length > 0 && (
           <table className="w-full text-left text-sm" data-testid="history-table">
-            <thead className="text-xs text-zinc-500">
+            <thead className="text-xs text-muted">
               <tr>
                 <th className="py-2">When</th>
                 <th className="py-2">Problem</th>
@@ -117,15 +119,15 @@ function Profile({ login, avatar }: { login: string; avatar: string | null }) {
             </thead>
             <tbody>
               {rows.map((s) => (
-                <tr key={s.id} className="border-t border-zinc-200 dark:border-zinc-800">
+                <tr key={s.id} className="border-t border-line">
                   <td className="py-2">
-                    <Link to={`/submissions/${s.id}`} className="text-blue-700 hover:underline dark:text-blue-400">
+                    <Link to={`/submissions/${s.id}`} className="text-accent hover:underline">
                       {new Date(s.created_at).toLocaleString()}
                     </Link>
                   </td>
                   <td className="py-2">{s.problem_title}</td>
                   <td className="py-2">{s.language}</td>
-                  <td className="py-2">{s.verdict ? <VerdictBadge verdict={s.verdict} /> : <span className="text-xs text-zinc-500">{s.status}</span>}</td>
+                  <td className="py-2">{s.verdict ? <VerdictBadge verdict={s.verdict} /> : <span className="text-xs text-muted">{s.status}</span>}</td>
                   <td className="py-2 text-right tabular-nums">{s.max_cpu_ms != null ? `${s.max_cpu_ms} ms` : "—"}</td>
                   <td className="py-2 text-right tabular-nums">{s.max_rss_kb != null ? `${(s.max_rss_kb / 1024).toFixed(1)} MB` : "—"}</td>
                 </tr>
@@ -138,7 +140,7 @@ function Profile({ login, avatar }: { login: string; avatar: string | null }) {
             type="button"
             onClick={() => history.fetchNextPage()}
             disabled={history.isFetchingNextPage}
-            className="rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            className="rounded border border-line px-3 py-1 text-sm hover:bg-surface disabled:opacity-50"
           >
             {history.isFetchingNextPage ? "Loading…" : "Load more"}
           </button>

@@ -81,6 +81,8 @@ test("the production CSP is sent and the app + Monaco work with zero violations"
   expect(csp).toContain("script-src 'self'");
   expect(csp).not.toContain("unsafe-eval");
   expect(csp).toContain("require-trusted-types-for 'script'");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible(); // landing
+  await page.goto("/problems");
   await expect(page.getByRole("heading", { name: "Problems" })).toBeVisible();
   await useEditor(page);
   await page.goto("/profile");

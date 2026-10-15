@@ -8,10 +8,12 @@ import { ErrorBanner } from "../components/Layout.tsx";
 import { ProblemStatus } from "../components/ProblemStatus.tsx";
 import { allTags, applyFilter, DIFFICULTIES, filterParams, parseFilter, type ListFilter, type SortKey, type StatusFilter } from "../lib/problemFilters.ts";
 import { useMe } from "../lib/useMe.ts";
+import { useTitle } from "../lib/useTitle.ts";
 
 const control = "rounded border border-line bg-canvas px-2 py-1 text-sm";
 
 export function ProblemList() {
+  useTitle("Problems");
   const q = useQuery({ queryKey: ["problems"], queryFn: api.problems });
   const me = useMe();
   const [params, setParams] = useSearchParams();

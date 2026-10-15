@@ -5,11 +5,13 @@ import { Link, useParams } from "react-router";
 import { api, ApiError, LANGUAGES, NetworkError } from "../api.ts";
 import { ErrorBanner } from "../components/Layout.tsx";
 import { ResultPanel } from "../components/ResultPanel.tsx";
+import { useTitle } from "../lib/useTitle.ts";
 
 const CodeEditor = lazy(() => import("../editor/CodeEditor.tsx"));
 
 /** One submission: result details, and (for its author only) the code in a read-only editor. */
 export function SubmissionPage({ dark }: { dark: boolean }) {
+  useTitle("Submission");
   const { id = "" } = useParams();
   const q = useQuery({
     queryKey: ["submission", id, "detail"],
@@ -19,7 +21,7 @@ export function SubmissionPage({ dark }: { dark: boolean }) {
   const slug = q.data?.problem_slug;
   const problem = useQuery({ queryKey: ["problem", slug], queryFn: () => api.problem(slug!), enabled: !!slug });
 
-  if (q.isPending) return <p className="p-4 text-sm text-zinc-500">Loading…</p>;
+  if (q.isPending) return <p className="p-4 text-sm text-muted">Loading…</p>;
   if (q.isError) {
     const notFound = q.error instanceof ApiError && (q.error.status === 404 || q.error.status === 400);
     return (
@@ -36,8 +38,8 @@ export function SubmissionPage({ dark }: { dark: boolean }) {
         <h1 className="text-xl font-semibold">
           Submission <span className="font-mono">{s.id.slice(0, 8)}</span>
         </h1>
-        <p className="text-sm text-zinc-500">
-          <Link to={`/problems/${s.problem_slug}`} className="text-blue-700 hover:underline dark:text-blue-400">
+        <p className="text-sm text-muted">
+          <Link to={`/problems/${s.problem_slug}`} className="text-accent underline">
             {problem.data?.title ?? s.problem_slug}
           </Link>{" "}
           · {lang} · submitted {new Date(s.created_at).toLocaleString()}
@@ -55,13 +57,13 @@ export function SubmissionPage({ dark }: { dark: boolean }) {
       <section aria-label="Submitted code">
         <h2 className="mb-2 font-semibold">Code</h2>
         {s.mine && s.source !== undefined ? (
-          <div className="h-[28rem] overflow-hidden rounded border border-zinc-200 dark:border-zinc-800" data-testid="source-view">
-            <Suspense fallback={<div className="p-4 text-sm text-zinc-500">Loading editor…</div>}>
+          <div className="h-[28rem] overflow-hidden rounded border border-line" data-testid="source-view">
+            <Suspense fallback={<div className="p-4 text-sm text-muted">Loading editor…</div>}>
               <CodeEditor language={s.language} value={s.source} dark={dark} readOnly />
             </Suspense>
           </div>
         ) : (
-          <p className="text-sm text-zinc-500" data-testid="source-hidden">
+          <p className="text-sm text-muted" data-testid="source-hidden">
             The code is visible only to its author.
           </p>
         )}

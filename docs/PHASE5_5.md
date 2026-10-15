@@ -264,3 +264,24 @@ While authoring, a few base limits went up or got a Python multiplier so the Pyt
 - **Tests:** API (`test/runs.test.ts`: auth, validation, sizes, one active run, owner-only reads, separate 429); API end-to-end with a real worker (OK, CE with compiler output, TLE, OLE, no submission rows); Playwright (`e2e/ui.spec.ts`: matching sample, custom input, diff, submit, tab keyboard, axe in both themes).
 
 Statements no longer carry an `## Example` section: the samples shown under the statement are the single source (`samples/`).
+
+### U3. Landing page, mobile read-only view, polish
+
+- **Landing page (`/`):** what the judge is, live catalogue counts by difficulty, three feature cards, and one problem per difficulty to start with (the first one you haven't solved). For a logged-out visitor it adds a GitHub login button; for a logged-in user, their progress. The problem list moved to `/problems`, linked from the header (`aria-current="page"` when active).
+- **Phones (< 768 px):** the problem page is read-only: a short note, then the statement and samples. Monaco isn't even loaded. Tablets keep the stacked editor. The list hides the tag and limit columns. The header keeps the login name and theme label for screen readers only. No page scrolls horizontally at 390 px (tested).
+- **Polish:**
+  - Every page uses the design tokens: one palette, AA contrast in both themes.
+  - Verdict and status badges share the difficulty colours.
+  - Links inside running text are underlined (axe `link-in-text-block`).
+  - Each page sets its browser tab title ("Courier Grid · CodeJudge").
+  - There's a real 404 page.
+- **Accessibility:** axe (WCAG 2.1 A/AA, Monaco excluded) passes on every page in both themes: landing (logged in and out), list, problem page, Run and Submission tabs, submission detail, profile, 404, and the three phone views.
+- **Bundle:** the main chunk is 469.7 kB, +5.4 % against the pre-U baseline of 445.5 kB. CI fails above +20 %, or if Monaco ever lands in the main chunk.
+
+### CI: end-to-end job and failure evidence
+
+The browser and API end-to-end suites now run in CI (job "End-to-end"; push, PRs from this repo, nightly). On failure:
+- the worker log and API log (`$E2E_EVIDENCE_DIR`) and Playwright's traces are uploaded as the `e2e-evidence` artifact;
+- the database rows of the failed run are kept, not deleted, and dumped with the Valkey run hashes to `records.json` (`api/test/e2e-evidence.ts`).
+
+On its first CI run this caught a real configuration gap (the GitHub login redirect needs an OAuth client id, now a dummy one in CI) and uploaded the evidence as designed.

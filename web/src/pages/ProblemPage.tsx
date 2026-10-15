@@ -14,7 +14,9 @@ import { judgeReducer, type JudgeEvent } from "../lib/judgeState.ts";
 import { drafts, load, prefs as savedPrefs, save, type Prefs } from "../lib/storage.ts";
 import { useMe } from "../lib/useMe.ts";
 import { TEMPLATES } from "../lib/templates.ts";
+import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { useRun } from "../lib/useRun.ts";
+import { useTitle } from "../lib/useTitle.ts";
 import { useSubmissionStream } from "../lib/useSubmissionStream.ts";
 
 const CodeEditor = lazy(() => import("../editor/CodeEditor.tsx"));
@@ -22,7 +24,9 @@ const CodeEditor = lazy(() => import("../editor/CodeEditor.tsx"));
 
 export function ProblemPage({ dark }: { dark: boolean }) {
   const { slug = "" } = useParams();
+  const narrow = useMediaQuery("(max-width: 767px)");
   const q = useQuery({ queryKey: ["problem", slug], queryFn: () => api.problem(slug) });
+  useTitle(q.data?.title ?? null);
   if (q.isPending)
     return (
       <div className="space-y-3 p-4" aria-busy="true" aria-label="Loading problem">
@@ -46,7 +50,7 @@ export function ProblemPage({ dark }: { dark: boolean }) {
       </div>
     );
   }
-  return <Workspace key={slug} problem={q.data} dark={dark} />;
+  return narrow ? <MobileProblem problem={q.data} /> : <Workspace key={slug} problem={q.data} dark={dark} />;
 }
 
 function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
@@ -140,45 +144,13 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [doSubmit, doRun]);
 
-  const statementMd = problem.statement_md.replace(/^# .*\n+/, ""); // the title is shown in the header
   const vars = { "--statement": `${prefs.layout.statement}%`, "--editor": `${prefs.layout.editor}%` } as CSSProperties;
   const toolbarButton = "rounded border border-line px-2 py-1 text-sm hover:bg-surface disabled:opacity-50";
 
   return (
     <div ref={row} style={vars} className="flex h-full flex-col lg:flex-row">
       <section className="overflow-y-auto p-4 lg:shrink-0 lg:grow-0 lg:basis-[var(--statement)]" aria-labelledby="problem-title" data-testid="statement-pane" tabIndex={0}>
-        <header className="mb-3 space-y-2">
-          <h1 id="problem-title" className="text-xl font-semibold">
-            {problem.title}
-          </h1>
-          <div className="flex flex-wrap items-center gap-2">
-            <DifficultyBadge difficulty={problem.difficulty} />
-            {problem.tags.map((t) => (
-              <TagChip key={t} tag={t} />
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-3 text-xs text-muted">
-            <span>Time limit: {problem.time_limit_ms / 1000} s</span>
-            <span>Memory limit: {problem.memory_limit_mb} MB</span>
-          </div>
-        </header>
-        <article className="max-w-none space-y-3 text-sm leading-relaxed [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_h2]:mt-5 [&_h2]:text-base [&_h2]:font-semibold [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-surface [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0">
-          {/* skipHtml: raw HTML in statements is dropped, never rendered. */}
-          <Markdown skipHtml>{statementMd}</Markdown>
-        </article>
-        <h2 className="mt-6 mb-2 text-base font-semibold">Samples</h2>
-        {problem.samples.map((s) => (
-          <div key={s.name} className="mb-3 grid gap-2 md:grid-cols-2">
-            <div>
-              <div className="text-xs text-muted">Sample {s.name} input</div>
-              <pre className="overflow-x-auto rounded bg-surface p-2 font-mono text-xs">{s.input}</pre>
-            </div>
-            <div>
-              <div className="text-xs text-muted">Sample {s.name} output</div>
-              <pre className="overflow-x-auto rounded bg-surface p-2 font-mono text-xs">{s.output}</pre>
-            </div>
-          </div>
-        ))}
+        <StatementBody problem={problem} />
       </section>
 
       <div className="hidden lg:contents">
@@ -351,6 +323,59 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/** Title, difficulty, tags, limits, statement and samples (shared by the desktop and mobile layouts). */
+function StatementBody({ problem }: { problem: Problem }) {
+  const statementMd = problem.statement_md.replace(/^# .*\n+/, ""); // the title is shown in the header
+  return (
+    <>
+    <header className="mb-3 space-y-2">
+      <h1 id="problem-title" className="text-xl font-semibold">
+        {problem.title}
+      </h1>
+      <div className="flex flex-wrap items-center gap-2">
+        <DifficultyBadge difficulty={problem.difficulty} />
+        {problem.tags.map((t) => (
+          <TagChip key={t} tag={t} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-3 text-xs text-muted">
+        <span>Time limit: {problem.time_limit_ms / 1000} s</span>
+        <span>Memory limit: {problem.memory_limit_mb} MB</span>
+      </div>
+    </header>
+    <article className="max-w-none space-y-3 text-sm leading-relaxed [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_h2]:mt-5 [&_h2]:text-base [&_h2]:font-semibold [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-surface [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0">
+      {/* skipHtml: raw HTML in statements is dropped, never rendered. */}
+      <Markdown skipHtml>{statementMd}</Markdown>
+    </article>
+    <h2 className="mt-6 mb-2 text-base font-semibold">Samples</h2>
+    {problem.samples.map((s) => (
+      <div key={s.name} className="mb-3 grid gap-2 md:grid-cols-2">
+        <div>
+          <div className="text-xs text-muted">Sample {s.name} input</div>
+          <pre className="overflow-x-auto rounded bg-surface p-2 font-mono text-xs">{s.input}</pre>
+        </div>
+        <div>
+          <div className="text-xs text-muted">Sample {s.name} output</div>
+          <pre className="overflow-x-auto rounded bg-surface p-2 font-mono text-xs">{s.output}</pre>
+        </div>
+      </div>
+    ))}
+    </>
+  );
+}
+
+/** Phones: read-only. The statement and samples, no editor (Monaco is not even loaded). */
+function MobileProblem({ problem }: { problem: Problem }) {
+  return (
+    <main className="p-4" aria-labelledby="problem-title" data-testid="mobile-problem">
+      <div role="note" className="mb-4 rounded-lg border border-line bg-surface p-3 text-sm" data-testid="mobile-note">
+        You are on a small screen: read the problem here, and open it on a tablet or computer to write, run and submit code.
+      </div>
+      <StatementBody problem={problem} />
+    </main>
   );
 }
 

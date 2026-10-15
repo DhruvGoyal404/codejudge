@@ -30,7 +30,7 @@ async function expectAccessible(page: Page) {
 for (const theme of ["light", "dark"] as const) {
   test(`problem list: filters, keyboard and accessibility (${theme})`, async ({ page }) => {
     await setTheme(page, theme);
-    await page.goto("/");
+    await page.goto("/problems");
     const rows = page.getByTestId("problem-rows").locator("tr");
     await expect(rows).toHaveCount(60);
     await expectAccessible(page);
@@ -159,5 +159,85 @@ for (const theme of ["light", "dark"] as const) {
     await page.keyboard.press("ArrowLeft");
     await expect(page.getByRole("tab", { name: "Run" })).toBeFocused();
     await expect(page.getByRole("tab", { name: "Run" })).toHaveAttribute("aria-selected", "true");
+  });
+}
+
+for (const theme of ["light", "dark"] as const) {
+  test(`landing page (${theme})`, async ({ page }) => {
+    await setTheme(page, theme);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Practise algorithms");
+    await expect(page.getByTestId("landing-stats")).toContainText("60");
+    await expect(page.getByTestId("landing-picks").getByRole("link")).toHaveCount(3);
+    await expect(page.getByTestId("landing-progress")).toBeVisible(); // logged in
+    await expectAccessible(page);
+    await shot(page, `landing-${theme}`);
+    await page.getByRole("link", { name: "Browse problems" }).click();
+    await expect(page).toHaveURL(/\/problems$/);
+    await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Problems" })).toHaveAttribute("aria-current", "page");
+  });
+}
+
+test("landing page, logged out", async ({ browser }) => {
+  const ctx = await browser.newContext({ storageState: { cookies: [], origins: [] }, viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  await page.goto("/");
+  await expect(page.getByRole("main").getByRole("link", { name: "Log in with GitHub" })).toBeVisible();
+  await expect(page.getByTestId("landing-progress")).toHaveCount(0);
+  await expectAccessible(page);
+  await ctx.close();
+});
+
+// Phones: everything readable without horizontal scrolling; the problem page
+// is read-only (no editor is even loaded).
+test.describe("phone (390 x 844)", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("landing, list and read-only problem page", async ({ page }) => {
+    const noOverflow = async () => expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    await page.goto("/");
+    await noOverflow();
+    await expectAccessible(page);
+    await shot(page, "phone-landing");
+
+    await page.goto("/problems");
+    await expect(page.getByTestId("problem-rows").locator("tr")).toHaveCount(60);
+    await noOverflow();
+    await expectAccessible(page);
+    await shot(page, "phone-list");
+
+    await page.goto("/problems/courier-grid");
+    await expect(page.getByTestId("mobile-note")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Courier Grid", level: 1 })).toBeVisible();
+    await expect(page.getByText("Sample 01 input")).toBeVisible();
+    await expect(page.locator(".monaco-editor")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
+    await noOverflow();
+    await expectAccessible(page);
+    await shot(page, "phone-problem");
+  });
+});
+
+for (const theme of ["light", "dark"] as const) {
+  test(`profile, submission detail and 404 are accessible (${theme})`, async ({ page }) => {
+    await setTheme(page, theme);
+    const r = await page.request.post("/api/submissions", {
+      headers: { Origin: "http://localhost:5173" },
+      data: { problemSlug: "ledger-total", language: "python", source: "print(0)\n" },
+    });
+    expect(r.status()).toBe(202);
+    const { id } = await r.json();
+    await page.goto(`/submissions/${id}`);
+    await expect(page.getByTestId("result").getByTestId("verdict")).toBeVisible();
+    await page.locator(".monaco-editor").first().waitFor();
+    await expectAccessible(page);
+    await expect(page).toHaveTitle("Submission · CodeJudge");
+    await page.goto("/profile");
+    await expect(page.getByTestId("history-table")).toBeVisible();
+    await expectAccessible(page);
+    await shot(page, `profile-${theme}`);
+    await page.goto("/no/such/page");
+    await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
+    await expectAccessible(page);
   });
 }

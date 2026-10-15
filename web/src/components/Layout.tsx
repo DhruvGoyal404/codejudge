@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useLocation, useSearchParams } from "react-router";
+import { Link, NavLink, useLocation, useSearchParams } from "react-router";
 
 import { loginUrl } from "../api.ts";
 import { theme } from "../lib/storage.ts";
@@ -24,7 +24,7 @@ export function useDarkMode() {
   return { dark, toggle };
 }
 
-const buttonClass = "rounded border border-zinc-300 px-2 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800";
+const buttonClass = "rounded border border-line px-2 py-1 text-sm whitespace-nowrap hover:bg-surface";
 
 /** "Log in with GitHub": a full navigation to the API (not a client-side route). */
 export function LoginLink({ children = "Log in with GitHub", className = buttonClass }: { children?: ReactNode; className?: string }) {
@@ -39,13 +39,13 @@ export function LoginLink({ children = "Log in with GitHub", className = buttonC
 function Account() {
   const me = useMe();
   const logout = useLogout();
-  if (me.isPending) return <span className="text-sm text-zinc-500">…</span>;
+  if (me.isPending) return <span className="text-sm text-muted">…</span>;
   if (!me.data) return <LoginLink />;
   return (
     <div className="flex items-center gap-2">
       <Link to="/profile" className="flex items-center gap-2 text-sm hover:underline" data-testid="account">
         {me.data.avatar_url && <img src={me.data.avatar_url} alt="" className="h-6 w-6 rounded-full" referrerPolicy="no-referrer" />}
-        <span>{me.data.login}</span>
+        <span className="sr-only sm:not-sr-only">{me.data.login}</span>
       </Link>
       <button type="button" className={buttonClass} onClick={() => logout.mutate()} disabled={logout.isPending}>
         Log out
@@ -78,10 +78,19 @@ function LoginErrorBanner() {
 export function Layout({ children, dark, onToggleDark }: { children: ReactNode; dark: boolean; onToggleDark: () => void }) {
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
-        <Link to="/" className="font-semibold tracking-tight">
-          CodeJudge
-        </Link>
+      <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
+        <nav aria-label="Main" className="flex items-center gap-4">
+          <Link to="/" className="font-semibold tracking-tight">
+            CodeJudge
+          </Link>
+          <NavLink
+            to="/problems"
+            end
+            className={({ isActive }) => `text-sm hover:underline ${isActive ? "font-medium text-fg" : "text-muted"}`}
+          >
+            Problems
+          </NavLink>
+        </nav>
         <div className="flex items-center gap-2">
           <Account />
           <button
@@ -90,7 +99,8 @@ export function Layout({ children, dark, onToggleDark }: { children: ReactNode; 
             className={buttonClass}
             aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
           >
-            {dark ? "☀ Light" : "☾ Dark"}
+            <span aria-hidden="true">{dark ? "☀" : "☾"}</span>
+            <span className="sr-only sm:not-sr-only sm:ml-1">{dark ? "Light" : "Dark"}</span>
           </button>
         </div>
       </header>
@@ -102,7 +112,7 @@ export function Layout({ children, dark, onToggleDark }: { children: ReactNode; 
 
 export function ErrorBanner({ children }: { children: ReactNode }) {
   return (
-    <div role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+    <div role="alert" className="rounded border border-hard-fg/40 bg-hard-bg px-3 py-2 text-sm text-hard-fg">
       {children}
     </div>
   );

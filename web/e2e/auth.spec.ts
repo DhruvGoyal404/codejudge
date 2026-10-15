@@ -18,7 +18,7 @@ test.describe("logged out", () => {
     const login = page.getByRole("link", { name: "Log in to run and submit" });
     await expect(login).toHaveAttribute("href", `/api/auth/github?next=${encodeURIComponent(`/problems/${SLUG}`)}`);
     await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Log in with GitHub" })).toBeVisible();
+    await expect(page.getByRole("banner").getByRole("link", { name: "Log in with GitHub" })).toBeVisible();
     await page.goto("/profile");
     await expect(page.getByText("Log in to see your profile")).toBeVisible();
   });
@@ -65,7 +65,7 @@ test("history: My submissions, detail page with read-only code, badge, profile; 
   await expect(code).not.toContainText("XYZZY"); // read-only
 
   // Badge on the problem list, stats and history on the profile.
-  await page.goto("/");
+  await page.goto("/problems");
   await expect(page.getByRole("row", { name: /Range Ledger/ }).getByTestId("problem-status")).toHaveAttribute("data-status", "solved");
   await page.getByTestId("account").click();
   await expect(page).toHaveURL(/\/profile$/);
@@ -96,9 +96,9 @@ test("logout ends the session immediately", async ({ browser }) => {
   const cookies = await ctx.cookies();
 
   await page.getByRole("button", { name: "Log out" }).click();
-  await expect(page.getByRole("link", { name: "Log in with GitHub" })).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("link", { name: "Log in with GitHub" })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("link", { name: "Log in with GitHub" })).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("link", { name: "Log in with GitHub" })).toBeVisible();
 
   // Even the old cookie, replayed, no longer works.
   const replay = await browser.newContext({ baseURL: BASE_URL, storageState: { cookies, origins: [] } });

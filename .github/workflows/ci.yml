@@ -207,6 +207,9 @@ jobs:
       CODEJUDGE_VALKEY_URL: redis://127.0.0.1:56379
       CODEJUDGE_PROBLEMS_TESTS_DIR: ${{ github.workspace }}/problems-private
       E2E_EVIDENCE_DIR: ${{ github.workspace }}/e2e-evidence
+      # Dummy OAuth app: the login test only checks the redirect to GitHub (never followed).
+      GITHUB_CLIENT_ID: ci-dummy-client-id
+      GITHUB_CLIENT_SECRET: ci-dummy-client-secret
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
