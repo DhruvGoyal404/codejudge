@@ -1,0 +1,9 @@
+id: shared-members
+title: Shared Members
+difficulty: easy
+tags: [two-pointers, sorting]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

@@ -1,0 +1,9 @@
+id: course-order
+title: Course Order
+difficulty: medium
+tags: [topological-sort, heap, graphs]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

@@ -1,0 +1,11 @@
+id: signal-towers
+title: Signal Towers
+difficulty: hard
+tags: [segment-tree]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 3
+samples: ["01", "02"]
