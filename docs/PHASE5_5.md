@@ -173,3 +173,72 @@ The vocabulary is fixed in `runner/internal/problem/problem.go` so that a typo c
 | courier-grid | medium | graphs, bfs, matrix | 28 | 2.7 MB |
 | rising-towers | medium | dynamic-programming, binary-search | 28 | 9.4 MB |
 | farthest-beacons | hard | geometry, two-pointers, sorting | 28 | 11.1 MB |
+
+### P1–P6. The catalog
+
+60 problems: the 5 upgraded seeds and 55 new ones in six batches: 22 easy, 27 medium and 11 hard. Every one has at least 25 tests, a strict validator, C++ and Python references with byte-identical outputs (`make-tests.py`), and AC for both references, with Python within 50 % of its limit (`TestProblems`). Every medium and hard problem also has a `slow.*` that gets TLE. Statements, titles and examples are original.
+
+While authoring, a few base limits went up or got a Python multiplier so the Python reference stays under 50 %; the table lists them. Two infrastructure bugs surfaced and were fixed along the way: the UID race (`5a7dbb0`) and transfer-time guards (`eb0b7ea`). One planned hard problem, a lazy range-add/range-max structure, was replaced by bamboo-growth (a linear recurrence via matrix powers): no Python solution fit within the limit while an O(nq) C++ solution still had to TLE.
+
+| Difficulty | Slug | Title | Tags | Limit | Python × |
+|---|---|---|---|---|---|
+| easy | `anagram-groups` | Anagram Groups | strings, hashing, sorting | 1s | 2 |
+| easy | `badge-codes` | Badge Codes | strings, hashing | 1s | 2 |
+| easy | `bracket-ledger` | Bracket Ledger | stack, strings | 1s | 2 |
+| easy | `caravan-split` | Caravan Split | prefix-sums, arrays | 1s | 2 |
+| easy | `cipher-wheel` | Cipher Wheel | strings, math | 1s | 2 |
+| easy | `clock-drift` | Clock Drift | math, implementation | 1s | 2 |
+| easy | `digit-roots` | Digit Roots | math, strings | 1s | 2 |
+| easy | `echo-log` | Echo Log | hashing, arrays | 1s | 2 |
+| easy | `elevator-log` | Elevator Log | implementation, arrays | 1s | 2 |
+| easy | `grade-curve` | Grade Curve | sorting, binary-search | 2s | 2 |
+| easy | `ledger-total` | Ledger Total | math, implementation | 1s | 2 |
+| easy | `map-rotation` | Map Rotation | matrix, implementation | 1s | 2 |
+| easy | `mirror-tags` | Mirror Tags | strings, two-pointers | 1s | 2 |
+| easy | `pair-sums` | Pair Sums | hashing, arrays | 1s | 2 |
+| easy | `prime-lamps` | Prime Lamps | number-theory, math | 1s | 2 |
+| easy | `rainfall-median` | Rainfall Median | sorting | 1s | 2 |
+| easy | `range-ledger` | Range Ledger | arrays, prefix-sums | 1s | 2 |
+| easy | `shared-members` | Shared Members | two-pointers, sorting | 1s | 2 |
+| easy | `stair-hops` | Stair Hops | dynamic-programming | 1s | 2 |
+| easy | `tide-gauge` | Tide Gauge | arrays, implementation | 1s | 2 |
+| easy | `tile-floors` | Tile Floors | number-theory, math | 1s | 2 |
+| easy | `vending-change` | Vending Change | greedy, math | 1s | 2 |
+| medium | `cargo-hold` | Cargo Hold | dynamic-programming | 1s | 2 |
+| medium | `courier-grid` | Courier Grid | graphs, bfs, matrix | 1s | 2 |
+| medium | `course-order` | Course Order | topological-sort, heap, graphs | 2s | 2 |
+| medium | `fare-combinations` | Fare Combinations | dynamic-programming, combinatorics | 2s | 2 |
+| medium | `frost-spread` | Frost Spread | bfs, matrix, graphs | 2s | 2 |
+| medium | `fuel-window` | Fuel Window | two-pointers, sliding-window | 1s | 2 |
+| medium | `gap-ranking` | Gap Ranking | binary-search, two-pointers, sorting | 2s | 2 |
+| medium | `guild-alliances` | Guild Alliances | union-find | 1s | 2 |
+| medium | `hall-bookings` | Hall Bookings | intervals, sorting | 2s | 2 |
+| medium | `lantern-festival` | Lantern Festival | prefix-sums, arrays | 1s | 2 |
+| medium | `market-stalls` | Market Stalls | intervals, sorting | 1s | 2 |
+| medium | `network-backbone` | Network Backbone | graphs, union-find, greedy | 2s | 4 |
+| medium | `orchard-path` | Orchard Path | dynamic-programming, matrix | 2s | 2 |
+| medium | `press-split` | Press Split | binary-search, greedy | 2s | 2 |
+| medium | `reef-islands` | Reef Islands | bfs, matrix, graphs | 2s | 2 |
+| medium | `relay-delays` | Relay Delays | shortest-paths, graphs, heap | 3s | 2 |
+| medium | `rising-towers` | Rising Towers | dynamic-programming, binary-search | 1s | 2 |
+| medium | `rival-teams` | Rival Teams | graphs, bfs | 2s | 2 |
+| medium | `river-stones` | River Stones | greedy, bfs | 1s | 2 |
+| medium | `running-median` | Running Median | heap | 2s | 2 |
+| medium | `shared-melody` | Shared Melody | dynamic-programming, strings | 1s | 2 |
+| medium | `skyline-watch` | Skyline Watch | stack, arrays | 1s | 2 |
+| medium | `sprinkler-cover` | Sprinkler Cover | greedy, intervals, sorting | 2s | 2 |
+| medium | `tally-windows` | Tally Windows | prefix-sums, hashing | 1s | 2 |
+| medium | `trail-length` | Trail Length | trees, dfs | 2s | 4 |
+| medium | `typo-distance` | Typo Distance | dynamic-programming, strings | 2s | 2 |
+| medium | `window-peaks` | Window Peaks | queue, sliding-window | 1s | 2 |
+| hard | `bamboo-growth` | Bamboo Growth | math, dynamic-programming, matrix | 1s | 2 |
+| hard | `canal-routes` | Canal Routes | trees, dfs | 2s | 4 |
+| hard | `echo-phrase` | Echo Phrase | strings, hashing, binary-search | 2s | 4 |
+| hard | `farthest-beacons` | Farthest Beacons | geometry, two-pointers, sorting | 2s | 2 |
+| hard | `island-courier` | Island Courier | dynamic-programming, bit-manipulation | 2s | 2 |
+| hard | `one-way-districts` | One-Way Districts | graphs, dfs | 2s | 4 |
+| hard | `range-distinct` | Exhibit Variety | segment-tree, sorting | 2s | 4 |
+| hard | `signal-towers` | Signal Towers | segment-tree | 2s | 3 |
+| hard | `stone-duel` | Stone Duel | games, dynamic-programming | 1s | 4 |
+| hard | `survey-plot` | Survey Plot | geometry, number-theory | 1s | 2 |
+| hard | `team-draft` | Team Draft | dynamic-programming, bit-manipulation | 1s | 4 |

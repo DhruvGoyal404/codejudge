@@ -1,0 +1,9 @@
+id: bamboo-growth
+title: Bamboo Growth
+difficulty: hard
+tags: [math, dynamic-programming, matrix]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

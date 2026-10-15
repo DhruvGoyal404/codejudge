@@ -1,0 +1,9 @@
+id: sprinkler-cover
+title: Sprinkler Cover
+difficulty: medium
+tags: [greedy, intervals, sorting]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

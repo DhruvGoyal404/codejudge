@@ -1,0 +1,9 @@
+id: river-stones
+title: River Stones
+difficulty: medium
+tags: [greedy, bfs]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

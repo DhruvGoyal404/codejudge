@@ -1,0 +1,11 @@
+id: team-draft
+title: Team Draft
+difficulty: hard
+tags: [dynamic-programming, bit-manipulation]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 4
+samples: ["01", "02"]
