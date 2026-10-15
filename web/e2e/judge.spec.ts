@@ -77,7 +77,7 @@ test("tablet width layout and dark mode", async ({ page }) => {
   // No horizontal page overflow; statement and editor stack vertically.
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  const statement = await page.getByRole("region", { name: "Problem statement" }).boundingBox();
+  const statement = await page.getByTestId("statement-pane").boundingBox();
   const editorPane = await page.getByRole("region", { name: "Editor and results" }).boundingBox();
   expect(editorPane!.y).toBeGreaterThanOrEqual(statement!.y + statement!.height - 1);
 

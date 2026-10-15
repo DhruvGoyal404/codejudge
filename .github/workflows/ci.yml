@@ -165,6 +165,8 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
+      - name: Bundle budget (main chunk <= +20%, Monaco lazy)
+        run: node scripts/check-bundle.mjs
 
   sandbox:
     name: Sandbox integration (${{ matrix.runtime }})

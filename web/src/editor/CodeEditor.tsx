@@ -3,6 +3,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import { useEffect, useRef } from "react";
 
 import type { Language } from "../api.ts";
+import { DEFAULT_PREFS, type EditorSettings } from "../lib/storage.ts";
 import { monaco } from "./monaco.ts";
 
 export interface CodeEditorProps {
@@ -13,9 +14,10 @@ export interface CodeEditorProps {
   dark: boolean;
   /** View-only (submission detail): no editing, no submit shortcut, no autofocus. */
   readOnly?: boolean;
+  settings?: EditorSettings;
 }
 
-export default function CodeEditor({ language, value, onChange, onSubmit, dark, readOnly = false }: CodeEditorProps) {
+export default function CodeEditor({ language, value, onChange, onSubmit, dark, readOnly = false, settings = DEFAULT_PREFS.editor }: CodeEditorProps) {
   // Keep the latest callback without re-registering the Monaco command.
   const submit = useRef(onSubmit);
   useEffect(() => {
@@ -39,10 +41,11 @@ export default function CodeEditor({ language, value, onChange, onSubmit, dark, 
       theme={dark ? "vs-dark" : "vs"}
       loading={<div className="p-4 text-sm text-zinc-500">Loading editor…</div>}
       options={{
-        fontSize: 14,
+        fontSize: settings.fontSize,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
-        tabSize: 4,
+        tabSize: settings.tabSize,
+        wordWrap: settings.wordWrap ? "on" : "off",
         automaticLayout: true,
         ariaLabel: readOnly ? "Submitted code (read-only)" : "Code editor",
         readOnly,

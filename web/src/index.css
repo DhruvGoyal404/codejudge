@@ -3,8 +3,67 @@
 /* Dark mode follows a class on <html> (toggle in the header, default = OS preference). */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * Design tokens. Utilities such as bg-canvas, text-muted or border-line read
+ * these variables, and .dark swaps the palette. Text/background pairs meet
+ * WCAG AA (4.5:1) in both themes; checked by the axe e2e spec.
+ */
+@theme {
+  --color-canvas: #ffffff; /* page background */
+  --color-surface: #f4f4f5; /* panels, code blocks */
+  --color-raised: #ffffff; /* menus, popovers */
+  --color-line: #e4e4e7; /* borders */
+  --color-fg: #18181b; /* body text */
+  --color-muted: #52525b; /* secondary text */
+  --color-accent: #1d4ed8; /* links, primary buttons */
+  --color-accent-hover: #1e40af;
+  --color-on-accent: #ffffff;
+  --color-focus: #2563eb;
+  --color-easy-bg: #d1fae5;
+  --color-easy-fg: #065f46;
+  --color-medium-bg: #fef3c7;
+  --color-medium-fg: #78350f;
+  --color-hard-bg: #ffe4e6;
+  --color-hard-fg: #9f1239;
+  --color-chip-bg: #f4f4f5;
+  --color-chip-fg: #3f3f46;
+}
+
+.dark {
+  --color-canvas: #09090b;
+  --color-surface: #18181b;
+  --color-raised: #27272a;
+  --color-line: #3f3f46;
+  --color-fg: #f4f4f5;
+  --color-muted: #a1a1aa;
+  --color-accent: #60a5fa;
+  --color-accent-hover: #93c5fd;
+  --color-on-accent: #0b1220;
+  --color-focus: #93c5fd;
+  --color-easy-bg: #022c22;
+  --color-easy-fg: #6ee7b7;
+  --color-medium-bg: #2a1a03;
+  --color-medium-fg: #fcd34d;
+  --color-hard-bg: #2a0a12;
+  --color-hard-fg: #fda4af;
+  --color-chip-bg: #27272a;
+  --color-chip-fg: #d4d4d8;
+}
+
 html,
 body,
 #root {
   height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-fg);
+}
+
+/* Visible keyboard focus everywhere (mouse clicks do not show it). */
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
