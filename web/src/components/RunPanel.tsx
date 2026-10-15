@@ -62,7 +62,7 @@ export function RunPanel({ samples, input, onInput, run }: RunPanelProps) {
             ))}
           </div>
           <label className="block text-xs text-muted">
-            Input
+            Input <span className="text-muted">(max 64 KB)</span>
             <textarea
               value={input}
               onChange={(e) => onInput(e.target.value)}
@@ -72,7 +72,7 @@ export function RunPanel({ samples, input, onInput, run }: RunPanelProps) {
               data-testid="run-input"
             />
           </label>
-          {tooBig && <ErrorBanner>The input is larger than 64 KB.</ErrorBanner>}
+          {tooBig && <ErrorBanner>The input is larger than 64 KB, the limit for a run. Shorten it to run your code.</ErrorBanner>}
         </div>
 
         <div aria-live="polite" data-testid="run-output">

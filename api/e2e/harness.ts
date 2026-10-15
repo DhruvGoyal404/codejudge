@@ -1,6 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createWriteStream, readFileSync } from "node:fs";
+import { createWriteStream, mkdirSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,8 +8,11 @@ import { fileURLToPath } from "node:url";
 
 import { createApp, sweepOnce } from "../src/app.ts";
 import { EventConsumer } from "../src/events.ts";
+import { dumpEvidence } from "../test/e2e-evidence.ts";
 import { createTestUser, deleteTestUsers, ORIGIN, testDeps, type TestDeps } from "../test/helpers.ts";
 
+/** Failure evidence (worker logs; records of a failed run), uploaded by CI. */
+export const EVIDENCE_DIR = process.env.E2E_EVIDENCE_DIR ?? join(tmpdir(), "codejudge-e2e-evidence");
 export const REPO = fileURLToPath(new URL("../../", import.meta.url));
 export const RUNNER = join(REPO, "runner");
 export const PROBLEMS = join(REPO, "problems");
@@ -40,7 +43,8 @@ export interface Stack {
   killWorker(id: string): void; // hard kill (TerminateProcess / SIGKILL)
   submit(slug: string, file: string): Promise<string>;
   sse(id: string, timeoutMs?: number): Promise<{ event: string; data: any }[]>;
-  close(): Promise<void>;
+  /** keep: a test failed, so dump the records as evidence instead of deleting them. */
+  close(opts?: { keep?: boolean }): Promise<void>;
 }
 
 /** API in-process (real Express app + event consumer + fast sweeper) and worker processes. */
@@ -88,7 +92,8 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
     users,
     workers,
     startWorker(id, extra = {}) {
-      const log = createWriteStream(join(tmpdir(), `codejudge-e2e-${run}-${id}.log`));
+      mkdirSync(EVIDENCE_DIR, { recursive: true });
+      const log = createWriteStream(join(EVIDENCE_DIR, `worker-${run}-${id}.log`));
       const child = spawn(WORKER_BIN, [], { cwd: RUNNER, env: workerEnv(id, extra), stdio: ["ignore", "pipe", "pipe"] });
       child.stdout!.pipe(log);
       child.stderr!.pipe(log);
@@ -130,14 +135,20 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
         clearTimeout(timer);
       }
     },
-    async close() {
+    async close(opts) {
       clearInterval(sweeper);
       for (const id of [...workers.keys()]) killWorker(id);
       server.closeAllConnections();
       server.close();
       await consumer.stop();
-      if (created.length) await d.db.pool.query(`DELETE FROM submissions WHERE id = ANY($1::uuid[])`, [created]);
-      await deleteTestUsers(d.db, users);
+      if (opts?.keep) {
+        const r = await dumpEvidence(d.db, d.queue.redis, join(EVIDENCE_DIR, `stack-${run}`), users, d.config.RUN_KEY_PREFIX);
+        process.stdout.write(`e2e failed: ${r.submissions} submissions and ${r.runs} runs kept, evidence in ${r.file}
+`);
+      } else {
+        if (created.length) await d.db.pool.query(`DELETE FROM submissions WHERE id = ANY($1::uuid[])`, [created]);
+        await deleteTestUsers(d.db, users);
+      }
       await d.close();
     },
   };

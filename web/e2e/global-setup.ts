@@ -1,9 +1,9 @@
 import { execFileSync, spawn } from "node:child_process";
-import { createWriteStream, writeFileSync } from "node:fs";
+import { createWriteStream, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { REPO, stackEnv } from "./stack.ts";
+import { EVIDENCE_DIR, FAILED_MARKER, REPO, stackEnv } from "./stack.ts";
 
 const runner = join(REPO, "runner");
 const exe = (name: string) => join(runner, process.platform === "win32" ? `${name}.exe` : name);
@@ -27,7 +27,11 @@ export default async function globalSetup() {
   execFileSync("go", ["build", "-o", exe("judge-worker"), "./cmd/judge-worker"], { cwd: runner, stdio: "inherit" });
   execFileSync("go", ["build", "-o", exe("judge-admin"), "./cmd/judge-admin"], { cwd: runner, stdio: "inherit" });
   execFileSync(exe("judge-admin"), ["import", join(REPO, "problems")], { cwd: runner, env, stdio: "inherit" });
-  const log = createWriteStream(join(tmpdir(), "codejudge-playwright-worker.log"));
+  // The API (webServer) may already be writing api.log here: remove only
+  // what a previous run left behind.
+  mkdirSync(EVIDENCE_DIR, { recursive: true });
+  for (const f of [FAILED_MARKER, join(EVIDENCE_DIR, "records.json")]) rmSync(f, { force: true });
+  const log = createWriteStream(join(EVIDENCE_DIR, "worker.log"));
   const worker = spawn(exe("judge-worker"), [], { cwd: runner, env: { ...env, JUDGE_WORKER_ID: `playwright-${process.pid}` }, stdio: ["ignore", "pipe", "pipe"] });
   worker.stdout!.pipe(log);
   worker.stderr!.pipe(log);

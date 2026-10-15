@@ -6,7 +6,7 @@ import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createTestUser, devEnv } from "../test/helpers.ts";
 import { containersOf, prepare, startStack, waitFor, type Stack } from "./harness.ts";
@@ -15,6 +15,12 @@ const SLUGS = ["ledger-total", "range-ledger", "courier-grid", "rising-towers", 
 
 beforeAll(() => {
   prepare(devEnv());
+});
+
+// A failed test keeps its stack's records (dumped as evidence) instead of deleting them.
+let failed = false;
+afterEach((ctx) => {
+  if (ctx.task.result?.state === "fail") failed = true;
 });
 
 async function finalOf(s: Stack, id: string) {
@@ -33,7 +39,7 @@ describe("verdicts through the API (2 workers)", () => {
     s.startWorker(`e2e-${s.run}-w1`);
     s.startWorker(`e2e-${s.run}-w2`);
   });
-  afterAll(async () => s.close());
+  afterAll(async () => s.close({ keep: failed }));
 
   it("AC / WA / TLE references for every seed problem end with the right SSE verdict", async () => {
     const cases = SLUGS.flatMap((slug) => [
@@ -94,7 +100,7 @@ describe("load: 30 concurrent submissions, 2 workers", () => {
     s.startWorker(`e2e-${s.run}-w1`);
     s.startWorker(`e2e-${s.run}-w2`);
   });
-  afterAll(async () => s.close());
+  afterAll(async () => s.close({ keep: failed }));
 
   it("all complete with exactly one final verdict and no duplicate test rows", async () => {
     const plan = Array.from({ length: 30 }, (_, i) =>
@@ -143,7 +149,7 @@ describe("crash recovery", () => {
   beforeAll(async () => {
     s = await startStack();
   });
-  afterAll(async () => s.close());
+  afterAll(async () => s.close({ keep: failed }));
 
   it("a killed worker's submission is reclaimed via XAUTOCLAIM and finished; its container is reaped", async () => {
     const fast = { JUDGE_CLAIM_IDLE: "15s", JUDGE_HEARTBEAT: "3s", JUDGE_CONCURRENCY: "1" };
@@ -175,7 +181,7 @@ describe("outbox sweeper", () => {
     s = await startStack({ sweepAfterMs: 2_000 });
     s.startWorker(`e2e-${s.run}-w1`);
   });
-  afterAll(async () => s.close());
+  afterAll(async () => s.close({ keep: failed }));
 
   const AC_CPP = `#include <cstdio>\nint main(){int n;long long s=0,x;scanf("%d",&n);while(n--){scanf("%lld",&x);s+=x;}printf("%lld\\n",s);}`;
   let doneId = "";
@@ -241,7 +247,7 @@ describe("sweeper: stuck running submission", () => {
     s = await startStack({ sweepAfterMs: 2_000, runningAfterMs: 60_000 });
     s.startWorker(`e2e-${s.run}-w1`);
   });
-  afterAll(async () => s.close());
+  afterAll(async () => s.close({ keep: failed }));
 
   it("a running submission with an old started_at and no stream entry completes", async () => {
     const source = (await import("node:fs")).readFileSync(
@@ -270,7 +276,7 @@ describe("latency (small problem, idle system)", () => {
     s = await startStack();
     s.startWorker(`e2e-${s.run}-w1`);
   });
-  afterAll(async () => s.close());
+  afterAll(async () => s.close({ keep: failed }));
 
   it("POST -> final SSE verdict, ledger-total ref.cpp, 20 sequential runs", async () => {
     const samples: number[] = [];
@@ -295,7 +301,7 @@ describe("run with custom input (real worker)", () => {
     s = await startStack();
     s.startWorker(`e2e-${s.run}-runs`);
   });
-  afterAll(async () => s.close());
+  afterAll(async () => s.close({ keep: failed }));
 
   async function run(language: string, source: string, input: string) {
     const user = await createTestUser(s.d.db);

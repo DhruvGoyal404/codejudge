@@ -8,7 +8,7 @@ import { stackEnv } from "./e2e/stack.ts";
 
 const env = {
   ...stackEnv(),
-  LOG_LEVEL: "warn",
+  LOG_LEVEL: "info", // request logs go to the failure evidence (api.log)
   // TEST ONLY: POST /test/login (the API refuses to start with it unless NODE_ENV=test).
   NODE_ENV: "test",
   TEST_AUTH_SHORTCUT: "1",
@@ -24,7 +24,9 @@ export default defineConfig({
   expect: { timeout: 120_000 },
   workers: 1,
   fullyParallel: false,
-  reporter: [["list"]],
+  // Keep the failure reporter when overriding --reporter on the command line:
+  // without it a failed run cleans up its database evidence.
+  reporter: [["list"], ["./e2e/failure-reporter.ts"]],
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
   use: {
@@ -40,8 +42,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "npx tsx src/server.ts",
-      cwd: "../api",
+      command: "node e2e/serve-api.mjs",
       url: "http://127.0.0.1:8080/health",
       env,
       reuseExistingServer: false,
