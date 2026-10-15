@@ -35,16 +35,16 @@ import (
 
 // Global maxima a problem package may not exceed.
 const (
-	MaxTimeLimit     = 5 * time.Second // base time limit (before multiplier)
-	MaxMultiplier    = 5.0
-	MinMemoryMB      = 16
-	MaxMemoryMB      = 1024
-	MaxTests         = sandbox.MaxTests
-	MaxInputBytes    = 16 << 20 // per test
+	MaxTimeLimit  = 5 * time.Second // base time limit (before multiplier)
+	MaxMultiplier = 5.0
+	MinMemoryMB   = 16
+	MaxMemoryMB   = 1024
+	MaxTests      = sandbox.MaxTests
+	MaxInputBytes = 16 << 20 // per test
 	// MaxExpectedBytes: an expected output must fit the judge's stdout cap,
 	// or every correct solution would get OLE on that test.
 	MaxExpectedBytes = sandbox.DefaultOutputBytes // per test
-	MaxTotalBytes    = 32 << 20 // all .in + .out of one problem
+	MaxTotalBytes    = 32 << 20                   // all .in + .out of one problem
 	MaxTags          = 5
 	// CatalogMinTests is the least number of tests a published problem has
 	// (enforced by judge-admin check, not by Load: fixtures may have fewer).

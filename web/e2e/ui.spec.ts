@@ -20,6 +20,12 @@ async function setTheme(page: Page, theme: "light" | "dark") {
   await page.addInitScript((t) => window.localStorage.setItem("codejudge:theme", t), theme);
 }
 
+/** How many problems the catalogue has (the tests must not hard-code it). */
+async function problemCount(page: Page): Promise<number> {
+  const r = await page.request.get("/api/problems");
+  return ((await r.json()) as { problems: unknown[] }).problems.length;
+}
+
 /** WCAG 2.1 A/AA. Monaco's own DOM is third-party and excluded. */
 async function expectAccessible(page: Page) {
   const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".monaco-editor").analyze();
@@ -32,7 +38,7 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await page.goto("/problems");
     const rows = page.getByTestId("problem-rows").locator("tr");
-    await expect(rows).toHaveCount(60);
+    await expect(rows).toHaveCount(await problemCount(page));
     await expectAccessible(page);
     await shot(page, `list-${theme}`);
 
@@ -69,7 +75,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("list-empty")).toBeVisible();
     await shot(page, `list-empty-${theme}`);
     await page.getByTestId("list-empty").getByRole("button", { name: "Clear filters" }).click();
-    await expect(rows).toHaveCount(60);
+    await expect(rows).toHaveCount(await problemCount(page));
   });
 
   test(`problem page: panes, settings and accessibility (${theme})`, async ({ page }) => {
@@ -167,7 +173,7 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Practise algorithms");
-    await expect(page.getByTestId("landing-stats")).toContainText("60");
+    await expect(page.getByTestId("landing-stats")).toContainText(String(await problemCount(page)));
     await expect(page.getByTestId("landing-picks").getByRole("link")).toHaveCount(3);
     await expect(page.getByTestId("landing-progress")).toBeVisible(); // logged in
     await expectAccessible(page);
@@ -201,7 +207,7 @@ test.describe("phone (390 x 844)", () => {
     await shot(page, "phone-landing");
 
     await page.goto("/problems");
-    await expect(page.getByTestId("problem-rows").locator("tr")).toHaveCount(60);
+    await expect(page.getByTestId("problem-rows").locator("tr")).toHaveCount(await problemCount(page));
     await noOverflow();
     await expectAccessible(page);
     await shot(page, "phone-list");
