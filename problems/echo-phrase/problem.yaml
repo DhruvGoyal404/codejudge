@@ -1,0 +1,11 @@
+id: echo-phrase
+title: Echo Phrase
+difficulty: hard
+tags: [strings, hashing, binary-search]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 4
+samples: ["01", "02"]

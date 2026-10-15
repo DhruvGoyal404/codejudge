@@ -1,0 +1,9 @@
+id: orchard-path
+title: Orchard Path
+difficulty: medium
+tags: [dynamic-programming, matrix]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

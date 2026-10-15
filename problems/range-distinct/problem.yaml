@@ -1,0 +1,11 @@
+id: range-distinct
+title: Exhibit Variety
+difficulty: hard
+tags: [segment-tree, sorting]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 4
+samples: ["01", "02"]

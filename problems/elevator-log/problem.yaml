@@ -1,0 +1,9 @@
+id: elevator-log
+title: Elevator Log
+difficulty: easy
+tags: [implementation, arrays]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

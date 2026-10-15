@@ -1,0 +1,9 @@
+id: gap-ranking
+title: Gap Ranking
+difficulty: medium
+tags: [binary-search, two-pointers, sorting]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

@@ -1,0 +1,11 @@
+id: trail-length
+title: Trail Length
+difficulty: medium
+tags: [trees, dfs]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 4
+samples: ["01", "02"]

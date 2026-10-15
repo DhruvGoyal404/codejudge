@@ -1,0 +1,9 @@
+id: hall-bookings
+title: Hall Bookings
+difficulty: medium
+tags: [intervals, sorting]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]
