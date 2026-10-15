@@ -1,0 +1,9 @@
+id: fare-combinations
+title: Fare Combinations
+difficulty: medium
+tags: [dynamic-programming, combinatorics]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

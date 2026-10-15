@@ -1,0 +1,9 @@
+id: typo-distance
+title: Typo Distance
+difficulty: medium
+tags: [dynamic-programming, strings]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

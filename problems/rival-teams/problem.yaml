@@ -1,0 +1,9 @@
+id: rival-teams
+title: Rival Teams
+difficulty: medium
+tags: [graphs, bfs]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]
