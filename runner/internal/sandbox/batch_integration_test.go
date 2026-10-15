@@ -25,11 +25,12 @@ func compileFixture(t *testing.T, file string) *Compiled {
 
 func startBatch(t *testing.T, c *Compiled, inputs []string, lim Limits) *Batch {
 	t.Helper()
-	maxIn := 0
+	maxIn, total := 0, 0
 	for _, in := range inputs {
 		maxIn = max(maxIn, len(in))
+		total += len(in)
 	}
-	b, err := sb.StartBatch(context.Background(), c, lim, len(inputs), maxIn)
+	b, err := sb.StartBatch(context.Background(), c, lim, len(inputs), maxIn, total)
 	if err != nil {
 		t.Fatalf("StartBatch: %v", err)
 	}

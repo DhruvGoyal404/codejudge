@@ -203,12 +203,13 @@ func outputsCmd(args []string) error {
 	}
 	sort.Strings(ins)
 	inputs := make([][]byte, len(ins))
-	maxIn := 0
+	maxIn, total := 0, 0
 	for i, path := range ins {
 		if inputs[i], err = os.ReadFile(path); err != nil {
 			return err
 		}
 		maxIn = max(maxIn, len(inputs[i]))
+		total += len(inputs[i])
 	}
 	if *seccompPath == "" {
 		if *seccompPath, err = sandbox.FindRepoFile("sandbox/seccomp/default.json"); err != nil {
@@ -238,7 +239,7 @@ func outputsCmd(args []string) error {
 		return fmt.Errorf("compile: %s %s\n%s", cres.Status, cres.Reason, cres.Stderr)
 	}
 	lim := sandbox.Limits{TimeLimit: *timeLimit, MemoryMB: *memoryMB, OutputBytes: *outputBytes}
-	b, err := sb.StartBatch(ctx, c, lim, len(inputs), maxIn)
+	b, err := sb.StartBatch(ctx, c, lim, len(inputs), maxIn, total)
 	if err != nil {
 		return err
 	}

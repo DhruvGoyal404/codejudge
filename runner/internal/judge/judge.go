@@ -234,15 +234,16 @@ func newRunner(ctx context.Context, sb *sandbox.Sandbox, c *sandbox.Compiled, p 
 			close: func() {},
 		}, nil
 	}
-	maxInput := 0
+	maxInput, totalInput := 0, 0
 	for _, t := range p.Tests {
 		in, err := t.Input()
 		if err != nil {
 			return nil, err
 		}
 		maxInput = max(maxInput, len(in))
+		totalInput += len(in)
 	}
-	b, err := sb.StartBatch(ctx, c, lim, len(p.Tests), maxInput)
+	b, err := sb.StartBatch(ctx, c, lim, len(p.Tests), maxInput, totalInput)
 	if err != nil {
 		// Could not even start the run container: every test is IE.
 		return &runner{

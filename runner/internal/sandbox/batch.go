@@ -65,10 +65,17 @@ func validateFrame(f protocol.Frame, nonce string, wantSeq int) error {
 
 // StartBatch creates the run container for c, sends the program (only the
 // program; no test data) and waits for judge-exec's ready frame. nTests and
-// maxInput size the container's deadline and limits.
-func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTests int, maxInput int) (*Batch, error) {
+// maxInput (largest input) and totalInput (all inputs) size the container's
+// deadline and limits.
+func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTests, maxInput, totalInput int) (*Batch, error) {
 	if lim.OutputBytes <= 0 {
 		lim.OutputBytes = DefaultOutputBytes
+	}
+	if lim.OutputBytes > MaxOutputBytes {
+		return nil, fmt.Errorf("output limit %d > %d bytes", lim.OutputBytes, MaxOutputBytes)
+	}
+	if totalInput < maxInput || totalInput > maxBatchInputBytes {
+		return nil, fmt.Errorf("batch inputs total %d bytes outside [%d, %d]", totalInput, maxInput, maxBatchInputBytes)
 	}
 	if lim.TimeLimit <= 0 || lim.TimeLimit > MaxEffectiveTimeLimit {
 		return nil, fmt.Errorf("time limit %v outside (0, %v]", lim.TimeLimit, MaxEffectiveTimeLimit)
@@ -97,7 +104,7 @@ func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTest
 	b := &Batch{s: s, nonce: hex.EncodeToString(nonceRaw), lim: lim, lang: c.Lang, wall: WallLimit(lim.TimeLimit), frames: make(chan frameOrErr, 2)}
 	var once sync.Once
 	b.release = func() { once.Do(func() { <-s.sem }) }
-	b.ctx, b.cancel = context.WithTimeout(ctx, batchDeadline(nTests, lim.TimeLimit))
+	b.ctx, b.cancel = context.WithTimeout(ctx, batchDeadline(nTests, lim.TimeLimit, int64(totalInput), lim.OutputBytes))
 
 	memBytes := lim.MemoryMB << 20
 	outMB := (lim.OutputBytes + (1<<20 - 1)) >> 20
@@ -166,9 +173,7 @@ func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTest
 	return b, nil
 }
 
-func maxFrameBytes(lim Limits) uint32 {
-	return uint32((lim.OutputBytes+stderrCap)*4/3 + 64<<10)
-}
+func maxFrameBytes(lim Limits) uint32 { return uint32(frameBytes(lim.OutputBytes)) }
 
 // readFrames demultiplexes container stdout and decodes frames until the
 // stream ends or breaks. Container stderr (judge-exec diagnostics) is
@@ -205,7 +210,9 @@ func (b *Batch) Run(input []byte) (*Result, error) {
 		return nil, errors.New("batch container is dead")
 	}
 	start := time.Now()
-	guard := b.wall + perTestGrace
+	// The guard covers the wall limit, a grace, and moving this input in and
+	// the largest possible result frame out.
+	guard := b.wall + perTestGrace + transferTime(int64(len(input))+frameBytes(b.lim.OutputBytes))
 	_ = b.att.Conn.SetWriteDeadline(time.Now().Add(guard))
 	if err := protocol.WriteMsg(b.att.Conn, protocol.MsgTest, input); err != nil {
 		// Most likely the container already exited (e.g. OOM): classify as death.

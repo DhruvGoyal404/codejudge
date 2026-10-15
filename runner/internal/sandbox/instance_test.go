@@ -13,7 +13,7 @@ func TestReaperThresholdExceedsLifetime(t *testing.T) {
 		life,
 		compileWallMs*1e6+hostGrace+removeTimeout,
 		WallLimit(MaxEffectiveTimeLimit)+hostGrace+removeTimeout,
-		batchDeadline(MaxTests, MaxEffectiveTimeLimit)+removeTimeout,
+		batchDeadline(MaxTests, MaxEffectiveTimeLimit, maxBatchInputBytes, MaxOutputBytes)+removeTimeout,
 		ReaperThreshold)
 	if ReaperThreshold <= life {
 		t.Fatalf("ReaperThreshold %v must be > MaxContainerLifetime %v", ReaperThreshold, life)

@@ -23,13 +23,18 @@ const (
 	MaxEffectiveTimeLimit = 10 * time.Second // per test, after the language time multiplier
 	MaxTests              = 50               // tests per problem
 	perTestGrace          = 5 * time.Second  // host guard per batch test beyond the wall limit
-	removeTimeout         = 30 * time.Second // deferred force-remove budget
+	maxBatchInputBytes    = 64 << 20         // all inputs of one batch (problem packages: <= 32 MB with outputs)
+	// transferRate is the slowest container stdio throughput the host guards
+	// allow for. Docker Desktop's attach pipe moved a 3.7 MB input plus its
+	// ~5 MB result frame in ~3.4 s idle (~2.6 MB/s), slower under load.
+	transferRate  = 1 << 20          // bytes per second
+	removeTimeout = 30 * time.Second // deferred force-remove budget
 )
 
 // ReaperThreshold is the age after which a judge.managed container is removed
 // even if its owner looks alive. It must be strictly greater than
 // MaxContainerLifetime (asserted by TestReaperThresholdExceedsLifetime).
-const ReaperThreshold = 30 * time.Minute
+const ReaperThreshold = 60 * time.Minute
 
 // MaxContainerLifetime is the longest any container created by this package
 // can exist: its host-side deadline (after which it is killed) plus the
@@ -37,19 +42,29 @@ const ReaperThreshold = 30 * time.Minute
 //
 //	compile : compileWall + hostGrace + removeTimeout
 //	run     : WallLimit(MaxEffectiveTimeLimit) + hostGrace + removeTimeout
-//	batch   : hostGrace + MaxTests*(WallLimit(MaxEffectiveTimeLimit)+perTestGrace) + removeTimeout
+//	batch   : batchDeadline(MaxTests, MaxEffectiveTimeLimit, maxBatchInputBytes, MaxOutputBytes) + removeTimeout
 func MaxContainerLifetime() time.Duration {
 	compile := compileWallMs*time.Millisecond + hostGrace + removeTimeout
 	run := WallLimit(MaxEffectiveTimeLimit) + hostGrace + removeTimeout
-	batch := batchDeadline(MaxTests, MaxEffectiveTimeLimit) + removeTimeout
+	batch := batchDeadline(MaxTests, MaxEffectiveTimeLimit, maxBatchInputBytes, MaxOutputBytes) + removeTimeout
 	return max(compile, run, batch)
 }
 
 // batchDeadline is the hard host-side deadline for a batch container that
-// will run n tests with effective time limit tl.
-func batchDeadline(n int, tl time.Duration) time.Duration {
-	return hostGrace + time.Duration(n)*(WallLimit(tl)+perTestGrace)
+// will run n tests with effective time limit tl, totalInput bytes of input
+// and stdout capped at outputBytes per test: every test's wall limit and
+// grace plus the time to move all inputs and all (maximal) result frames.
+func batchDeadline(n int, tl time.Duration, totalInput, outputBytes int64) time.Duration {
+	return hostGrace + time.Duration(n)*(WallLimit(tl)+perTestGrace) +
+		transferTime(totalInput+int64(n)*frameBytes(outputBytes))
 }
+
+// transferTime is how long moving b bytes may take at transferRate.
+func transferTime(b int64) time.Duration { return time.Duration(b) * time.Second / transferRate }
+
+// frameBytes is the largest result frame for a stdout cap (base64 stdout and
+// stderr plus JSON overhead).
+func frameBytes(outputBytes int64) int64 { return (outputBytes+stderrCap)*4/3 + 64<<10 }
 
 // instance identifies this runner process.
 type instance struct {

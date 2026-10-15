@@ -23,6 +23,7 @@ type Limits struct {
 // Fixed sizing. See docs/PHASE1.md "Memory accounting".
 const (
 	DefaultOutputBytes = 4 << 20
+	MaxOutputBytes     = 16 << 20 // largest Limits.OutputBytes accepted
 
 	helperHeadroomMB = 24 // judge-exec (~5 MB RSS) + page cache for the binary/interpreter
 	runTmpMB         = 16 // /tmp tmpfs in run containers (charged to the cgroup)
@@ -193,6 +194,9 @@ func (s *Sandbox) Compile(ctx context.Context, l lang.Lang, src []byte) (*Compil
 func (s *Sandbox) Run(ctx context.Context, c *Compiled, stdin []byte, lim Limits) (*Result, error) {
 	if lim.OutputBytes <= 0 {
 		lim.OutputBytes = DefaultOutputBytes
+	}
+	if lim.OutputBytes > MaxOutputBytes {
+		return nil, fmt.Errorf("output limit %d > %d bytes", lim.OutputBytes, MaxOutputBytes)
 	}
 	if len(stdin) > maxInputBytes {
 		return &Result{Status: StatusIE, Reason: "input too large"}, nil

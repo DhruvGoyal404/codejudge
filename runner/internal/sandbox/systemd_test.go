@@ -36,7 +36,8 @@ func TestSystemdStopTimeoutCoversLongestSubmission(t *testing.T) {
 		t.Fatal("TimeoutStopSec not set in judge-worker.service")
 	}
 	compile := compileWallMs*time.Millisecond + hostGrace + removeTimeout
-	batch := batchDeadline(MaxTests, MaxEffectiveTimeLimit) + removeTimeout
+	// The worker judges with the default output cap.
+	batch := batchDeadline(MaxTests, MaxEffectiveTimeLimit, maxBatchInputBytes, DefaultOutputBytes) + removeTimeout
 	longest := compile + batch
 	t.Logf("TimeoutStopSec=%v, longest submission (compile %v + batch %v) = %v", stop, compile, batch, longest)
 	if stop <= longest {

@@ -47,7 +47,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
   const run = randomBytes(4).toString("hex");
   const d = testDeps({
     SWEEP_AFTER_MS: String(opts.sweepAfterMs ?? 60_000),
-    SWEEP_RUNNING_AFTER_MS: String(opts.runningAfterMs ?? 30 * 60_000),
+    SWEEP_RUNNING_AFTER_MS: String(opts.runningAfterMs ?? 60 * 60_000),
     SSE_POLL_MS: "2000",
   });
   const consumer = new EventConsumer(d.config.CODEJUDGE_VALKEY_URL, d.config.EVENTS_STREAM, d.hub, d.log, 1000);

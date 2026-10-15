@@ -112,6 +112,18 @@ Each language opens with a template that reads all of stdin quickly and writes t
 
 Database: migration `20261015000001_more_languages.sql` widens `submissions_language_check` to all four languages. The API's `LANGUAGES` and the web `Language` type follow it.
 
+### Host guards cover transfer time (found while authoring P)
+
+The large P tests exposed an intermittent IE. A 3.7 MB input whose result frame is about 5 MB (10^5 lines of 36-digit numbers) took 3.6 s per test end to end on Docker Desktop, with 210 ms of program wall time. Moving the bytes through the container attach pipe ran at about 2.6 MB/s idle, and slower under load. The per-test host guard was a constant, wall limit + 5 s, so under load it fired: "send test 6: i/o timeout" and "no result within host guard".
+
+- **Per-test guard:** wall + 5 s + the time to move this test's input and the largest possible result frame at 1 MiB/s (`transferRate`).
+- **Batch deadline:** includes the same allowance for all inputs and frames. A batch's inputs are capped at 64 MiB (`maxBatchInputBytes`; problems are capped at 32 MB), and `Limits.OutputBytes` at 16 MiB (`MaxOutputBytes`).
+- **The bounds that depend on it:**
+  - The longest judging submission is 29m43s, so the worker's `TimeoutStopSec` goes from 30 to 45 min.
+  - The longest any container can live (with the 16 MiB tool cap) is 41m28s, so `ReaperThreshold` goes from 30 to 60 min.
+  - The API's `SWEEP_RUNNING_AFTER_MS` default follows the reaper threshold to 60 min, so a legitimately slow submission is never judged twice.
+- **Effect on healthy runs:** none. The guard only decides how long the host waits before declaring a container dead.
+
 ## P. The problem set
 
 ### P0. Schema, authoring pipeline, the five seed problems upgraded

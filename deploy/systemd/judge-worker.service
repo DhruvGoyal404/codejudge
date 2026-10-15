@@ -38,13 +38,14 @@ RestartSec=5s
 
 # Graceful stop: on SIGTERM the worker stops reading, finishes in-flight
 # submissions and exits. The longest submission is a compile container
-# (1m35s) followed by a full batch (50 tests × (21 s wall + 5 s guard) + 50 s
-# = 22m30s): 24m05s. 30 min (= sandbox.ReaperThreshold) covers it; asserted
-# by TestSystemdStopTimeoutCoversLongestSubmission. Only after that is the
+# (1m35s) followed by a full batch: 50 tests × (21 s wall + 5 s guard), plus
+# moving 64 MiB of input and 50 maximal result frames at 1 MiB/s, plus 50 s
+# = 28m08s; 29m43s in total. 45 min covers it with room; asserted by
+# TestSystemdStopTimeoutCoversLongestSubmission. Only after that is the
 # worker SIGKILLed (the entry stays pending and another attempt reclaims it).
 KillMode=mixed
 KillSignal=SIGTERM
-TimeoutStopSec=30min
+TimeoutStopSec=45min
 
 # Limits for the worker process itself (sandbox containers are limited by
 # the sandbox package in their own cgroups, not this unit's).
