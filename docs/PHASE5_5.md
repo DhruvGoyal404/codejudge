@@ -237,7 +237,7 @@ While authoring, a few base limits went up or got a Python multiplier so the Pyt
 | hard | `farthest-beacons` | Farthest Beacons | geometry, two-pointers, sorting | 2s | 2 |
 | hard | `island-courier` | Island Courier | dynamic-programming, bit-manipulation | 2s | 2 |
 | hard | `one-way-districts` | One-Way Districts | graphs, dfs | 2s | 4 |
-| hard | `range-distinct` | Exhibit Variety | segment-tree, sorting | 2s | 4 |
+| hard | `exhibit-variety` | Exhibit Variety | segment-tree, sorting | 2s | 4 |
 | hard | `signal-towers` | Signal Towers | segment-tree | 2s | 3 |
 | hard | `stone-duel` | Stone Duel | games, dynamic-programming | 1s | 4 |
 | hard | `survey-plot` | Survey Plot | geometry, number-theory | 1s | 2 |
