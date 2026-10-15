@@ -1,0 +1,9 @@
+id: clock-drift
+title: Clock Drift
+difficulty: easy
+tags: [math, implementation]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

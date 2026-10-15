@@ -1,0 +1,9 @@
+id: mirror-tags
+title: Mirror Tags
+difficulty: easy
+tags: [strings, two-pointers]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

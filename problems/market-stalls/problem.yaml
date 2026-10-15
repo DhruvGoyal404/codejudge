@@ -1,0 +1,9 @@
+id: market-stalls
+title: Market Stalls
+difficulty: medium
+tags: [intervals, sorting]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]
