@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/client"
 )
 
@@ -92,44 +92,18 @@ func (s *Sandbox) liveUIDs(ctx context.Context) (map[uint32]bool, error) {
 	return out, nil
 }
 
-// ownsUID reports whether container id is the rightful holder of uid: of all
-// existing containers labelled with it, the oldest (then lowest id) wins. Two
-// processes that picked the same uid concurrently reach the same answer, so
-// at most one of them starts its container.
-func (s *Sandbox) ownsUID(ctx context.Context, uid uint32, id string) (bool, error) {
-	list, err := s.cli.ContainerList(ctx, client.ContainerListOptions{
-		All: true, Filters: make(client.Filters).Add("label", labelUID+"="+strconv.FormatUint(uint64(uid), 10)),
-	})
-	if err != nil {
-		return false, err
-	}
-	// The list's Created is in whole seconds: inspect each holder for the
-	// nanosecond creation time, so "oldest" matches the real creation order
-	// (a same-second tie broken by id let two containers both "win").
-	winner := ""
-	var winnerCreated time.Time
-	for _, c := range list.Items {
-		insp, err := s.cli.ContainerInspect(ctx, c.ID, client.ContainerInspectOptions{})
-		if err != nil {
-			continue // removed meanwhile: not a holder
-		}
-		created, err := time.Parse(time.RFC3339Nano, insp.Container.Created)
-		if err != nil {
-			return false, fmt.Errorf("container %s created %q: %w", c.ID, insp.Container.Created, err)
-		}
-		if winner == "" || created.Before(winnerCreated) || (created.Equal(winnerCreated) && c.ID < winner) {
-			winner, winnerCreated = c.ID, created
-		}
-	}
-	return winner == id, nil
-}
+// uidName is the container name for uid. Docker container names are unique
+// per daemon and reserved atomically at create, so at most one container
+// (in any state, from any process) can hold a given uid until it is removed.
+func uidName(uid uint32) string { return "judge-u" + strconv.FormatUint(uint64(uid), 10) }
 
-// createContainer allocates a uid unique among live containers, creates the
-// container with it and verifies the uid is still uniquely ours (else the
-// container is removed and another uid tried). release frees the uid; call it
-// after the container is removed.
+// createContainer allocates a uid unique among live containers and creates
+// the container under that uid's name. A name conflict means another process
+// holds the uid (it listed after we did, or before its container was
+// visible): try the next one. release frees the uid; call it after the
+// container is removed.
 func (s *Sandbox) createContainer(ctx context.Context, image string, sp containerSpec) (id string, release func(), err error) {
-	for attempt := 0; attempt < 8; attempt++ {
+	for attempt := 0; attempt < 16; attempt++ {
 		live, err := s.liveUIDs(ctx)
 		if err != nil {
 			return "", nil, fmt.Errorf("list containers: %w", err)
@@ -139,20 +113,15 @@ func (s *Sandbox) createContainer(ctx context.Context, image string, sp containe
 			return "", nil, err
 		}
 		cfg, hc := s.containerConfigs(image, sp, uid)
-		created, err := s.cli.ContainerCreate(ctx, client.ContainerCreateOptions{Name: randName(), Config: cfg, HostConfig: hc})
+		created, err := s.cli.ContainerCreate(ctx, client.ContainerCreateOptions{Name: uidName(uid), Config: cfg, HostConfig: hc})
 		if err != nil {
 			s.uids.release(uid)
+			if cerrdefs.IsConflict(err) {
+				continue
+			}
 			return "", nil, err
 		}
-		mine, err := s.ownsUID(ctx, uid, created.ID)
-		if err == nil && mine {
-			return created.ID, func() { s.uids.release(uid) }, nil
-		}
-		_ = s.removeContainer(created.ID)
-		s.uids.release(uid)
-		if err != nil {
-			return "", nil, fmt.Errorf("verify uid: %w", err)
-		}
+		return created.ID, func() { s.uids.release(uid) }, nil
 	}
 	return "", nil, errors.New("could not allocate a unique sandbox uid")
 }

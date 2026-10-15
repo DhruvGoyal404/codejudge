@@ -103,7 +103,7 @@ func New(ctx context.Context, o Options) (*Sandbox, error) {
 		return nil, fmt.Errorf("sandbox uid range: %w", err)
 	}
 	s := &Sandbox{cli: cli, seccomp: profile, images: images, sem: make(chan struct{}, o.Concurrency), opts: o,
-		uids: newUIDAllocator(SandboxUIDBase, SandboxUIDCount, self.ID)}
+		uids: newUIDAllocator(SandboxUIDBase, SandboxUIDCount, self.ID+randName())}
 	if _, err := s.Reap(ctx); err != nil {
 		cli.Close()
 		return nil, fmt.Errorf("startup reaper: %w", err)

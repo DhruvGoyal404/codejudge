@@ -434,9 +434,11 @@ func TestCrashWithThreads(t *testing.T) {
 	}
 }
 
-// Containers that are alive at the same time never share a uid, even when
-// two independent sandboxes (as two worker processes would) allocate at
-// once. A uid may be reused only after its previous container is gone.
+// Containers never share a uid, even when two independent sandboxes (as two
+// worker processes would) allocate at once. Checked on the host: while the
+// programs run, every snapshot of the daemon's judge.managed containers (any
+// state) must carry each judge.uid label at most once. In-container clocks
+// are not compared: separate gVisor sandboxes need not agree on wall time.
 func TestUIDsUniqueAcrossLiveContainers(t *testing.T) {
 	seccomp, err := FindRepoFile("sandbox/seccomp/default.json")
 	if err != nil {
@@ -456,60 +458,122 @@ func TestUIDsUniqueAcrossLiveContainers(t *testing.T) {
 		defer s.Close()
 		sbs = append(sbs, s)
 	}
-	type run struct {
-		sandbox    int
-		uid, gid   uint64
-		start, end int64
-	}
+
+	// Watcher: snapshots until the runs finish.
+	stop := make(chan struct{})
+	watchDone := make(chan struct{})
+	var dup string
+	maxRunning, snapshots := 0, 0
+	go func() {
+		defer close(watchDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			list, err := sbs[0].cli.ContainerList(context.Background(), client.ContainerListOptions{
+				All: true, Filters: make(client.Filters).Add("label", LabelManaged+"=true"),
+			})
+			if err == nil {
+				snapshots++
+				seen, running := map[string]string{}, 0
+				for _, c := range list.Items {
+					u := c.Labels[labelUID]
+					if u == "" {
+						continue
+					}
+					if other, ok := seen[u]; ok && dup == "" {
+						dup = fmt.Sprintf("uid %s held by %s and %s at once", u, other[:12], c.ID[:12])
+					}
+					seen[u] = c.ID
+					if c.State == "running" {
+						running++
+					}
+				}
+				maxRunning = max(maxRunning, running)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+
 	l := langOf(t, "uid.py")
 	src := fixture(t, "uid.py")
 	var mu sync.Mutex
-	var runs []run
+	var uids []uint64
 	var wg sync.WaitGroup
-	for si, s := range sbs {
+	for _, s := range sbs {
 		for i := 0; i < perSandbox; i++ {
 			wg.Add(1)
-			go func(si int, s *Sandbox) {
+			go func(s *Sandbox) {
 				defer wg.Done()
 				res, err := s.Execute(context.Background(), l, src, nil, std)
 				if err != nil || res.Status != StatusOK {
 					t.Errorf("run: %v %+v", err, res)
 					return
 				}
-				var r run
-				r.sandbox = si
-				if _, err := fmt.Sscanf(strings.TrimSpace(res.Stdout), "%d %d %d %d", &r.uid, &r.gid, &r.start, &r.end); err != nil {
+				var uid, gid uint64
+				var start, end int64
+				if _, err := fmt.Sscanf(strings.TrimSpace(res.Stdout), "%d %d %d %d", &uid, &gid, &start, &end); err != nil {
 					t.Errorf("parse %q: %v", res.Stdout, err)
 					return
 				}
+				if uid != gid || uid < SandboxUIDBase || uid >= SandboxUIDBase+SandboxUIDCount {
+					t.Errorf("bad uid/gid %d/%d", uid, gid)
+				}
 				mu.Lock()
-				runs = append(runs, r)
+				uids = append(uids, uid)
 				mu.Unlock()
-			}(si, s)
+			}(s)
 		}
 	}
 	wg.Wait()
-	overlap := func(a, b run) bool { return a.start < b.end && b.start < a.end }
-	crossOverlaps := 0
-	for i, a := range runs {
-		if a.uid != a.gid || a.uid < SandboxUIDBase || a.uid >= SandboxUIDBase+SandboxUIDCount {
-			t.Fatalf("bad uid/gid %d/%d", a.uid, a.gid)
-		}
-		for _, b := range runs[i+1:] {
-			if !overlap(a, b) {
-				continue
-			}
-			if a.sandbox != b.sandbox {
-				crossOverlaps++
-			}
-			if a.uid == b.uid {
-				t.Fatalf("uid %d shared by two containers alive at the same time: %+v %+v", a.uid, a, b)
-			}
-		}
+	close(stop)
+	<-watchDone
+	t.Logf("%d runs, %d snapshots, at most %d containers running at once", len(uids), snapshots, maxRunning)
+	if dup != "" {
+		t.Fatal(dup)
 	}
-	t.Logf("%d runs, %d overlapping cross-sandbox pairs", len(runs), crossOverlaps)
-	if len(runs) != 2*perSandbox || crossOverlaps == 0 {
-		t.Fatalf("test did not exercise concurrent allocation: %d runs, %d cross-sandbox overlaps", len(runs), crossOverlaps)
+	// More running at once than one sandbox's concurrency: both allocated concurrently.
+	if len(uids) != 2*perSandbox || maxRunning <= perSandbox {
+		t.Fatalf("test did not exercise concurrent allocation: %d runs, max %d running", len(uids), maxRunning)
+	}
+}
+
+// A uid whose name is taken by another container is never used: creation
+// moves on to a free uid (the name reservation is what makes uids unique).
+func TestUIDNameConflictRetries(t *testing.T) {
+	ctx := context.Background()
+	live, err := sb.liveUIDs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Squat the uid this sandbox would hand out next, without its label, so
+	// only the name reservation can stop it from being reused.
+	sb.uids.mu.Lock()
+	next := sb.uids.base + sb.uids.next
+	sb.uids.mu.Unlock()
+	for live[next] {
+		next++
+	}
+	img, ok := sb.images["python"]
+	if !ok {
+		t.Fatal("python image not in lock")
+	}
+	squat, err := sb.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name:   uidName(next),
+		Config: &container.Config{Image: img, Labels: map[string]string{LabelManaged: "true"}, Cmd: []string{"true"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sb.removeContainer(squat.ID)
+	res := execute(t, "uid.py", "", std)
+	wantStatus(t, res, StatusOK)
+	var uid uint64
+	fmt.Sscanf(res.Stdout, "%d", &uid)
+	if uint32(uid) == next {
+		t.Fatalf("got uid %d although its name is held by another container", uid)
 	}
 }
 

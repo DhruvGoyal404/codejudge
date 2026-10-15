@@ -37,7 +37,7 @@ Go: system 1.22.5; runner/ pins toolchain go1.27.2 via go.mod (auto-downloaded).
 
 ## Sandbox invariants (never weaken without explicit approval)
 
-- Always: `--network none`, `--ipc none`, memory+memory-swap equal, `--cpus`, `--pids-limit`, `--read-only` rootfs, `--cap-drop ALL`, `no-new-privileges`, non-root uid unique among live containers (allocator, range [1e9, 1e9+1e6), host overlap check; RLIMIT_NPROC counts per uid), explicit seccomp profile `sandbox/seccomp/default.json` (engine default is unconfined on this host; under runsc a derived variant that only additionally allows clone3, see docs/PHASE6.md 6a.7), log driver none.
+- Always: `--network none`, `--ipc none`, memory+memory-swap equal, `--cpus`, `--pids-limit`, `--read-only` rootfs, `--cap-drop ALL`, `no-new-privileges`, non-root uid unique among live containers (allocator, range [1e9, 1e9+1e6), host overlap check; enforced by the atomic container name `judge-u<uid>`; RLIMIT_NPROC counts per uid), explicit seccomp profile `sandbox/seccomp/default.json` (engine default is unconfined on this host; under runsc a derived variant that only additionally allows clone3, see docs/PHASE6.md 6a.7), log driver none.
 - judge-exec limits for the program: RLIMIT_NPROC (48 runc / 32 runsc, below the pids cgroup; Java/JS add `lang.ExtraTasks` to both), RLIMIT_CORE=1 (0 does not stop piped core dumps). SysV IPC and POSIX mqueues are denied by seccomp; the batch IPC guard fails closed.
 - No host bind mounts. Code and input go in as a tar stream on stdin.
 - Every container is force-removed on every path (success, error, timeout, panic); a startup reaper removes stale `judge.managed` containers.
