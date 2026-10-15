@@ -78,8 +78,12 @@ describe("test auth shortcut: refuses to start outside NODE_ENV=test", () => {
   }, 90_000);
 
   it("control: with NODE_ENV=test the same server starts", async () => {
-    const r = await runServer({ NODE_ENV: "test", TEST_AUTH_SHORTCUT: "1" });
-    expect(r.code).toBeNull();
+    // The port is random: retry only if it happened to be taken.
+    let r = await runServer({ NODE_ENV: "test", TEST_AUTH_SHORTCUT: "1" });
+    for (let i = 0; i < 3 && r.code !== null && r.out.includes("EADDRINUSE"); i++) {
+      r = await runServer({ NODE_ENV: "test", TEST_AUTH_SHORTCUT: "1" });
+    }
+    expect(r.code, r.out).toBeNull();
     expect(r.out).toContain("TEST AUTH SHORTCUT ENABLED");
   }, 90_000);
 });
