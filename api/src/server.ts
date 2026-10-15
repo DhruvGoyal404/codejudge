@@ -18,7 +18,7 @@ if (existsSync(envFile)) process.loadEnvFile(envFile);
 const config = loadConfig(); // fails fast with a readable message on bad env
 const log = pino({ level: config.LOG_LEVEL });
 const db = Db.connect(config.CODEJUDGE_DATABASE_URL, config.PG_POOL_MAX);
-const queue = Queue.connect(config.CODEJUDGE_VALKEY_URL, config.SUBMISSIONS_STREAM);
+const queue = Queue.connect(config.CODEJUDGE_VALKEY_URL, config.SUBMISSIONS_STREAM, config.RUNS_STREAM);
 const hub = new Hub();
 
 await db.ping();

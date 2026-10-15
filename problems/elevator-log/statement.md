@@ -13,14 +13,3 @@ The second line contains `n` integers `f_1 ... f_n` (-10^9 <= f_i <= 10^9).
 
 ## Output
 Print two integers: the total distance and the highest floor.
-
-## Example
-Input:
-```
-0 4
-5 -2 3 3
-```
-Output:
-```
-17 5
-```

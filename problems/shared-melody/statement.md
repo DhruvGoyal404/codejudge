@@ -13,14 +13,3 @@ The second line contains the second tune `b` (1 <= |b| <= 5000).
 
 ## Output
 Print the length of the longest melody that both tunes contain in order.
-
-## Example
-Input:
-```
-abcbdab
-bdcaba
-```
-Output:
-```
-4
-```

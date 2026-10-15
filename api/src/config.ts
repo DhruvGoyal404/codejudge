@@ -9,6 +9,11 @@ const Env = z
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
     SUBMISSIONS_STREAM: z.string().min(1).default("judge:submissions"),
     EVENTS_STREAM: z.string().min(1).default("judge:events"),
+    // "Run with custom input": jobs live in a Valkey hash RUN_KEY_PREFIX+id for
+    // RUN_TTL_S; their ids are queued on RUNS_STREAM (worker: internal/worker/runs.go).
+    RUNS_STREAM: z.string().min(1).default("judge:runs"),
+    RUN_KEY_PREFIX: z.string().min(1).default("judge:run:"),
+    RUN_TTL_S: z.coerce.number().int().min(60).default(3600),
     // Simplified transactional outbox: re-enqueue submissions that are still
     // queued and were not (re)enqueued within SWEEP_AFTER_MS.
     SWEEP_INTERVAL_MS: z.coerce.number().int().min(100).default(10_000),
@@ -41,6 +46,8 @@ const Env = z
     // Rate limits (Valkey-backed, shared by all API instances).
     SUBMIT_LIMIT_PER_MIN: z.coerce.number().int().min(1).default(6), // per user
     SUBMIT_LIMIT_PER_DAY: z.coerce.number().int().min(1).default(200), // per user
+    RUN_LIMIT_PER_MIN: z.coerce.number().int().min(1).default(10), // per user, separate from submissions
+    RUN_LIMIT_PER_DAY: z.coerce.number().int().min(1).default(300), // per user
     AUTH_LIMIT_PER_MIN: z.coerce.number().int().min(1).default(20), // per IP, /auth/*
     // Length of the "per minute" windows; overridden only by tests.
     RATE_LIMIT_MINUTE_S: z.coerce.number().int().min(1).default(60),

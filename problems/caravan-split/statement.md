@@ -13,14 +13,3 @@ The second line contains `n` integers `w_1 ... w_n` (1 <= w_i <= 10^9).
 
 ## Output
 Print the minimum possible difference between the total weights of the two trains.
-
-## Example
-Input:
-```
-5
-3 1 4 1 5
-```
-Output:
-```
-2
-```

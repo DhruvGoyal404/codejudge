@@ -14,18 +14,3 @@ The total length of all tags is at most 1 000 000.
 
 ## Output
 Print `q` lines; line `i` holds the answer for tag `i`.
-
-## Example
-Input:
-```
-3
-abca
-racecar
-ab
-```
-Output:
-```
-1
-0
-1
-```

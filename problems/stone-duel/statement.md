@@ -15,15 +15,3 @@ The third line contains the `n` pile sizes (0 <= p_i <= 100 000).
 
 ## Output
 Print `SECOND`, or `FIRST` and the number of winning first moves, separated by a space.
-
-## Example
-Input:
-```
-2 2
-1 2
-3 1
-```
-Output:
-```
-FIRST 2
-```

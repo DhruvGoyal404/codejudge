@@ -12,18 +12,3 @@ Each of the next `n` lines contains one word of 1 to 20 lowercase letters.
 
 ## Output
 Print two integers: the number of groups and the size of the largest group.
-
-## Example
-Input:
-```
-5
-listen
-silent
-enlist
-google
-banana
-```
-Output:
-```
-3 3
-```

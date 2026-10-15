@@ -14,17 +14,3 @@ The trails form a tree.
 
 ## Output
 Print the length of the longest hike (`0` if there is only one camp).
-
-## Example
-Input:
-```
-5
-1 2 3
-2 3 4
-2 4 2
-4 5 6
-```
-Output:
-```
-12
-```

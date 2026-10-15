@@ -14,17 +14,3 @@ Each of the next `m` lines contains `u_j v_j w_j` (1 <= u_j, v_j <= n, 0 <= w_j 
 ## Output
 Print `n` integers separated by spaces: the smallest delay for stations `1..n` (station
 `1` itself has delay `0`).
-
-## Example
-Input:
-```
-4 4
-1 2 5
-1 3 2
-3 2 1
-2 4 7
-```
-Output:
-```
-0 3 2 10
-```

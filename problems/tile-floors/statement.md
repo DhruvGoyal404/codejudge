@@ -13,16 +13,3 @@ Each of the next `q` lines contains `W H` (1 <= W, H <= 10^18).
 ## Output
 For each floor print the tile side and the number of tiles, separated by a space. The
 number of tiles can exceed `2^64`.
-
-## Example
-Input:
-```
-2
-12 18
-7 5
-```
-Output:
-```
-6 6
-1 35
-```

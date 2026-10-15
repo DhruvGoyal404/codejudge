@@ -13,14 +13,3 @@ The second line contains `n` integers `h_1 ... h_n` (-10^9 <= h_i <= 10^9).
 
 ## Output
 Print the largest hourly rise, or `0` if there is none.
-
-## Example
-Input:
-```
-6
-3 5 4 9 9 2
-```
-Output:
-```
-5
-```

@@ -19,28 +19,27 @@ export function ProblemList() {
   // The search box keeps its own text (typing must never lose keystrokes to a
   // URL round-trip); the URL follows after a short pause.
   const [text, setText] = useState(urlFilter.q);
-  useEffect(() => setText(urlFilter.q), [urlFilter.q]);
   const filter: ListFilter = { ...urlFilter, q: text };
   const textNow = useRef(text);
   textNow.current = text;
   // Router updates land asynchronously (even setParams(fn) sees this render's
-  // params), so two quick changes could overwrite each other: keep the latest
-  // params written in a ref and always build on that.
+  // params), and an older write can render after a newer one. So every write
+  // builds on the latest params *written* (a ref), and a rendered URL is
+  // adopted only if it is not one of our own writes (they all use replace, so
+  // history never brings one back): i.e. only external navigation.
   const latest = useRef(params);
-  const seen = useRef(params.toString());
+  const written = useRef(new Set<string>());
   useEffect(() => {
-    // Adopt the URL only when it really changed (our own write landing, Back,
-    // a link); a re-render that still shows older params must not undo a write.
     const s = params.toString();
-    if (s !== seen.current) {
-      seen.current = s;
-      latest.current = params;
-    }
+    if (written.current.has(s) || s === latest.current.toString()) return;
+    latest.current = params;
+    setText(parseFilter(params).q);
   }, [params]);
   const write = useCallback(
     (patch: Partial<ListFilter>) => {
       const next = filterParams({ ...parseFilter(latest.current), ...patch });
       latest.current = next;
+      written.current.add(next.toString());
       setParams(next, { replace: true });
     },
     [setParams],

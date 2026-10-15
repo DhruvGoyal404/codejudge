@@ -12,19 +12,3 @@ Each of the next `q` lines contains `l r` (1 <= l <= r <= n).
 
 ## Output
 Print `q` lines: the number of distinct collections among exhibits `l..r`.
-
-## Example
-Input:
-```
-6 3
-4 7 4 2 7 7
-1 3
-2 6
-4 4
-```
-Output:
-```
-2
-3
-1
-```

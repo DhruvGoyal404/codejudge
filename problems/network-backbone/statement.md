@@ -13,18 +13,3 @@ Each of the next `m` lines contains `u_j v_j w_j` (1 <= u_j, v_j <= n, 1 <= w_j 
 
 ## Output
 Print the minimum total cost, or `IMPOSSIBLE`.
-
-## Example
-Input:
-```
-4 5
-1 2 3
-2 3 1
-3 4 4
-1 4 2
-1 3 5
-```
-Output:
-```
-6
-```

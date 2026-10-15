@@ -6,27 +6,27 @@ export function DiffView({ expected, actual, truncated }: { expected: string; ac
   const same = lines.every((l) => l.kind === "same");
   return (
     <div data-testid="diff">
-      <pre className="overflow-x-auto rounded border border-zinc-200 bg-zinc-50 p-2 font-mono text-xs leading-5 dark:border-zinc-800 dark:bg-zinc-900">
-        {lines.length === 0 && <span className="text-zinc-500">(both empty)</span>}
+      <pre className="overflow-x-auto rounded border border-line bg-surface p-2 font-mono text-xs leading-5">
+        {lines.length === 0 && <span className="text-muted">(both empty)</span>}
         {lines.map((l, i) => (
           <div
             key={i}
             data-kind={l.kind}
             className={
               l.kind === "expected"
-                ? "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200"
+                ? "bg-hard-bg text-hard-fg"
                 : l.kind === "actual"
-                  ? "bg-green-100 text-green-900 dark:bg-green-950 dark:text-green-200"
+                  ? "bg-easy-bg text-easy-fg"
                   : ""
             }
           >
-            <span className="select-none pr-2 text-zinc-400">{l.kind === "expected" ? "−" : l.kind === "actual" ? "+" : " "}</span>
+            <span className="select-none pr-2 text-muted">{l.kind === "expected" ? "−" : l.kind === "actual" ? "+" : " "}</span>
             {l.text === "" ? " " : l.text}
           </div>
         ))}
       </pre>
-      <p className="mt-1 text-xs text-zinc-500">
-        <span className="text-red-700 dark:text-red-300">− expected</span> · <span className="text-green-700 dark:text-green-300">+ your output</span>
+      <p className="mt-1 text-xs text-muted">
+        <span className="text-hard-fg">− expected</span> · <span className="text-easy-fg">+ your output</span>
         {same && " · lines match (difference is in whitespace or token format)"}
         {truncated && " · your output was truncated to 4 KB"}
       </p>

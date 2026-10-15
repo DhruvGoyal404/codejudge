@@ -12,17 +12,3 @@ Each of the next `n` lines contains `a_i b_i` (0 <= a_i <= b_i <= 10^9).
 
 ## Output
 Print the minimum number of sprinklers, or `-1`.
-
-## Example
-Input:
-```
-4 10
-0 4
-3 7
-2 6
-6 10
-```
-Output:
-```
-3
-```

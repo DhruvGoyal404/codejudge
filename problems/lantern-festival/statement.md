@@ -13,16 +13,3 @@ Each of the next `q` lines contains `l_j r_j v_j` (1 <= l_j <= r_j <= n, -10^9 <
 
 ## Output
 Print `n` integers on one line separated by spaces: the final brightness of posts `1..n`.
-
-## Example
-Input:
-```
-5 3
-1 3 2
-2 5 -1
-5 5 10
-```
-Output:
-```
-2 1 1 -1 9
-```

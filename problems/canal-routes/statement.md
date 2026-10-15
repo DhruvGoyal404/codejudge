@@ -14,22 +14,3 @@ Each of the next `q` lines contains `x y` (1 <= x, y <= n).
 
 ## Output
 Print `q` lines: the travel time of each route.
-
-## Example
-Input:
-```
-5 3
-1 2 4
-1 3 1
-3 4 2
-3 5 7
-2 4
-5 5
-4 5
-```
-Output:
-```
-7
-0
-9
-```

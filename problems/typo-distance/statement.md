@@ -12,14 +12,3 @@ Both consist of lowercase letters.
 
 ## Output
 Print the minimum number of edits.
-
-## Example
-Input:
-```
-kitten
-sitting
-```
-Output:
-```
-3
-```

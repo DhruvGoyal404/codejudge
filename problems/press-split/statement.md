@@ -13,14 +13,3 @@ The second line contains `n` integers `a_1 ... a_n` (1 <= a_i <= 10^9).
 
 ## Output
 Print the smallest possible value of the largest block total.
-
-## Example
-Input:
-```
-5 2
-7 2 5 10 8
-```
-Output:
-```
-18
-```

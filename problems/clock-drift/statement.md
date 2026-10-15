@@ -15,15 +15,3 @@ The third line contains `n` integers `d_1 ... d_n` (-10^9 <= d_i <= 10^9).
 
 ## Output
 Print the final time as `HH:MM:SS`, each field with two digits.
-
-## Example
-Input:
-```
-23:59:50
-2
-15 -3
-```
-Output:
-```
-00:00:02
-```

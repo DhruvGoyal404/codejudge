@@ -14,19 +14,3 @@ Each of the next `n` lines contains one code of 1 to 20 characters from `a-z` an
 ## Output
 On the first line print the number of distinct codes.
 On the second line print the most frequent code and its count, separated by a space.
-
-## Example
-Input:
-```
-5
-alpha
-beta
-alpha
-gamma
-beta
-```
-Output:
-```
-3
-alpha 2
-```

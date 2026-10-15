@@ -7,7 +7,7 @@ import { createTestUser, deleteTestUsers, ORIGIN, testDeps, type TestDeps, type 
 // Production limits (6/min and 200/day per user, 20/min per IP on /auth/*),
 // with the "minute" shortened to 5 s so the reset is observable. (2 s was
 // too short: on a busy machine a burst of requests could outlast the window.)
-const WINDOW_S = 5;
+const WINDOW_S = 15; // wide enough that a slow, loaded run still fits its requests in one window
 let d: TestDeps;
 let app: ReturnType<typeof createApp>;
 const users: number[] = [];

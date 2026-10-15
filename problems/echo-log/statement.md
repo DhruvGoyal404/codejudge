@@ -12,14 +12,3 @@ The second line contains `n` integers, the ids in order (1 <= id <= 10^9).
 
 ## Output
 Print the position of the first echo, or `-1`.
-
-## Example
-Input:
-```
-6
-7 3 9 3 7 1
-```
-Output:
-```
-4
-```

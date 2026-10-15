@@ -13,18 +13,3 @@ Each of the next `q` lines contains one amount `A` (0 <= A <= 10^18).
 
 ## Output
 Print `q` lines: the minimum number of coins for each amount.
-
-## Example
-Input:
-```
-3
-13
-0
-999
-```
-Output:
-```
-3
-0
-8
-```

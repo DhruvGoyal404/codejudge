@@ -13,16 +13,3 @@ Each of the next `m` lines contains `a b` (1 <= a, b <= n, a != b): players `a` 
 
 ## Output
 Print `NO`, or `YES` followed by the maximum size of the red team, separated by a space.
-
-## Example
-Input:
-```
-5 3
-1 2
-2 3
-4 5
-```
-Output:
-```
-YES 3
-```

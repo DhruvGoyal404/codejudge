@@ -16,13 +16,3 @@ One line with a string `s` of length `n` (1 <= n <= 1 000 000) made of the chara
 ## Output
 Print `YES` if the line is well formed. Otherwise print `NO` and the 1-based position of
 the first error, separated by a space.
-
-## Example
-Input:
-```
-([)]
-```
-Output:
-```
-NO 3
-```

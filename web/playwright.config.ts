@@ -14,6 +14,7 @@ const env = {
   TEST_AUTH_SHORTCUT: "1",
   // Specs share few users and submit several times within a minute.
   SUBMIT_LIMIT_PER_MIN: "60",
+  RUN_LIMIT_PER_MIN: "60",
 };
 
 export default defineConfig({

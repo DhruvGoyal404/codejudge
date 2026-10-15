@@ -11,19 +11,3 @@ Each of the next `q` lines contains two integers `l r` (1 <= l <= r <= n).
 
 ## Output
 For each question print the requested sum on its own line.
-
-## Example
-Input:
-```
-5 3
-1 2 3 4 5
-1 5
-2 4
-3 3
-```
-Output:
-```
-15
-9
-3
-```

@@ -3,8 +3,12 @@
 // (UI_SCREENSHOTS=1 writes docs/img/ui-*.png).
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { enterCode } from "./helpers.ts";
+import { solutionPath } from "./stack.ts";
 
 const REPO = fileURLToPath(new URL("../..", import.meta.url));
 const SHOTS = process.env.UI_SCREENSHOTS === "1";
@@ -100,5 +104,60 @@ for (const theme of ["light", "dark"] as const) {
 
     // Restore the defaults for the next test.
     await page.evaluate(() => window.localStorage.removeItem("codejudge:prefs"));
+  });
+}
+
+// Run with custom input, then submit: both tabs of the bottom pane.
+for (const theme of ["light", "dark"] as const) {
+  test(`run with custom input and the result panel (${theme})`, async ({ context, page }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await setTheme(page, theme);
+    await page.goto("/problems/range-ledger");
+    await page.evaluate(() => {
+      window.localStorage.removeItem("codejudge:input:range-ledger");
+      window.localStorage.removeItem("codejudge:draft:range-ledger:cpp");
+    });
+    await page.reload();
+    const sol = (f: string) => readFileSync(solutionPath("range-ledger", f), "utf8");
+
+    // The input starts as sample 01; the reference matches its expected output.
+    await enterCode(page, sol("ref.cpp"), "prefix");
+    await expect(page.getByRole("tab", { name: "Run" })).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: "Run", exact: true }).click();
+    await expect(page.getByTestId("run-status")).toHaveAttribute("data-status", "OK");
+    await expect(page.getByTestId("run-matches")).toContainText("sample 01");
+    await expectAccessible(page);
+    await shot(page, `run-ok-${theme}`);
+
+    // Custom input: just the program's output, no comparison. Ctrl+' runs.
+    await page.getByTestId("run-input").fill("3 2\n5 -2 7\n1 3\n2 2\n");
+    await page.keyboard.press("ControlOrMeta+'");
+    await expect(page.getByTestId("run-stdout")).toHaveText("10\n-2\n");
+    await expect(page.getByTestId("run-matches")).toHaveCount(0);
+
+    // A wrong program on a sample shows the diff against the expected output.
+    await page.getByRole("button", { name: "Sample 01" }).click();
+    await enterCode(page, sol("wrong.cpp"), "prefix");
+    await page.getByRole("button", { name: "Run", exact: true }).click();
+    const diffLine = page.getByTestId("run-output").locator('[data-kind="expected"]').first();
+    await expect(diffLine).toBeAttached();
+    await diffLine.scrollIntoViewIfNeeded();
+    await expect(diffLine).toBeVisible();
+    await shot(page, `run-diff-${theme}`);
+
+    // Submitting switches to the Submission tab and shows the verdict summary.
+    await enterCode(page, sol("ref.cpp"), "prefix");
+    await page.getByRole("button", { name: "Submit" }).click();
+    await expect(page.getByRole("tab", { name: "Submission" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("result").getByTestId("verdict")).toHaveAttribute("data-verdict", "AC");
+    await expect(page.getByTestId("result-summary")).toContainText("28/28 tests passed");
+    await expectAccessible(page);
+    await shot(page, `result-ac-${theme}`);
+
+    // Arrow keys switch tabs.
+    await page.getByRole("tab", { name: "Submission" }).focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.getByRole("tab", { name: "Run" })).toBeFocused();
+    await expect(page.getByRole("tab", { name: "Run" })).toHaveAttribute("aria-selected", "true");
   });
 }

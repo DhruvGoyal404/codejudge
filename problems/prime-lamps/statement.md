@@ -13,18 +13,3 @@ Each of the next `q` lines contains one integer `n` (1 <= n <= 10 000 000).
 
 ## Output
 Print `q` lines: the number of primes not exceeding each `n`.
-
-## Example
-Input:
-```
-3
-10
-1
-30
-```
-Output:
-```
-4
-0
-10
-```

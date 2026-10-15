@@ -14,16 +14,3 @@ Each of the next `m` lines contains `a b` (1 <= a, b <= n, a != b). A pair may r
 
 ## Output
 Print the `n` course numbers of the order separated by spaces, or `IMPOSSIBLE`.
-
-## Example
-Input:
-```
-4 3
-3 1
-2 4
-3 2
-```
-Output:
-```
-3 1 2 4
-```

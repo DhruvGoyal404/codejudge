@@ -11,23 +11,27 @@ export interface CodeEditorProps {
   value: string;
   onChange?: (value: string) => void;
   onSubmit?: () => void;
+  onRun?: () => void;
   dark: boolean;
   /** View-only (submission detail): no editing, no submit shortcut, no autofocus. */
   readOnly?: boolean;
   settings?: EditorSettings;
 }
 
-export default function CodeEditor({ language, value, onChange, onSubmit, dark, readOnly = false, settings = DEFAULT_PREFS.editor }: CodeEditorProps) {
+export default function CodeEditor({ language, value, onChange, onSubmit, onRun, dark, readOnly = false, settings = DEFAULT_PREFS.editor }: CodeEditorProps) {
   // Keep the latest callback without re-registering the Monaco command.
   const submit = useRef(onSubmit);
+  const run = useRef(onRun);
   useEffect(() => {
     submit.current = onSubmit;
-  }, [onSubmit]);
+    run.current = onRun;
+  }, [onSubmit, onRun]);
 
   const onMount: OnMount = (editor) => {
     if (readOnly) return;
     // Ctrl/Cmd+Enter inside the editor submits (the page also handles it globally).
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => submit.current?.());
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Quote, () => run.current?.());
     editor.focus();
   };
 

@@ -11,17 +11,3 @@ Each of the next `R` lines contains `C` characters from `a-z`, `#` and `.`.
 
 ## Output
 Print the turned chart, one row per line.
-
-## Example
-Input:
-```
-2 3 1
-abc
-def
-```
-Output:
-```
-da
-eb
-fc
-```

@@ -10,6 +10,7 @@ import { HttpError, originCheck } from "./http.ts";
 import type { Hub } from "./hub.ts";
 import { Limits } from "./limits.ts";
 import type { Queue } from "./queue.ts";
+import { runsRouter } from "./runs.ts";
 import { requireUser, Sessions } from "./sessions.ts";
 import { testAuthRouter } from "./testAuth.ts";
 
@@ -174,6 +175,8 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
     }
     res.status(202).location(`/submissions/${id}`).json({ id });
   });
+
+  app.use(runsRouter({ db, queue, limits, config, languages: LANGUAGES, maxSourceBytes: MAX_SOURCE_BYTES }));
 
   app.get("/submissions/:id", async (req, res) => {
     const id = SubmissionId.safeParse(req.params.id);

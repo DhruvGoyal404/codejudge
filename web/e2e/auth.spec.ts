@@ -13,9 +13,9 @@ const REF = readFileSync(solutionPath(SLUG, "ref.cpp"), "utf8");
 test.describe("logged out", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  test("Log in to submit instead of Submit; the link returns to the page; profile asks to log in", async ({ page }) => {
+  test("Log in to run and submit instead of Run and Submit; the link returns to the page; profile asks to log in", async ({ page }) => {
     await page.goto(`/problems/${SLUG}`);
-    const login = page.getByRole("link", { name: "Log in to submit" });
+    const login = page.getByRole("link", { name: "Log in to run and submit" });
     await expect(login).toHaveAttribute("href", `/api/auth/github?next=${encodeURIComponent(`/problems/${SLUG}`)}`);
     await expect(page.getByRole("button", { name: "Submit" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Log in with GitHub" })).toBeVisible();

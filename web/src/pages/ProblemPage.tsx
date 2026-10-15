@@ -3,16 +3,18 @@ import { lazy, Suspense, useCallback, useEffect, useReducer, useRef, useState, t
 import Markdown from "react-markdown";
 import { Link, useParams } from "react-router";
 
-import { api, ApiError, LANGUAGES, MAX_SOURCE_BYTES, NetworkError, submitErrorMessage, type Language, type Problem } from "../api.ts";
+import { api, ApiError, LANGUAGES, MAX_RUN_INPUT_BYTES, MAX_SOURCE_BYTES, NetworkError, submitErrorMessage, type Language, type Problem } from "../api.ts";
 import { DifficultyBadge, TagChip } from "../components/DifficultyBadge.tsx";
 import { ErrorBanner, LoginLink } from "../components/Layout.tsx";
 import { ResultPanel } from "../components/ResultPanel.tsx";
+import { RunPanel } from "../components/RunPanel.tsx";
 import { Splitter } from "../components/Splitter.tsx";
 import { VerdictBadge } from "../components/VerdictBadge.tsx";
 import { judgeReducer, type JudgeEvent } from "../lib/judgeState.ts";
-import { drafts, prefs as savedPrefs, type Prefs } from "../lib/storage.ts";
+import { drafts, load, prefs as savedPrefs, save, type Prefs } from "../lib/storage.ts";
 import { useMe } from "../lib/useMe.ts";
 import { TEMPLATES } from "../lib/templates.ts";
+import { useRun } from "../lib/useRun.ts";
 import { useSubmissionStream } from "../lib/useSubmissionStream.ts";
 
 const CodeEditor = lazy(() => import("../editor/CodeEditor.tsx"));
@@ -62,6 +64,13 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const row = useRef<HTMLDivElement>(null);
   const column = useRef<HTMLElement>(null);
+  const run = useRun();
+  const inputKey = `codejudge:input:${problem.slug}`;
+  const [input, setInput] = useState(() => load(inputKey) ?? problem.samples[0]?.input ?? "");
+  useEffect(() => {
+    save(inputKey, input);
+  }, [inputKey, input]);
+  const [tab, setTab] = useState<"run" | "result">("run");
   const [state, dispatch] = useReducer(judgeReducer, { phase: "idle" });
   const me = useMe();
   const loggedOut = me.data === null;
@@ -103,20 +112,33 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
   const busy = state.phase === "submitting" || state.phase === "queued" || state.phase === "running";
   const canSubmit = !loggedOut && !busy && !tooBig && code.trim().length > 0;
   const doSubmit = useCallback(() => {
-    if (canSubmit) submit.mutate();
+    if (!canSubmit) return;
+    setTab("result");
+    submit.mutate();
   }, [canSubmit, submit]);
+  const inputTooBig = new TextEncoder().encode(input).length > MAX_RUN_INPUT_BYTES;
+  const canRun = !loggedOut && !run.busy && !tooBig && !inputTooBig && code.trim().length > 0;
+  const doRun = useCallback(() => {
+    if (!canRun) return;
+    setTab("run");
+    void run.start(problem.slug, lang, code, input);
+  }, [canRun, run, problem.slug, lang, code, input]);
 
-  // Ctrl/Cmd+Enter anywhere on the page submits.
+  // Ctrl/Cmd+Enter anywhere on the page submits; Ctrl/Cmd+' runs.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === "Enter") {
         e.preventDefault();
         doSubmit();
+      } else if (e.key === "'") {
+        e.preventDefault();
+        doRun();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [doSubmit]);
+  }, [doSubmit, doRun]);
 
   const statementMd = problem.statement_md.replace(/^# .*\n+/, ""); // the title is shown in the header
   const vars = { "--statement": `${prefs.layout.statement}%`, "--editor": `${prefs.layout.editor}%` } as CSSProperties;
@@ -209,17 +231,28 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
             </button>
           )}
           {loggedOut ? (
-            <LoginLink className="ml-auto rounded bg-accent px-3 py-1 text-sm font-medium text-on-accent hover:bg-accent-hover">Log in to submit</LoginLink>
+            <LoginLink className="ml-auto rounded bg-accent px-3 py-1 text-sm font-medium text-on-accent hover:bg-accent-hover">Log in to run and submit</LoginLink>
           ) : (
+            <>
+            <button
+              type="button"
+              onClick={doRun}
+              disabled={!canRun}
+              className="ml-auto rounded border border-accent px-3 py-1 text-sm font-medium text-accent hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+              title="Run on your input (Ctrl+')"
+            >
+              {run.busy ? "Running…" : "Run"}
+            </button>
             <button
               type="button"
               onClick={doSubmit}
               disabled={!canSubmit}
-              className="ml-auto rounded bg-accent px-3 py-1 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded bg-accent px-3 py-1 text-sm font-medium text-on-accent hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               title="Submit (Ctrl+Enter)"
             >
               {busy ? "Judging…" : "Submit"}
             </button>
+            </>
           )}
         </div>
         {showSettings && (
@@ -266,7 +299,7 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
         )}
         <div className="min-h-[12rem] shrink-0 grow-0 basis-[var(--editor)]" data-testid="editor-pane">
           <Suspense fallback={<div className="p-4 text-sm text-muted">Loading editor…</div>}>
-            <CodeEditor language={lang} value={code} onChange={setCode} onSubmit={doSubmit} dark={dark} settings={prefs.editor} />
+            <CodeEditor language={lang} value={code} onChange={setCode} onSubmit={doSubmit} onRun={doRun} dark={dark} settings={prefs.editor} />
           </Suspense>
         </div>
         <Splitter
@@ -278,9 +311,43 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
           container={column}
           onChange={(v) => updatePrefs({ layout: { ...prefs.layout, editor: v } })}
         />
-        <div className="min-h-0 flex-1 overflow-y-auto p-3" data-testid="results-pane" tabIndex={0} role="region" aria-label="Results">
-          <ResultPanel state={state} samples={problem.samples} />
-          <MySubmissions slug={problem.slug} activeId={activeId} onOpen={(id) => dispatch({ type: "SHOW", id })} />
+        <div className="flex min-h-0 flex-1 flex-col" data-testid="results-pane">
+          <div
+            role="tablist"
+            aria-label="Run and submission results"
+            className="flex shrink-0 gap-1 border-b border-line px-3"
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                e.preventDefault();
+                const next = tab === "run" ? "result" : "run";
+                setTab(next);
+                document.getElementById(`tab-${next}`)?.focus();
+              }
+            }}
+          >
+            {(["run", "result"] as const).map((t) => (
+              <button
+                key={t}
+                id={`tab-${t}`}
+                type="button"
+                role="tab"
+                aria-selected={tab === t}
+                aria-controls={`panel-${t}`}
+                tabIndex={tab === t ? 0 : -1}
+                onClick={() => setTab(t)}
+                className={`-mb-px border-b-2 px-3 py-1.5 text-sm ${tab === t ? "border-accent font-medium text-fg" : "border-transparent text-muted hover:text-fg"}`}
+              >
+                {t === "run" ? "Run" : "Submission"}
+              </button>
+            ))}
+          </div>
+          <div id="panel-run" role="tabpanel" aria-labelledby="tab-run" hidden={tab !== "run"} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto p-3">
+            <RunPanel samples={problem.samples} input={input} onInput={setInput} run={run.state} />
+          </div>
+          <div id="panel-result" role="tabpanel" aria-labelledby="tab-result" hidden={tab !== "result"} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto p-3">
+            <ResultPanel state={state} samples={problem.samples} />
+            <MySubmissions slug={problem.slug} activeId={activeId} onOpen={(id) => dispatch({ type: "SHOW", id })} />
+          </div>
         </div>
       </section>
     </div>

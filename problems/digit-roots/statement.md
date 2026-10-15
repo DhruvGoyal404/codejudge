@@ -13,18 +13,3 @@ number `0` is written as `0`). The total number of digits is at most 1 000 000.
 
 ## Output
 Print `q` lines, the resulting digit for each number.
-
-## Example
-Input:
-```
-3
-9875
-0
-18
-```
-Output:
-```
-2
-0
-9
-```

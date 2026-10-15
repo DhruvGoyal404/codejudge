@@ -13,16 +13,3 @@ Each of the next `R` lines contains `C` characters from `.`, `#`, `*`.
 
 ## Output
 Print the number of minutes, or `-1`.
-
-## Example
-Input:
-```
-3 4
-*...
-.##.
-...#
-```
-Output:
-```
-5
-```

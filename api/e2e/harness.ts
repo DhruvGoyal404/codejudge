@@ -34,6 +34,7 @@ export interface Stack {
   base: string;
   run: string;
   created: string[];
+  users: number[];
   workers: Map<string, ChildProcess>;
   startWorker(id: string, extra?: Record<string, string>): ChildProcess;
   killWorker(id: string): void; // hard kill (TerminateProcess / SIGKILL)
@@ -68,6 +69,8 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
     CODEJUDGE_PROBLEMS_DIR: PROBLEMS,
     JUDGE_SUBMISSIONS_STREAM: d.config.SUBMISSIONS_STREAM,
     JUDGE_EVENTS_STREAM: d.config.EVENTS_STREAM,
+    JUDGE_RUNS_STREAM: d.config.RUNS_STREAM,
+    JUDGE_RUN_KEY_PREFIX: d.config.RUN_KEY_PREFIX,
     JUDGE_WORKER_ID: id,
     ...extra,
   });
@@ -82,6 +85,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
     base,
     run,
     created,
+    users,
     workers,
     startWorker(id, extra = {}) {
       const log = createWriteStream(join(tmpdir(), `codejudge-e2e-${run}-${id}.log`));

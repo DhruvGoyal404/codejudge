@@ -242,3 +242,25 @@ While authoring, a few base limits went up or got a Python multiplier so the Pyt
 | hard | `stone-duel` | Stone Duel | games, dynamic-programming | 1s | 4 |
 | hard | `survey-plot` | Survey Plot | geometry, number-theory | 1s | 2 |
 | hard | `team-draft` | Team Draft | dynamic-programming, bit-manipulation | 1s | 4 |
+
+## U. UI
+
+### U2. Run with custom input, result panel
+
+- **Run** executes the current code once on an input the user types, or on a sample loaded with one click, under the problem's time and memory limits, and shows the program's own output. Nothing is judged, and nothing touches hidden tests or Postgres.
+- **API:** `POST /runs {problemSlug, language, source, input}` returns `202 {id}`, then `GET /runs/:id` returns `{status, result}`. Only the owner can read a run; anyone else gets 404.
+  - **Limits:** input of at most 64 KB; its own rate limit (`RUN_LIMIT_PER_MIN` 10, `RUN_LIMIT_PER_DAY` 300, separate from submissions); one run in progress per user (409).
+  - **Storage:** the job and result live in a Valkey hash (`RUN_KEY_PREFIX` + id) for `RUN_TTL_S` (1 h).
+- **Worker** (`internal/worker/runs.go`): it reads `RUNS_STREAM` through its own consumer group with `RunConcurrency` (1) slots. The sandbox's concurrency grows by the same amount.
+  - Runs are **at-most-once**: an entry is acked on read, and a run lost to a crash ends as a timeout in the browser after 90 s. Retrying a scratch run isn't worth the complexity of the submission path's reclaim and fencing.
+  - Stdout is capped at 64 KB (more is OLE). An IE submission verdict now logs its reason.
+- **Browser:**
+  - **Run button and shortcuts:** a Run button next to Submit, with `Ctrl+'` (also inside Monaco).
+  - **Tabs:** the bottom pane has a **Run** tab and a **Submission** tab (WAI-ARIA tabs, arrow keys).
+  - **Input:** the input is remembered per problem.
+  - **Output:** status, CPU and memory, stdout, stderr, compiler output. When the input is a sample, it says "matches sample NN" or shows a diff against the expected output.
+  - **Layout:** input and output sit side by side when the pane is wide enough (a container query, so it follows the splitter).
+  - **Submission result:** a summary line ("28/28 tests passed · max CPU · max memory"), and the current stage marked with `aria-current="step"`.
+- **Tests:** API (`test/runs.test.ts`: auth, validation, sizes, one active run, owner-only reads, separate 429); API end-to-end with a real worker (OK, CE with compiler output, TLE, OLE, no submission rows); Playwright (`e2e/ui.spec.ts`: matching sample, custom input, diff, submit, tab keyboard, axe in both themes).
+
+Statements no longer carry an `## Example` section: the samples shown under the statement are the single source (`samples/`).

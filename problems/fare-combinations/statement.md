@@ -12,14 +12,3 @@ The second line contains `n` distinct integers `c_1 ... c_n` (1 <= c_i <= 50 000
 
 ## Output
 Print the number of ways to pay exactly `A`, modulo `1 000 000 007`.
-
-## Example
-Input:
-```
-3 5
-1 2 5
-```
-Output:
-```
-4
-```

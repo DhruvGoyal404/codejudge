@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { devEnv } from "../test/helpers.ts";
+import { createTestUser, devEnv } from "../test/helpers.ts";
 import { containersOf, prepare, startStack, waitFor, type Stack } from "./harness.ts";
 
 const SLUGS = ["ledger-total", "range-ledger", "courier-grid", "rising-towers", "farthest-beacons"];
@@ -287,4 +287,42 @@ describe("latency (small problem, idle system)", () => {
     console.log(line);
     appendFileSync(join(tmpdir(), "codejudge-latency.txt"), `${line}\n`);
   }, 900_000);
+});
+
+describe("run with custom input (real worker)", () => {
+  let s: Stack;
+  beforeAll(async () => {
+    s = await startStack();
+    s.startWorker(`e2e-${s.run}-runs`);
+  });
+  afterAll(async () => s.close());
+
+  async function run(language: string, source: string, input: string) {
+    const user = await createTestUser(s.d.db);
+    s.users.push(user.userId);
+    const headers = { "Content-Type": "application/json", Origin: "http://localhost:5173", Cookie: user.cookie };
+    const r = await fetch(`${s.base}/runs`, { method: "POST", headers, body: JSON.stringify({ problemSlug: "ledger-total", language, source, input }) });
+    expect(r.status).toBe(202);
+    const { id } = (await r.json()) as { id: string };
+    return waitFor(async () => {
+      const g = await fetch(`${s.base}/runs/${id}`, { headers: { Cookie: user.cookie } });
+      const body = (await g.json()) as { status: string; result: any };
+      return body.status === "done" ? body.result : undefined;
+    }, 120_000);
+  }
+
+  it("OK with the program's output, CE with the compiler message, TLE under the problem's limit", async () => {
+    const ok = await run("python", "import sys\nd=sys.stdin.read().split()\nprint(sum(map(int,d[1:])))\n", "3\n1 2 3\n");
+    expect(ok).toMatchObject({ status: "OK", stdout: "6\n", exit_code: 0 });
+    const ce = await run("cpp", "int main( {", "");
+    expect(ce.status).toBe("CE");
+    expect(ce.compile_output).toMatch(/error/);
+    const tle = await run("cpp", "int main(){ volatile unsigned long x = 0; for(;;) ++x; }", "");
+    expect(tle.status).toBe("TLE");
+    const big = await run("python", "print('x' * 200000)\n", "");
+    expect(big.status).toBe("OLE");
+    // Runs never create submissions.
+    const n = await s.d.db.pool.query(`SELECT count(*)::int AS n FROM submissions WHERE user_id = ANY($1::bigint[])`, [s.users]);
+    expect(n.rows[0].n).toBe(0);
+  }, 600_000);
 });

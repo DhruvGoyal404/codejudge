@@ -14,16 +14,3 @@ There is exactly one `S` and exactly one `T`.
 
 ## Output
 Print the minimum number of moves, or `-1` if `T` is unreachable.
-
-## Example
-Input:
-```
-3 4
-S..#
-.#..
-...T
-```
-Output:
-```
-5
-```

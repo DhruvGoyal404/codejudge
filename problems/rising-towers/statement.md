@@ -13,14 +13,3 @@ The second line contains `n` integers `h_1 ... h_n` (1 <= h_i <= 10^9).
 
 ## Output
 Print the maximum number of towers.
-
-## Example
-Input:
-```
-8
-3 1 4 1 5 9 2 6
-```
-Output:
-```
-4
-```

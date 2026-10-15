@@ -18,20 +18,3 @@ Each of the next `q` lines contains one year `n` (0 <= n <= 10^18).
 
 ## Output
 Print `q` lines: `a_n` modulo `1 000 000 007` for each question.
-
-## Example
-Input:
-```
-2 3
-1 1
-0 1
-10
-0
-1
-```
-Output:
-```
-55
-0
-1
-```

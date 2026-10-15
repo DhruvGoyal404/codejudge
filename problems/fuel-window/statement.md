@@ -14,14 +14,3 @@ The second line contains `n` integers `a_1 ... a_n` (1 <= a_i <= 10^9).
 ## Output
 Print the length of the shortest stretch of consecutive hours with total at least `S`,
 or `0` if there is none.
-
-## Example
-Input:
-```
-6 9
-2 3 1 6 4 3
-```
-Output:
-```
-2
-```

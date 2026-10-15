@@ -13,16 +13,3 @@ Each of the next `n` lines contains `w_i v_i` (1 <= w_i <= 30 000, 1 <= v_i <= 1
 
 ## Output
 Print the maximum total earnings (`0` if no crate fits).
-
-## Example
-Input:
-```
-3 10
-5 10
-4 40
-6 30
-```
-Output:
-```
-70
-```

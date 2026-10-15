@@ -18,20 +18,3 @@ or `2 l r` (1 <= l <= r <= n). There is at least one command of type `2`.
 ## Output
 For each command of type `2`, print the minimum level and its number of occurrences in
 the range, separated by a space.
-
-## Example
-Input:
-```
-5 4
-3 1 4 1 5
-2 1 5
-1 2 7
-2 1 5
-2 3 3
-```
-Output:
-```
-1 2
-1 1
-4 1
-```

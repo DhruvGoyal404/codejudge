@@ -12,14 +12,3 @@ The second line contains the message: 1 to 1 000 000 lowercase letters.
 
 ## Output
 Print the shifted message.
-
-## Example
-Input:
-```
-2
-xyzabc
-```
-Output:
-```
-zabcde
-```

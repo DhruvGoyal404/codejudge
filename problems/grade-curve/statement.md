@@ -11,15 +11,3 @@ The third line contains `q` integers `t_1 ... t_q` (0 <= t_j <= 10^9).
 
 ## Output
 Print `q` integers separated by spaces: for each threshold, the number of scores `>= t_j`.
-
-## Example
-Input:
-```
-5 3
-70 40 90 55 70
-60 100 0
-```
-Output:
-```
-3 0 5
-```

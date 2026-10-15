@@ -11,13 +11,3 @@ One line with the string `s` (1 <= |s| <= 100 000).
 
 ## Output
 Print the length of the longest phrase that occurs at least twice.
-
-## Example
-Input:
-```
-banana
-```
-Output:
-```
-3
-```

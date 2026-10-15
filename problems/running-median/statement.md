@@ -13,14 +13,3 @@ The second line contains `n` integers `x_1 ... x_n` (-10^9 <= x_i <= 10^9).
 
 ## Output
 Print `n` integers separated by spaces: the median after each reading.
-
-## Example
-Input:
-```
-5
-5 2 8 1 9
-```
-Output:
-```
-5 2 5 2 5
-```

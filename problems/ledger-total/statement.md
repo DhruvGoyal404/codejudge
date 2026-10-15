@@ -12,14 +12,3 @@ Print one integer: `a_1 + a_2 + ... + a_n`.
 
 ## Notes
 The total may not fit in a 32-bit integer.
-
-## Example
-Input:
-```
-4
-5 -2 10 -1
-```
-Output:
-```
-12
-```

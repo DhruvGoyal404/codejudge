@@ -21,7 +21,7 @@ function stepIndex(s: JudgeState): number {
 
 export function ResultPanel({ state, samples }: { state: JudgeState; samples: Sample[] }) {
   if (state.phase === "idle") {
-    return <p className="text-sm text-zinc-500">Submit your solution to see results here (Ctrl+Enter).</p>;
+    return <p className="text-sm text-muted">Submit to judge your code on every test (Ctrl+Enter). The verdict appears here.</p>;
   }
   if (state.phase === "error") return <ErrorBanner>{state.message}</ErrorBanner>;
 
@@ -32,8 +32,9 @@ export function ResultPanel({ state, samples }: { state: JudgeState; samples: Sa
         {STEPS.map((label, i) => (
           <li
             key={label}
+            aria-current={i === idx ? "step" : undefined}
             className={`rounded-full px-2 py-0.5 ${
-              i < idx ? "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" : i === idx ? "bg-blue-600 text-white" : "text-zinc-400"
+              i < idx ? "bg-surface text-fg" : i === idx ? "bg-accent text-on-accent" : "border border-line text-muted"
             }`}
           >
             {label}
@@ -42,15 +43,23 @@ export function ResultPanel({ state, samples }: { state: JudgeState; samples: Sa
       </ol>
       <div className="flex flex-wrap items-center gap-3">
         {state.phase === "done" && state.submission.verdict ? (
-          <VerdictBadge verdict={state.submission.verdict} long />
+          <>
+            <VerdictBadge verdict={state.submission.verdict} long />
+            {state.submission.tests.length > 0 && (
+              <span className="text-sm text-muted tabular-nums" data-testid="result-summary">
+                {state.submission.tests.filter((t) => t.status === "AC").length}/{state.submission.tests.length} tests passed · max CPU{" "}
+                {state.submission.max_cpu_ms ?? 0} ms · max memory {((state.submission.max_rss_kb ?? 0) / 1024).toFixed(1)} MB
+              </span>
+            )}
+          </>
         ) : (
           <span className="text-sm" data-testid="stage-label" aria-live="polite">
-            <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+            <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
             {stageLabel(state)}
           </span>
         )}
         {(state.phase === "queued" || state.phase === "running") && state.reconnecting && (
-          <span className="text-xs text-amber-700 dark:text-amber-300" role="status">
+          <span className="text-xs text-medium-fg" role="status">
             Connection lost — reconnecting…
           </span>
         )}
@@ -68,7 +77,7 @@ function Details({ submission: s, samples }: { submission: Submission; samples: 
     return (
       <div>
         <h3 className="mb-1 text-sm font-medium">Compiler output</h3>
-        <pre className="max-h-64 overflow-auto rounded bg-zinc-100 p-2 font-mono text-xs dark:bg-zinc-900">{s.reason ?? "(no output)"}</pre>
+        <pre className="max-h-64 overflow-auto rounded bg-surface p-2 font-mono text-xs">{s.reason ?? "(no output)"}</pre>
       </div>
     );
   }
@@ -76,7 +85,7 @@ function Details({ submission: s, samples }: { submission: Submission; samples: 
   const failedSample = failed?.is_sample ? samples.find((x) => x.name === failed.name) : undefined;
   return (
     <div className="space-y-3">
-      {s.verdict === "IE" && s.reason && <p className="text-sm text-zinc-500">Internal error: {s.reason}</p>}
+      {s.verdict === "IE" && s.reason && <p className="text-sm text-muted">Internal error: {s.reason}</p>}
       {failed && failed.is_sample && failedSample && (
         <div data-testid="failed-sample" className="space-y-2">
           <h3 className="text-sm font-medium">
@@ -84,18 +93,18 @@ function Details({ submission: s, samples }: { submission: Submission; samples: 
           </h3>
           <div className="grid gap-2 md:grid-cols-2">
             <div>
-              <div className="text-xs text-zinc-500">Input</div>
-              <pre className="max-h-40 overflow-auto rounded bg-zinc-100 p-2 font-mono text-xs dark:bg-zinc-900">{failedSample.input}</pre>
+              <div className="text-xs text-muted">Input</div>
+              <pre className="max-h-40 overflow-auto rounded bg-surface p-2 font-mono text-xs">{failedSample.input}</pre>
             </div>
             <div>
-              <div className="text-xs text-zinc-500">Expected output</div>
-              <pre className="max-h-40 overflow-auto rounded bg-zinc-100 p-2 font-mono text-xs dark:bg-zinc-900">{failedSample.output}</pre>
+              <div className="text-xs text-muted">Expected output</div>
+              <pre className="max-h-40 overflow-auto rounded bg-surface p-2 font-mono text-xs">{failedSample.output}</pre>
             </div>
           </div>
           {failed.status === "WA" ? (
             <DiffView expected={failedSample.output} actual={failed.stdout ?? ""} truncated={failed.stdout_truncated ?? false} />
           ) : (
-            <p className="text-xs text-zinc-500">The program did not finish normally on this sample ({failed.status}).</p>
+            <p className="text-xs text-muted">The program did not finish normally on this sample ({failed.status}).</p>
           )}
         </div>
       )}
@@ -105,7 +114,7 @@ function Details({ submission: s, samples }: { submission: Submission; samples: 
         </p>
       )}
       <table className="w-full text-left text-sm" data-testid="tests-table">
-        <thead className="text-xs text-zinc-500">
+        <thead className="text-xs text-muted">
           <tr>
             <th className="py-1 pr-2">Test</th>
             <th className="py-1 pr-2">Status</th>
@@ -115,23 +124,18 @@ function Details({ submission: s, samples }: { submission: Submission; samples: 
         </thead>
         <tbody>
           {s.tests.map((t) => (
-            <tr key={t.seq} className="border-t border-zinc-100 dark:border-zinc-800">
+            <tr key={t.seq} className="border-t border-line">
               <td className="py-1 pr-2 font-mono">
                 #{t.seq}
-                {t.is_sample && <span className="ml-1 text-xs text-zinc-500">sample</span>}
+                {t.is_sample && <span className="ml-1 text-xs text-muted">sample</span>}
               </td>
-              <td className={`py-1 pr-2 font-mono ${t.status === "AC" ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>{t.status}</td>
+              <td className={`py-1 pr-2 font-mono ${t.status === "AC" ? "text-easy-fg" : "text-hard-fg"}`}>{t.status}</td>
               <td className="py-1 pr-2 text-right tabular-nums">{t.cpu_ms} ms</td>
               <td className="py-1 text-right tabular-nums">{(t.rss_kb / 1024).toFixed(1)} MB</td>
             </tr>
           ))}
         </tbody>
       </table>
-      {s.tests.length > 0 && (
-        <p className="text-xs text-zinc-500">
-          Max CPU {s.max_cpu_ms ?? 0} ms · max memory {((s.max_rss_kb ?? 0) / 1024).toFixed(1)} MB · {s.tests.length} test(s) run
-        </p>
-      )}
     </div>
   );
 }

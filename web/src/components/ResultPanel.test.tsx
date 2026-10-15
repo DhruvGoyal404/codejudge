@@ -35,7 +35,7 @@ describe("ResultPanel", () => {
     expect(screen.getByTestId("stage-label")).toHaveTextContent("Running test 3 of 10");
     expect(screen.getByRole("progressbar", { name: "Test progress" })).toHaveAttribute("value", "3");
     const current = within(screen.getByTestId("stages")).getByText("Testing");
-    expect(current.className).toContain("bg-blue-600");
+    expect(current).toHaveAttribute("aria-current", "step");
   });
 
   it("shows a reconnecting notice when the stream drops", () => {

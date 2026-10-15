@@ -50,6 +50,10 @@ type Config struct {
 	ClaimIdle         time.Duration // XAUTOCLAIM entries idle longer than this
 	Heartbeat         time.Duration // refresh idle time of in-flight entries this often
 	ReapEvery         time.Duration // periodic sandbox reaper
+	RunsStream        string        // custom-input runs (runs.go)
+	RunGroup          string
+	RunKeyPrefix      string // Valkey hash per run: RunKeyPrefix + id (written by the API)
+	RunConcurrency    int
 }
 
 // DefaultConfig returns the defaults used by judge-worker.
@@ -63,6 +67,10 @@ func DefaultConfig() Config {
 		ClaimIdle:         60 * time.Second,
 		Heartbeat:         10 * time.Second,
 		ReapEvery:         60 * time.Second,
+		RunsStream:        "judge:runs",
+		RunGroup:          "runners",
+		RunKeyPrefix:      "judge:run:",
+		RunConcurrency:    1,
 	}
 }
 
@@ -94,7 +102,7 @@ func New(cfg Config, db *pgxpool.Pool, rdb *redis.Client, sb *sandbox.Sandbox, l
 	if cfg.WorkerID == "" || cfg.ProblemsDir == "" {
 		return nil, errors.New("worker id and problems dir are required")
 	}
-	if cfg.Concurrency <= 0 || cfg.MaxDeliveries <= 0 || cfg.ClaimIdle <= 0 || cfg.Heartbeat <= 0 || cfg.Heartbeat*2 > cfg.ClaimIdle {
+	if cfg.Concurrency <= 0 || cfg.MaxDeliveries <= 0 || cfg.ClaimIdle <= 0 || cfg.Heartbeat <= 0 || cfg.Heartbeat*2 > cfg.ClaimIdle || cfg.RunConcurrency <= 0 {
 		return nil, fmt.Errorf("invalid config: need concurrency/max deliveries > 0 and 0 < 2*heartbeat <= claim idle")
 	}
 	return &Worker{cfg: cfg, db: db, rdb: rdb, sb: sb, log: log.With("worker", cfg.WorkerID),
@@ -121,6 +129,9 @@ func (w *Worker) Run(ctx context.Context) error {
 			w.log.Info("reaped stale sandbox containers", "n", n)
 		}
 	})
+
+	runsDone := make(chan struct{})
+	go func() { w.runLoop(ctx); close(runsDone) }()
 
 	var lastClaim time.Time
 	for ctx.Err() == nil {
@@ -154,6 +165,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		w.dispatch(res[0].Messages[0])
 	}
 	w.log.Info("shutting down: waiting for in-flight submissions")
+	<-runsDone // no new run can be added to wg after this
 	w.wg.Wait()
 	w.log.Info("worker stopped")
 	return nil
@@ -359,7 +371,11 @@ func (w *Worker) handle(ctx context.Context, msg redis.XMessage) {
 	}
 	w.ack(ctx, msg.ID) // only after the commit
 	w.event(ctx, id, "done", final.Verdict)
-	log.Info("done", "verdict", final.Verdict, "failed_test", final.FailedTest)
+	if final.Verdict == judge.IE {
+		log.Warn("done with internal error", "failed_test", final.FailedTest, "reason", truncate(final.Reason, 500))
+	} else {
+		log.Info("done", "verdict", final.Verdict, "failed_test", final.FailedTest)
+	}
 }
 
 // judge runs the Phase 2 engine. Any judge-side failure becomes IE.

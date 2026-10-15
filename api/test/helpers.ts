@@ -46,16 +46,20 @@ export function testDeps(overrides: Record<string, string> = {}): TestDeps {
     ...devEnv(),
     SUBMISSIONS_STREAM: `test:${run}:submissions`,
     EVENTS_STREAM: `test:${run}:events`,
+    RUNS_STREAM: `test:${run}:runs`,
+    RUN_KEY_PREFIX: `test:${run}:run:`,
     SSE_KEEPALIVE_MS: "1000",
     // Suites make many requests as one user / one IP; limits get their own tests.
     SUBMIT_LIMIT_PER_MIN: "100000",
     SUBMIT_LIMIT_PER_DAY: "100000",
+    RUN_LIMIT_PER_MIN: "100000",
+    RUN_LIMIT_PER_DAY: "100000",
     AUTH_LIMIT_PER_MIN: "100000",
     RATE_LIMIT_PREFIX: `test:${run}:rl`,
     ...overrides,
   });
   const db = Db.connect(config.CODEJUDGE_DATABASE_URL, 3);
-  const queue = Queue.connect(config.CODEJUDGE_VALKEY_URL, config.SUBMISSIONS_STREAM);
+  const queue = Queue.connect(config.CODEJUDGE_VALKEY_URL, config.SUBMISSIONS_STREAM, config.RUNS_STREAM);
   const hub = new Hub();
   const log: Logger = pino({ level: "silent" });
   return {
@@ -65,7 +69,9 @@ export function testDeps(overrides: Record<string, string> = {}): TestDeps {
     hub,
     log,
     async close() {
-      await queue.redis.del(config.SUBMISSIONS_STREAM, config.EVENTS_STREAM);
+      await queue.redis.del(config.SUBMISSIONS_STREAM, config.EVENTS_STREAM, config.RUNS_STREAM);
+      const runKeys = await queue.redis.keys(`${config.RUN_KEY_PREFIX}*`);
+      if (runKeys.length) await queue.redis.del(...runKeys);
       const rl = await queue.redis.keys(`${config.RATE_LIMIT_PREFIX}:*`); // per-run prefix: only ours
       if (rl.length) await queue.redis.del(...rl);
       await Promise.allSettled([db.close(), queue.close()]);

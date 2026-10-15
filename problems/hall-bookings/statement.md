@@ -14,17 +14,3 @@ Each of the next `n` lines contains `s_i e_i` (0 <= s_i < e_i <= 10^9).
 ## Output
 Print two integers: the maximum number of simultaneous bookings and the earliest moment
 it is reached.
-
-## Example
-Input:
-```
-4
-1 5
-2 3
-4 8
-5 6
-```
-Output:
-```
-2 2
-```

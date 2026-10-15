@@ -16,20 +16,3 @@ There is at least one `Q` event.
 
 ## Output
 For each `Q` event, in order, print `YES` or `NO` on its own line.
-
-## Example
-Input:
-```
-4 5
-Q 1 2
-U 1 2
-U 3 2
-Q 1 3
-Q 1 4
-```
-Output:
-```
-NO
-YES
-NO
-```

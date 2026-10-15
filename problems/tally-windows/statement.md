@@ -10,14 +10,3 @@ The second line contains `n` integers `a_1 ... a_n` (-10^9 <= a_i <= 10^9).
 
 ## Output
 Print the number of windows whose sum is exactly `K`.
-
-## Example
-Input:
-```
-5 3
-1 2 0 3 -3
-```
-Output:
-```
-5
-```

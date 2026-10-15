@@ -13,14 +13,3 @@ The second line contains `n` integers `p_1 ... p_n` (0 <= p_i <= 200 000).
 
 ## Output
 Print the minimum number of jumps, or `-1`.
-
-## Example
-Input:
-```
-6
-2 3 1 1 4 0
-```
-Output:
-```
-3
-```

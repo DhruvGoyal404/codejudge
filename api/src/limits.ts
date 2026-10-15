@@ -17,6 +17,8 @@ export class Limits {
   private readonly submitMinute: RateLimiterRedis;
   private readonly submitDay: RateLimiterRedis;
   private readonly authMinute: RateLimiterRedis;
+  private readonly runMinute: RateLimiterRedis;
+  private readonly runDay: RateLimiterRedis;
 
   constructor(
     redis: Redis,
@@ -28,6 +30,14 @@ export class Limits {
     this.submitMinute = mk("submit-min", config.SUBMIT_LIMIT_PER_MIN, config.RATE_LIMIT_MINUTE_S);
     this.submitDay = mk("submit-day", config.SUBMIT_LIMIT_PER_DAY, DAY_S);
     this.authMinute = mk("auth-ip-min", config.AUTH_LIMIT_PER_MIN, config.RATE_LIMIT_MINUTE_S);
+    this.runMinute = mk("run-min", config.RUN_LIMIT_PER_MIN, config.RATE_LIMIT_MINUTE_S);
+    this.runDay = mk("run-day", config.RUN_LIMIT_PER_DAY, DAY_S);
+  }
+
+  /** Counts one custom-run attempt for userId (separate budget from submissions). */
+  async consumeRun(userId: number): Promise<void> {
+    await this.consume(this.runMinute, String(userId));
+    await this.consume(this.runDay, String(userId));
   }
 
   /** Counts one submission attempt for userId (valid or not). */

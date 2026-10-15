@@ -13,14 +13,3 @@ The second line contains `n` integers `a_1 ... a_n` (0 <= a_i <= 10^9).
 
 ## Output
 Print the `k`-th smallest gap.
-
-## Example
-Input:
-```
-4 3
-1 6 3 10
-```
-Output:
-```
-4
-```

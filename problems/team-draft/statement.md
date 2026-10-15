@@ -13,16 +13,3 @@ Each of the next `n` lines contains `n` integers: line `i` holds `t_i1 ... t_in`
 
 ## Output
 Print the minimum total time.
-
-## Example
-Input:
-```
-3
-4 1 3
-2 1 5
-3 2 2
-```
-Output:
-```
-5
-```

@@ -14,16 +14,3 @@ Each of the next `R` lines contains `C` integers `v_ij` (-10^6 <= v_ij <= 10^6).
 
 ## Output
 Print the maximum total.
-
-## Example
-Input:
-```
-3 3
-1 3 1
-1 -5 1
-4 2 1
-```
-Output:
-```
-9
-```

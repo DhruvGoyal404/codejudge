@@ -13,18 +13,3 @@ Each of the next `m` lines contains `u_j v_j` (1 <= u_j, v_j <= n).
 
 ## Output
 Print two integers: the number of districts and the size of the largest district.
-
-## Example
-Input:
-```
-5 5
-1 2
-2 3
-3 1
-3 4
-5 4
-```
-Output:
-```
-3 3
-```

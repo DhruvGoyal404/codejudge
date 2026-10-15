@@ -102,6 +102,30 @@ export interface HistoryFilter {
   cursor?: string | null;
 }
 
+export type RunStatus = "OK" | "CE" | "RE" | "TLE" | "MLE" | "OLE" | "IE";
+
+/** Result of "Run with custom input" (no judging: the program's own output). */
+export interface RunResult {
+  status: RunStatus;
+  reason?: string;
+  exit_code: number;
+  cpu_ms: number;
+  wall_ms: number;
+  max_rss_kb: number;
+  stdout: string;
+  stderr: string;
+  stdout_truncated: boolean;
+  compile_output?: string;
+}
+
+export interface RunState {
+  id: string;
+  status: "queued" | "running" | "done";
+  result: RunResult | null;
+}
+
+export const MAX_RUN_INPUT_BYTES = 64 * 1024;
+
 export const VERDICTS: Verdict[] = ["AC", "WA", "CE", "RE", "TLE", "MLE", "OLE", "IE"];
 
 /** HTTP error from the API (has a status code and the server's message). */
@@ -165,6 +189,13 @@ export const api = {
     return request<HistoryPage>(`/me/submissions${qs ? `?${qs}` : ""}`);
   },
   submission: (id: string) => request<Submission>(`/submissions/${encodeURIComponent(id)}`),
+  run: (problemSlug: string, language: Language, source: string, input: string) =>
+    request<{ id: string }>("/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ problemSlug, language, source, input }),
+    }),
+  getRun: (id: string) => request<RunState>(`/runs/${encodeURIComponent(id)}`),
   submit: (problemSlug: string, language: Language, source: string) =>
     request<{ id: string }>("/submissions", {
       method: "POST",
@@ -192,6 +223,19 @@ export function submitErrorMessage(err: unknown): string {
     return `Submission failed: ${err.message}`;
   }
   return "Submission failed unexpectedly.";
+}
+
+/** Human-readable message for a failed "Run" request. */
+export function runErrorMessage(err: unknown): string {
+  if (err instanceof NetworkError) return err.message;
+  if (err instanceof ApiError) {
+    if (err.status === 413) return "The code or the input is too large (64 KB each).";
+    if (err.status === 401) return "You are logged out. Log in to run code.";
+    if (err.status === 409) return "A run is already in progress. Wait for it to finish.";
+    if (err.status === 429) return err.retryAfter ? `Too many runs. Try again in ${formatWait(err.retryAfter)}.` : "Too many runs. Try again later.";
+    return `Run failed: ${err.message}`;
+  }
+  return "Run failed unexpectedly.";
 }
 
 function formatWait(s: number): string {

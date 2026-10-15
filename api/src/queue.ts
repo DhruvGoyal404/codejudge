@@ -5,11 +5,17 @@ export class Queue {
   constructor(
     readonly redis: Redis,
     readonly submissionsStream: string,
+    readonly runsStream = "judge:runs",
   ) {}
 
-  static connect(url: string, submissionsStream: string): Queue {
+  static connect(url: string, submissionsStream: string, runsStream?: string): Queue {
     const redis = new Redis(url, { maxRetriesPerRequest: 2, enableOfflineQueue: false, lazyConnect: false });
-    return new Queue(redis, submissionsStream);
+    return new Queue(redis, submissionsStream, runsStream);
+  }
+
+  /** XADD {id} to the custom-run stream. */
+  async enqueueRun(id: string): Promise<void> {
+    await this.redis.xadd(this.runsStream, "MAXLEN", "~", "10000", "*", "id", id);
   }
 
   async ping(): Promise<void> {

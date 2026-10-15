@@ -74,6 +74,7 @@ jobs:
           ssh-key: ${{ secrets.PROBLEMS_DEPLOY_KEY }}
           path: problems-private
           persist-credentials: false
+          fetch-depth: 0 # full history: the packed size below
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: runner/go.mod
@@ -82,6 +83,16 @@ jobs:
         run: |
           if git ls-files 'problems/*/tests/*' 'problems/*/gen/*' 'problems/*/solutions/*' | grep .; then
             echo "hidden problem data is tracked in the public repo"; exit 1
+          fi
+      # Hidden tests are stored, not regenerated (decided at 244 MiB packed,
+      # ~25 s clones). Revisit if the private repo grows past 500 MiB.
+      - name: Private repo size
+        run: |
+          git -C problems-private gc -q
+          kib=$(git -C problems-private count-objects -v | awk '/^size-pack:/ {print $2}')
+          echo "codejudge-problems packed: $((kib / 1024)) MiB"
+          if [ "$kib" -gt $((500 * 1024)) ]; then
+            echo "::warning title=Private problems repo is large::packed size $((kib / 1024)) MiB > 500 MiB: consider regenerating tests at CI/deploy time instead of storing them"
           fi
       - name: Samples byte-match the hidden copies
         run: python3 scripts/sync-samples.py --check

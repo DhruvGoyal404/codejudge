@@ -14,17 +14,3 @@ Each of the next `n` lines contains `n` integers: line `i` holds `c_i1 ... c_in`
 
 ## Output
 Print the minimum total fuel.
-
-## Example
-Input:
-```
-4
-0 10 15 20
-5 0 9 10
-6 13 0 12
-8 8 9 0
-```
-Output:
-```
-35
-```

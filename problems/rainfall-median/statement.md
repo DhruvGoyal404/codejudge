@@ -13,14 +13,3 @@ The second line contains `n` integers `r_1 ... r_n` (-10^9 <= r_i <= 10^9).
 
 ## Output
 Print the median as defined above.
-
-## Example
-Input:
-```
-6
-4 -1 7 3 3 10
-```
-Output:
-```
-3
-```

@@ -13,17 +13,3 @@ Each of the next `R` lines contains `C` characters, each `#` or `.`.
 ## Output
 Print two integers: the number of islands and the size of the largest island. If there is
 no reef at all, print `0 0`.
-
-## Example
-Input:
-```
-4 5
-##..#
-#...#
-..#..
-....#
-```
-Output:
-```
-4 3
-```

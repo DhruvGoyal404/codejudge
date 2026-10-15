@@ -14,17 +14,3 @@ order around the boundary. The polygon is simple and has non-zero area.
 
 ## Output
 Print two integers: twice the area, and the number of grid points strictly inside.
-
-## Example
-Input:
-```
-4
-0 0
-4 0
-4 3
-0 3
-```
-Output:
-```
-24 6
-```

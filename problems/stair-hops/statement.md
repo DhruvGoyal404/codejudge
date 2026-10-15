@@ -15,14 +15,3 @@ cracked steps, in any order. If `m = 0` there is no second line.
 
 ## Output
 Print the number of hop sequences modulo `1 000 000 007`.
-
-## Example
-Input:
-```
-5 1
-2
-```
-Output:
-```
-5
-```

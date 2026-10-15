@@ -59,7 +59,7 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   language: null,
   editor: { fontSize: 14, tabSize: 4, wordWrap: false },
-  layout: { statement: 45, editor: 65 },
+  layout: { statement: 45, editor: 55 },
 };
 
 const clamp = (x: unknown, lo: number, hi: number, d: number) => (typeof x === "number" && Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d);
