@@ -1,0 +1,9 @@
+id: island-courier
+title: Island Courier
+difficulty: hard
+tags: [dynamic-programming, bit-manipulation]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

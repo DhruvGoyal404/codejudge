@@ -1,0 +1,9 @@
+id: rainfall-median
+title: Rainfall Median
+difficulty: easy
+tags: [sorting]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

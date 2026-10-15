@@ -1,0 +1,9 @@
+id: running-median
+title: Running Median
+difficulty: medium
+tags: [heap]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]
