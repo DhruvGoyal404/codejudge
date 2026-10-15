@@ -1,0 +1,11 @@
+id: queen-garden
+title: Queen Garden
+difficulty: hard
+tags: [backtracking, bit-manipulation]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 3
+samples: ["01", "02"]

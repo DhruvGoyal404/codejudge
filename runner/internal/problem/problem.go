@@ -41,7 +41,9 @@ const (
 	MaxMemoryMB      = 1024
 	MaxTests         = sandbox.MaxTests
 	MaxInputBytes    = 16 << 20 // per test
-	MaxExpectedBytes = 16 << 20 // per test
+	// MaxExpectedBytes: an expected output must fit the judge's stdout cap,
+	// or every correct solution would get OLE on that test.
+	MaxExpectedBytes = sandbox.DefaultOutputBytes // per test
 	MaxTotalBytes    = 32 << 20 // all .in + .out of one problem
 	MaxTags          = 5
 	// CatalogMinTests is the least number of tests a published problem has
@@ -60,7 +62,7 @@ var Tags = []string{
 	"graphs", "greedy", "hashing", "heap", "implementation", "intervals", "math", "matrix",
 	"number-theory", "prefix-sums", "queue", "recursion", "segment-tree", "shortest-paths",
 	"simulation", "sliding-window", "sorting", "stack", "strings", "topological-sort",
-	"trees", "two-pointers", "union-find",
+	"trees", "trie", "two-pointers", "union-find",
 }
 
 // TestsRootEnv names the directory holding <slug>/tests for every problem

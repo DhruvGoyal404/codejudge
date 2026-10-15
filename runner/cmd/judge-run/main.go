@@ -176,7 +176,7 @@ func outputsCmd(args []string) error {
 	outDir := fs.String("out", "", "directory to write NN.out files to")
 	timeLimit := fs.Duration("time-limit", 10*time.Second, "CPU time limit per input")
 	memoryMB := fs.Int64("memory-limit", 1024, "memory limit in MB")
-	outputBytes := fs.Int64("output-limit", problem.MaxExpectedBytes, "stdout limit per input in bytes")
+	outputBytes := fs.Int64("output-limit", sandbox.MaxOutputBytes, "stdout limit per input in bytes (larger than any valid expected output, so an over-long reference output is caught by judge-admin check)")
 	seccompPath := fs.String("seccomp", "", "seccomp profile (default: find sandbox/seccomp/default.json)")
 	lockPath := fs.String("images", "", "image lock (default: find sandbox/images/images.lock.json)")
 	runtime := fs.String("runtime", os.Getenv("JUDGE_RUNTIME"), "OCI runtime, e.g. runsc (default: $JUDGE_RUNTIME, else the engine default)")

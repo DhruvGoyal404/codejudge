@@ -104,30 +104,31 @@ func TestLoadRejects(t *testing.T) {
 		files map[string]string
 		want  string
 	}{
-		"missing .out":       {goodYAML, with("tests/03.out", ""), "no matching .out"},
-		"orphan .out":        {goodYAML, with("tests/04.out", "4\n"), "no matching .in"},
-		"stray file":         {goodYAML, with("tests/notes.txt", "x"), "unexpected entry"},
-		"time too big":       {sub("time_limit: 1s", "time_limit: 6s"), goodTests, "time_limit"},
-		"bad duration":       {sub("time_limit: 1s", "time_limit: fast"), goodTests, "time_limit"},
-		"memory too big":     {sub("memory_limit: 256", "memory_limit: 4096"), goodTests, "memory_limit"},
-		"max multiplier ok":  {sub("python: 3", "python: 5\n  cpp: 1"), goodTests, ""}, // 1s*5 = 5s: allowed
-		"multiplier too big": {sub("python: 3", "python: 6"), goodTests, "time_multiplier"},
-		"unknown language":   {sub("python: 3", "rust: 1"), goodTests, "unsupported language"},
-		"unknown field":      {goodYAML + "memory_limt: 5\n", goodTests, "field memory_limt not found"},
-		"id mismatch":        {sub("id: demo", "id: other"), goodTests, "must equal directory"},
-		"bad checker":        {sub("type: float", "type: regex"), goodTests, "unknown checker"},
-		"float without eps":  {sub("  abs_eps: 1e-6\n", ""), goodTests, "abs_eps"},
-		"sample missing":     {sub(`["02", "01"]`, `["02", "09"]`), goodTests, "sample \"09\""},
-		"sample duplicate":   {sub(`["02", "01"]`, `["02", "02"]`), goodTests, "listed twice"},
-		"no tests":           {goodYAML, map[string]string{"tests/.keep": ""}, "unexpected entry"},
-		"input too big":      {goodYAML, with("tests/03.in", strings.Repeat("x", MaxInputBytes+1)), "bytes >"},
-		"no difficulty":      {sub("difficulty: medium\n", ""), goodTests, "difficulty"},
-		"bad difficulty":     {sub("difficulty: medium", "difficulty: insane"), goodTests, "difficulty"},
-		"no tags":            {sub("tags: [math, sorting]\n", ""), goodTests, "tags: need"},
-		"unknown tag":        {sub("[math, sorting]", "[math, sortng]"), goodTests, "not in the vocabulary"},
-		"duplicate tag":      {sub("[math, sorting]", "[math, math]"), goodTests, "listed twice"},
-		"too many tags":      {sub("[math, sorting]", "[math, sorting, greedy, graphs, bfs, dfs]"), goodTests, "tags: need"},
-		"effective over max": {sub("time_limit: 1s", "time_limit: 4s"), goodTests, "effective time limit"}, // 4s*3 = 12s > 10s
+		"missing .out":              {goodYAML, with("tests/03.out", ""), "no matching .out"},
+		"orphan .out":               {goodYAML, with("tests/04.out", "4\n"), "no matching .in"},
+		"stray file":                {goodYAML, with("tests/notes.txt", "x"), "unexpected entry"},
+		"time too big":              {sub("time_limit: 1s", "time_limit: 6s"), goodTests, "time_limit"},
+		"bad duration":              {sub("time_limit: 1s", "time_limit: fast"), goodTests, "time_limit"},
+		"memory too big":            {sub("memory_limit: 256", "memory_limit: 4096"), goodTests, "memory_limit"},
+		"max multiplier ok":         {sub("python: 3", "python: 5\n  cpp: 1"), goodTests, ""}, // 1s*5 = 5s: allowed
+		"multiplier too big":        {sub("python: 3", "python: 6"), goodTests, "time_multiplier"},
+		"unknown language":          {sub("python: 3", "rust: 1"), goodTests, "unsupported language"},
+		"unknown field":             {goodYAML + "memory_limt: 5\n", goodTests, "field memory_limt not found"},
+		"id mismatch":               {sub("id: demo", "id: other"), goodTests, "must equal directory"},
+		"bad checker":               {sub("type: float", "type: regex"), goodTests, "unknown checker"},
+		"float without eps":         {sub("  abs_eps: 1e-6\n", ""), goodTests, "abs_eps"},
+		"sample missing":            {sub(`["02", "01"]`, `["02", "09"]`), goodTests, "sample \"09\""},
+		"sample duplicate":          {sub(`["02", "01"]`, `["02", "02"]`), goodTests, "listed twice"},
+		"no tests":                  {goodYAML, map[string]string{"tests/.keep": ""}, "unexpected entry"},
+		"input too big":             {goodYAML, with("tests/03.in", strings.Repeat("x", MaxInputBytes+1)), "bytes >"},
+		"output over the judge cap": {goodYAML, with("tests/03.out", strings.Repeat("x", MaxExpectedBytes+1)), "bytes >"},
+		"no difficulty":             {sub("difficulty: medium\n", ""), goodTests, "difficulty"},
+		"bad difficulty":            {sub("difficulty: medium", "difficulty: insane"), goodTests, "difficulty"},
+		"no tags":                   {sub("tags: [math, sorting]\n", ""), goodTests, "tags: need"},
+		"unknown tag":               {sub("[math, sorting]", "[math, sortng]"), goodTests, "not in the vocabulary"},
+		"duplicate tag":             {sub("[math, sorting]", "[math, math]"), goodTests, "listed twice"},
+		"too many tags":             {sub("[math, sorting]", "[math, sorting, greedy, graphs, bfs, dfs]"), goodTests, "tags: need"},
+		"effective over max":        {sub("time_limit: 1s", "time_limit: 4s"), goodTests, "effective time limit"}, // 4s*3 = 12s > 10s
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

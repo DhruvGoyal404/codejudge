@@ -285,3 +285,18 @@ The browser and API end-to-end suites now run in CI (job "End-to-end"; push, PRs
 - the database rows of the failed run are kept, not deleted, and dumped with the Valkey run hashes to `records.json` (`api/test/e2e-evidence.ts`).
 
 On its first CI run this caught a real configuration gap (the GitHub login redirect needs an OAuth client id, now a dummy one in CI) and uploaded the evidence as designed.
+
+### P7. Gap-filling batch
+
+Four problems cover techniques the catalogue lacked. `trie` joins the tag vocabulary.
+
+| Difficulty | Slug | Title | Tags | Limit | Python × |
+|---|---|---|---|---|---|
+| easy | `tree-walks` | Tree Walks | trees, recursion | 2s | 2 |
+| medium | `motif-search` | Motif Search | strings | 1s | 2 |
+| medium | `signal-interference` | Signal Interference | trie, bit-manipulation | 1s | 5 |
+| hard | `queen-garden` | Queen Garden | backtracking, bit-manipulation | 2s | 3 |
+
+The catalogue is now 64 problems (23 easy, 29 medium, 12 hard).
+
+**New loader rule:** an expected output may not exceed the judge's stdout cap (4 MB, `sandbox.DefaultOutputBytes`). Otherwise every correct solution would get OLE on that test. Tree Walks' first draft (three walks of 200 000 large labels, about 6.6 MB) broke this, and only `TestProblems` caught it. `judge-admin check` now rejects such a package outright. `judge-run outputs` keeps the 16 MiB cap, so an over-long reference output is still produced and then reported by the check.

@@ -1,0 +1,9 @@
+id: motif-search
+title: Motif Search
+difficulty: medium
+tags: [strings]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]
