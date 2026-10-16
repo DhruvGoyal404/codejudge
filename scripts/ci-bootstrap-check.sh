@@ -21,8 +21,9 @@ grep -q 'install-units: updated' <<<"$out" && fail "second run rewrote units"
 echo "=== checks"
 sudo jq -e '.runtimes.runsc.runtimeArgs | index("--oci-seccomp")' /etc/docker/daemon.json >/dev/null || fail "runsc lacks --oci-seccomp"
 docker info --format '{{json .Runtimes}}' | jq -e 'has("runsc")' >/dev/null || fail "Docker does not list runsc"
-# (Output captured first: with pipefail, grep -q exiting early would SIGPIPE docker.)
-kmsg=$(docker run --rm --runtime=runsc busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e dmesg)
+# gVisor's synthetic kernel log names it (klogctl needs CAP_SYSLOG). Output
+# captured first: with pipefail, grep -q exiting early would SIGPIPE docker.
+kmsg=$(docker run --rm --runtime=runsc --cap-add SYSLOG busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e dmesg)
 grep -qi gvisor <<<"$kmsg" || { echo "$kmsg"; fail "runsc container is not gVisor"; }
 swapon --show=NAME --noheadings | grep -qx /swapfile || fail "no /swapfile swap"
 [ "$(sysctl -n vm.swappiness)" = 10 ] || fail "vm.swappiness"
