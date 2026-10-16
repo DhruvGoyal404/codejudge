@@ -1,0 +1,139 @@
+# Production deploy: after CI passes on main (or by hand), build the nine
+# images, push them to ECR tagged with the commit, and run the CodeJudge-Deploy
+# SSM document on the host with a manifest that pins every image by digest.
+# The host pulls by digest, migrates, syncs the hidden tests, restarts, smoke
+# tests, and rolls back by itself on failure (deploy/host/deploy.sh).
+#
+# AWS access is GitHub OIDC only (no stored AWS keys): the role trusts exactly
+# repo:DhruvGoyal404/codejudge:ref:refs/heads/main (infra/). Do not add a
+# GitHub "environment" to this job: it changes the token's sub claim to
+# ...:environment:<name> and the role would refuse it.
+#
+# Repository variables (Settings -> Secrets and variables -> Actions -> Variables),
+# from the CDK stack outputs; until AWS_DEPLOY_ROLE_ARN is set this workflow skips:
+#   AWS_DEPLOY_ROLE_ARN      DeployRoleArn
+#   CODEJUDGE_INSTANCE_ID    InstanceId
+#   ECR_REGISTRY             Registry (<account>.dkr.ecr.ap-south-1.amazonaws.com)
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for AWS
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false # never interrupt a deploy half way
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  AWS_REGION: ap-south-1
+  DOCUMENT: CodeJudge-Deploy
+
+jobs:
+  deploy:
+    name: Deploy to production
+    # workflow_run fires for every CI run on main; deploy only green pushes.
+    # (A dispatch must also come from main: the role trusts only that ref.)
+    if: >-
+      vars.AWS_DEPLOY_ROLE_ARN != '' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      REGISTRY: ${{ vars.ECR_REGISTRY }}
+      INSTANCE_ID: ${{ vars.CODEJUDGE_INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SHA }}
+      # Only to pin the hidden tests' commit in the manifest; the host fetches
+      # them itself with its own read-only deploy key.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: DhruvGoyal404/codejudge-problems
+          ssh-key: ${{ secrets.PROBLEMS_DEPLOY_KEY }}
+          path: problems-private
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: codejudge-deploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Log in to ECR
+        run: aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+      - name: Build sandbox images
+        run: pwsh -NoProfile -File scripts/build-images.ps1
+      - name: Build and push images (tag = commit, recorded by digest)
+        run: |
+          set -euo pipefail
+          # Tags are immutable in ECR: a re-run for the same commit reuses
+          # what was pushed the first time, by its digest.
+          publish() { # publish LOCAL_IMAGE REPO -> appends "key repo@digest"
+            local repo="codejudge/$2" digest
+            digest=$(aws ecr describe-images --repository-name "$repo" --image-ids imageTag="$SHA" \
+              --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)
+            if [[ "$digest" != sha256:* ]]; then
+              docker tag "$1" "$REGISTRY/$repo:$SHA"
+              docker push -q "$REGISTRY/$repo:$SHA" >/dev/null
+              digest=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$REGISTRY/$repo:$SHA" |
+                grep -m1 "^$REGISTRY/$repo@" | cut -d@ -f2)
+            fi
+            echo "$2 $REGISTRY/$repo@$digest" | tee -a "$RUNNER_TEMP/images.txt"
+          }
+          docker build -q -t release/api -f api/Dockerfile . >/dev/null
+          docker build -q -t release/web -f deploy/web.Dockerfile . >/dev/null
+          docker build -q -t release/worker -f deploy/worker.Dockerfile . >/dev/null
+          publish release/api api
+          publish release/web web
+          publish release/worker worker
+          for s in cpp-compile cpp-run python java-compile java-run node; do
+            publish "codejudge/judge-$s:dev" "sandbox-$s"
+          done
+      - name: Release manifest
+        run: |
+          set -euo pipefail
+          jq -Rn --arg r "$SHA" --arg c "$(git -C problems-private rev-parse HEAD)" --arg reg "$REGISTRY" '
+            [inputs | split(" ") | {key: .[0], value: .[1]}] | from_entries as $i |
+            {release: $r, problems_commit: $c, registry: $reg,
+             images: {api: $i.api, web: $i.web, worker: $i.worker,
+                      sandbox: ($i | with_entries(select(.key | startswith("sandbox-"))) | with_entries(.key |= ltrimstr("sandbox-")))}}
+          ' <"$RUNNER_TEMP/images.txt" >release.json
+          cat release.json
+          jq -e '[.images.api, .images.web, .images.worker, .images.sandbox[]] | length == 9 and all(test("@sha256:[0-9a-f]{64}$"))' release.json >/dev/null
+          {
+            echo '### Release'
+            echo '```json'
+            cat release.json
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+      - name: Run CodeJudge-Deploy on the host
+        run: |
+          set -euo pipefail
+          params=$(jq -cn --arg m "$(base64 -w0 release.json)" '{Manifest: [$m]}')
+          id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "$DOCUMENT" \
+            --parameters "$params" --timeout-seconds 600 --comment "deploy ${SHA:0:12}" \
+            --query Command.CommandId --output text)
+          echo "command $id"
+          status=Pending
+          for _ in $(seq 360); do # up to 60 min (the document's own timeout)
+            sleep 10
+            status=$(aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in Pending|InProgress|Delayed) continue ;; *) break ;; esac
+          done
+          aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
+            --query '[StandardOutputContent, StandardErrorContent]' --output text || true
+          echo "status: $status"
+          [ "$status" = Success ] || { echo "::error::deploy $status (the host rolls back by itself; see the output above)"; exit 1; }
