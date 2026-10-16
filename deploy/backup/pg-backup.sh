@@ -3,7 +3,7 @@
 # deploy/systemd/pg-backup.timer).
 #
 #   BACKUP_DEST=s3://<bucket>/<prefix>   where dumps go (required); file:///dir for local tests
-#   CODEJUDGE_COMPOSE="docker compose -f /opt/codejudge/app/deploy/compose.prod.yaml --env-file /etc/codejudge/prod.env"
+#   CODEJUDGE_COMPOSE="docker compose -f /opt/codejudge/current/app/deploy/compose.prod.yaml --env-file /etc/codejudge/prod.env"
 #                                        how to reach the postgres service (default: production)
 #   AWS_REGION                           for s3:// (credentials: the EC2 instance role; no keys on disk)
 #
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 : "${BACKUP_DEST:?set BACKUP_DEST (s3://bucket/prefix or file:///dir)}"
-COMPOSE=${CODEJUDGE_COMPOSE:-"docker compose -f /opt/codejudge/app/deploy/compose.prod.yaml --env-file /etc/codejudge/prod.env"}
+COMPOSE=${CODEJUDGE_COMPOSE:-"docker compose -f /opt/codejudge/current/app/deploy/compose.prod.yaml --env-file /etc/codejudge/prod.env"}
 read -r -a compose <<<"$COMPOSE"
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)

@@ -1,0 +1,14 @@
+# Context for deploy/worker.Dockerfile (BuildKit uses this instead of the
+# root .dockerignore). Public files only: hidden tests never live in this repo.
+*
+!runner/
+!sandbox/seccomp/
+!problems/
+!db/
+!deploy/
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+runner/*.exe
+runner/judge-*

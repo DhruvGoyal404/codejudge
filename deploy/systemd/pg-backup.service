@@ -11,11 +11,11 @@ Type=oneshot
 User=codejudge
 Group=codejudge
 SupplementaryGroups=docker
-WorkingDirectory=/opt/codejudge/app
+WorkingDirectory=/opt/codejudge/current/app
 # BACKUP_DEST=s3://<bucket>/<prefix>, AWS_REGION. Credentials come from the
 # EC2 instance role (no keys on disk).
 EnvironmentFile=/etc/codejudge/backup.env
-ExecStart=/opt/codejudge/app/deploy/backup/pg-backup.sh
+ExecStart=/opt/codejudge/current/app/deploy/backup/pg-backup.sh
 TimeoutStartSec=30min
 Nice=10
 IOSchedulingClass=idle

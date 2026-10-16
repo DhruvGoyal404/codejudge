@@ -23,14 +23,15 @@ Type=simple
 User=codejudge
 Group=codejudge
 SupplementaryGroups=docker
-# A checkout of the public repo: the worker finds sandbox/seccomp/default.json
-# and sandbox/images/images.lock.json relative to it.
-WorkingDirectory=/opt/codejudge/app
+# The current release (extracted from the worker image by deploy.sh): the
+# worker finds sandbox/seccomp/default.json and sandbox/images/images.lock.json
+# relative to it.
+WorkingDirectory=/opt/codejudge/current/app
 EnvironmentFile=/etc/codejudge/worker.env
 Environment=JUDGE_RUNTIME=runsc
 # One sandbox at a time on a 2 GiB t3.small (see docs/PHASE6.md memory budget).
 Environment=JUDGE_CONCURRENCY=1
-ExecStart=/opt/codejudge/bin/judge-worker
+ExecStart=/opt/codejudge/current/bin/judge-worker
 
 # Restart on any exit; back off a little so a down database isn't hammered.
 Restart=always

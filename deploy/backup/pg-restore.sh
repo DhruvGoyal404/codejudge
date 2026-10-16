@@ -14,7 +14,7 @@ set -euo pipefail
 
 src=${1:?usage: pg-restore.sh <dump URL | latest> [--into-live]}
 mode=${2:-}
-COMPOSE=${CODEJUDGE_COMPOSE:-"docker compose -f /opt/codejudge/app/deploy/compose.prod.yaml --env-file /etc/codejudge/prod.env"}
+COMPOSE=${CODEJUDGE_COMPOSE:-"docker compose -f /opt/codejudge/current/app/deploy/compose.prod.yaml --env-file /etc/codejudge/prod.env"}
 read -r -a compose <<<"$COMPOSE"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

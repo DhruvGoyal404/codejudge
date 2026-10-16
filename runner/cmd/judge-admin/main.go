@@ -5,6 +5,9 @@
 //	judge-admin check problems/             # validate only (no database): bounds, tests, public samples
 //	                                        # byte-identical to the hidden ones; prints content hashes;
 //	                                        # catalog rules (catalogCheck)
+//	judge-admin smoke --problem SLUG --lang L --src FILE [--timeout 5m]
+//	                                        # post-deploy check: queue one submission, wait
+//	                                        # for AC from a live worker, delete it again
 //
 // Database: $CODEJUDGE_DATABASE_URL. Hidden tests: $CODEJUDGE_PROBLEMS_TESTS_DIR
 // (the private problems repo; unset = <package>/tests).
@@ -22,8 +25,15 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "smoke" {
+		if err := smokeCmd(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "judge-admin smoke:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) != 3 || (os.Args[1] != "import" && os.Args[1] != "check") {
-		fmt.Fprintln(os.Stderr, "usage: judge-admin import|check <problems-dir | problem-dir>")
+		fmt.Fprintln(os.Stderr, "usage: judge-admin import|check <problems-dir | problem-dir> | smoke --problem SLUG --lang L --src FILE")
 		os.Exit(2)
 	}
 	cmd := importCmd

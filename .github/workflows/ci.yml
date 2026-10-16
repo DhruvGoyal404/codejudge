@@ -20,9 +20,6 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  GVISOR_RELEASE: "20260921.0" # published 2026-09-23
-
 # bash -eo pipefail: without pipefail, "go test | tee" reports tee's status and
 # a failing suite looks green (it did, in the first run).
 defaults:
@@ -50,12 +47,12 @@ jobs:
       - name: systemd units are valid
         working-directory: .
         run: |
-          sudo install -D /bin/true /opt/codejudge/bin/judge-worker
-          sudo install -D /bin/true /opt/codejudge/app/deploy/backup/pg-backup.sh
+          sudo install -D /bin/true /opt/codejudge/current/bin/judge-worker
+          sudo install -D /bin/true /opt/codejudge/current/app/deploy/backup/pg-backup.sh
           systemd-analyze verify deploy/systemd/judge-worker.service deploy/systemd/pg-backup.service deploy/systemd/pg-backup.timer
       - name: shellcheck
         working-directory: .
-        run: shellcheck --severity=warning deploy/backup/*.sh
+        run: shellcheck --severity=warning deploy/backup/*.sh deploy/host/*.sh scripts/*.sh
 
   # Hidden tests live in the private codejudge-problems repo, read through a
   # read-only deploy key (secret PROBLEMS_DEPLOY_KEY). Fork PRs get no secrets,
@@ -260,7 +257,7 @@ jobs:
 
   sandbox:
     name: Sandbox integration (${{ matrix.runtime }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # the production host's release
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -284,32 +281,13 @@ jobs:
         with:
           go-version-file: runner/go.mod
           cache-dependency-path: runner/go.sum
-      - name: Install gVisor ${{ env.GVISOR_RELEASE }}
+      # The production host bootstrap (minus the AWS CLI) installs the pinned
+      # Docker and gVisor and registers runsc WITH --oci-seccomp; a second run
+      # must change nothing. TestSeccompActive proves the flag takes effect.
+      - name: Bootstrap the host (deploy/host/bootstrap.sh, twice)
         if: matrix.runtime == 'runsc'
-        working-directory: ${{ runner.temp }}
-        run: |
-          set -euo pipefail
-          base="https://storage.googleapis.com/gvisor/releases/release/${GVISOR_RELEASE}/x86_64"
-          curl -fsSLO "$base/gvisor.tar.zstd"
-          curl -fsSLO "$base/gvisor.tar.zstd.sha512"
-          sha512sum -c gvisor.tar.zstd.sha512
-          mkdir gvisor && tar --zstd -xf gvisor.tar.zstd -C gvisor
-          runsc=$(find gvisor -type f -name runsc | head -1)
-          shim=$(find gvisor -type f -name containerd-shim-runsc-v1 | head -1)
-          sudo install -m 0755 "$runsc" /usr/local/bin/runsc
-          if [ -n "$shim" ]; then sudo install -m 0755 "$shim" /usr/local/bin/containerd-shim-runsc-v1; fi
-          runsc --version
-          # --oci-seccomp: apply the container's seccomp profile inside the
-          # sandbox too (gVisor ignores it otherwise).
-          sudo runsc install -- --oci-seccomp
-          sudo systemctl restart docker
-          # The flag lives in the runtime's runtimeArgs (docker info's feature
-          # annotations show runsc's defaults, not these args). TestSeccompActive
-          # proves it takes effect.
-          sudo cat /etc/docker/daemon.json
-          if ! sudo grep -q -- '--oci-seccomp' /etc/docker/daemon.json; then
-            echo "runsc is not registered with --oci-seccomp"; exit 1
-          fi
+        working-directory: .
+        run: scripts/ci-bootstrap-check.sh
       - name: Docker / kernel
         run: |
           docker version --format 'engine {{.Server.Version}} api {{.Server.APIVersion}}'
@@ -361,3 +339,32 @@ jobs:
               echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # deploy/host/deploy.sh end to end on a bootstrapped Ubuntu 24.04 host, the
+  # AWS parts replaced by a local registry, a parameters file and a local
+  # checkout of the hidden tests: a good release, a broken one (automatic
+  # rollback), another good one, then a manual rollback.
+  host-deploy:
+    name: Host deploy end to end (bootstrap, deploy, rollback)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: DhruvGoyal404/codejudge-problems
+          ssh-key: ${{ secrets.PROBLEMS_DEPLOY_KEY }}
+          path: problems-private
+          persist-credentials: false
+      - name: Bootstrap the host (twice)
+        run: scripts/ci-bootstrap-check.sh
+      - name: Build sandbox images
+        run: pwsh -NoProfile -File scripts/build-images.ps1
+      - name: Deploy, roll back, roll back by hand
+        run: scripts/ci-deploy-e2e.sh problems-private
+      - name: Host logs
+        if: failure()
+        run: |
+          sudo journalctl -u judge-worker --no-pager -n 200 || true
+          sudo docker compose -p codejudge-prod logs --no-color --tail 200 || true
