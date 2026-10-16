@@ -55,7 +55,7 @@ manifest() { # manifest RELEASE API_REF -> base64
 }
 
 params="$tmp/ssm.json"
-rand() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32; }
+rand() { openssl rand -hex 16; }
 (umask 077 && jq -n --arg pg "$(rand)" --arg vk "$(rand)" '{
   domain: "localhost", acme_email: "ci@example.com", pg_password: $pg, valkey_password: $vk,
   github_client_id: "ci-client-id", github_client_secret: "ci-client-secret", backup_bucket: "ci-bucket"

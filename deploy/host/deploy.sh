@@ -126,17 +126,19 @@ GITHUB_REDIRECT_URI=https://$domain/api/auth/github/callback
 CODEJUDGE_API_IMAGE=$(manifest_field .images.api "$m")
 CODEJUDGE_WEB_IMAGE=$(manifest_field .images.web "$m")
 EOF
+  # Quoted: systemd's EnvironmentFile strips the quotes, and deploy.sh sources
+  # this file with bash (unquoted, the URL's "&" would background the line).
   write_file "$ETC/worker.env" 0640 codejudge <<EOF
 # Rendered by deploy.sh. Do not edit.
-CODEJUDGE_DATABASE_URL=postgres://codejudge:$pg@/codejudge?host=/run/codejudge/postgresql&sslmode=disable
-CODEJUDGE_VALKEY_URL=unix://:$vk@/run/codejudge/valkey/valkey.sock
-CODEJUDGE_PROBLEMS_DIR=$ROOT/current/app/problems
-CODEJUDGE_PROBLEMS_TESTS_DIR=$PROBLEMS_DIR
+CODEJUDGE_DATABASE_URL='postgres://codejudge:$pg@/codejudge?host=/run/codejudge/postgresql&sslmode=disable'
+CODEJUDGE_VALKEY_URL='unix://:$vk@/run/codejudge/valkey/valkey.sock'
+CODEJUDGE_PROBLEMS_DIR='$ROOT/current/app/problems'
+CODEJUDGE_PROBLEMS_TESTS_DIR='$PROBLEMS_DIR'
 EOF
   write_file "$ETC/backup.env" 0640 codejudge <<EOF
 # Rendered by deploy.sh. Do not edit.
-BACKUP_DEST=s3://$bucket/codejudge/pg
-AWS_REGION=$REGION
+BACKUP_DEST='s3://$bucket/codejudge/pg'
+AWS_REGION='$REGION'
 EOF
 }
 
@@ -208,14 +210,15 @@ deploy() { # deploy MANIFEST_JSON
   smoke
 }
 
-# Runs "$@" in a subshell with errexit really on. (Inside "if" or "&&", bash
-# ignores set -e for the whole function body, so a failing step would not stop.)
+# attempt CMD...: runs CMD in a subshell with errexit really on and sets
+# ATTEMPT_RC. Call it as a plain statement, never in "if", "&&" or "||":
+# there bash ignores set -e for everything inside, subshells included, so a
+# failing step would not stop the attempt.
 attempt() {
   set +e
   ( set -e; "$@" )
-  local rc=$?
+  ATTEMPT_RC=$?
   set -e
-  return $rc
 }
 
 REGION=$(region)
@@ -225,7 +228,8 @@ if [ "${1:-}" = "--rollback" ]; then
   [ -s "$STATE/previous.json" ] || die "no previous release to roll back to"
   m=$(cat "$STATE/previous.json")
   log "manual rollback to $(manifest_field .release "$m")"
-  attempt deploy "$m" || die "rollback failed: the host needs attention (see docs/DEPLOY.md, Rollback)"
+  attempt deploy "$m"
+  [ "$ATTEMPT_RC" = 0 ] || die "rollback failed: the host needs attention (see docs/DEPLOY.md, Rollback)"
   # Swap: the release rolled away from becomes "previous" (roll forward = --rollback again).
   cp "$STATE/current.json" "$STATE/previous.json.tmp"
   cp "$STATE/previous.json" "$STATE/current.json"
@@ -244,7 +248,8 @@ prepare "$new"
 configure "$new"
 sync_problems "$new"
 activate_and_smoke() { activate; smoke; }
-if attempt activate_and_smoke; then
+attempt activate_and_smoke
+if [ "$ATTEMPT_RC" = 0 ]; then
   # Redeploying the live release (e.g. after rotating a secret) keeps "previous".
   if [ -s "$STATE/current.json" ] && [ "$(jq -r .release "$STATE/current.json")" != "$(manifest_field .release "$new")" ]; then
     cp "$STATE/current.json" "$STATE/previous.json"
@@ -258,7 +263,8 @@ fi
 log "deploy failed; rolling back"
 if [ -s "$STATE/current.json" ]; then
   old=$(cat "$STATE/current.json")
-  if attempt deploy "$old"; then
+  attempt deploy "$old"
+  if [ "$ATTEMPT_RC" = 0 ]; then
     die "rolled back to $(manifest_field .release "$old"); release $(manifest_field .release "$new") was NOT deployed"
   fi
   die "ROLLBACK FAILED: the host needs attention (see docs/DEPLOY.md, Rollback)"
