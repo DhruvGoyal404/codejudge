@@ -22,6 +22,7 @@ A LeetCode-style online judge: users submit code, which is compiled and run agai
 - [docs/PHASE4.md](docs/PHASE4.md) — frontend, screenshots, bundle sizes, tests.
 - [docs/PHASE5.md](docs/PHASE5.md) — GitHub OAuth + sessions, rate limits and the active cap, history, the test-only auth shortcut.
 - [docs/PHASE6.md](docs/PHASE6.md) — production: hidden-tests split, compose stack, CSP, worker unit, CI, backups, gVisor.
+- [docs/DEPLOY.md](docs/DEPLOY.md) — AWS production (infra/ CDK stack, deploy pipeline): first deploy, rollback, restore, rotating secrets, end of life.
 - [docs/PHASE5_5.md](docs/PHASE5_5.md) — Java and JavaScript: images, sandbox tuning, time multipliers, test matrix.
 
 ## Quick start

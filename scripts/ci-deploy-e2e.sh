@@ -11,6 +11,7 @@
 #   r1 good       -> live, smoke AC
 #   r2 broken API -> deploy fails, rolls back to r1 automatically
 #   r3 good       -> live, previous = r1
+#   r3 again      -> still live, previous still r1
 #   --rollback    -> r1 live again, previous = r3
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -93,6 +94,10 @@ expect_live r1
 
 log "deploy r3"
 deploy "$(manifest r3 "$api")"
+expect_live r3 r1
+
+log "redeploy the live release (secret rotation): previous stays r1"
+deploy "$(sudo base64 -w0 /opt/codejudge/state/current.json)"
 expect_live r3 r1
 
 log "manual rollback"

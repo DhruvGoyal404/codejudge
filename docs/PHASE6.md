@@ -364,3 +364,12 @@ Public upstream issue draft (errnoRet only): [docs/upstream/gvisor-errnoret-issu
 - A segfault with threads alive is RE in under 1 s.
 
 A program that handles hitting the limit and exits normally gets its normal verdict. One that ignores the failure and keeps looping is stopped by the CPU or wall limit (TLE). Either way judge-exec stays alive, so the result is never IE.
+
+## 6b — AWS deploy (prepared; nothing run against AWS yet)
+
+Runbooks and the manual steps: [DEPLOY.md](DEPLOY.md).
+
+- [infra/](../infra/): CDK (TypeScript) stack `CodeJudgeProd` in ap-south-1: t3.small Ubuntu 24.04 in the default VPC (IMDSv2 required, 20 GB encrypted gp3, credits unlimited, Elastic IP), SG 80/443 only (no port 22, SSM Session Manager), least-privilege instance role, private backup bucket (SSE, unversioned, 14-day expiry), nine ECR repos (last 10 images), alarms (surplus credits charged; system status check → EC2 recover), the `CodeJudge-Deploy` SSM document, GitHub OIDC deploy role trusted only for `repo:DhruvGoyal404/codejudge:ref:refs/heads/main`. Assertion tests in `infra/test/`; CI synthesises offline (placeholder VPC).
+- [deploy/host/bootstrap.sh](../deploy/host/bootstrap.sh): idempotent host setup (pinned Docker, gVisor with `--oci-seccomp`, 2 GiB swap, user, layout, units). Run from user data; CI runs it twice on ubuntu-24.04 and then the sandbox suite under runsc.
+- [deploy/host/deploy.sh](../deploy/host/deploy.sh) + [.github/workflows/deploy.yml](../.github/workflows/deploy.yml): images by digest, secrets from SSM, hidden tests at a pinned commit, migrations, smoke test (one AC submission via `judge-admin smoke`), automatic rollback. CI job `host-deploy` runs good → broken (auto rollback) → good → redeploy → manual rollback against a local registry.
+- Secrets: SSM SecureString under `/codejudge/prod/`. "Session settings" needed no secret (random tokens, stored hashed); `valkey_password` was added instead.

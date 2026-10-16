@@ -386,4 +386,4 @@ jobs:
         if: failure()
         run: |
           sudo journalctl -u judge-worker --no-pager -n 200 || true
-          sudo docker compose -p codejudge-prod logs --no-color --tail 200 || true
+          sudo docker compose -f /opt/codejudge/current/app/deploy/compose.prod.yaml --env-file /etc/codejudge/prod.env logs --no-color --tail 200 || true

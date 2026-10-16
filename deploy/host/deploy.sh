@@ -245,7 +245,10 @@ configure "$new"
 sync_problems "$new"
 activate_and_smoke() { activate; smoke; }
 if attempt activate_and_smoke; then
-  [ -s "$STATE/current.json" ] && cp "$STATE/current.json" "$STATE/previous.json"
+  # Redeploying the live release (e.g. after rotating a secret) keeps "previous".
+  if [ -s "$STATE/current.json" ] && [ "$(jq -r .release "$STATE/current.json")" != "$(manifest_field .release "$new")" ]; then
+    cp "$STATE/current.json" "$STATE/previous.json"
+  fi
   echo "$new" >"$STATE/current.json"
   cleanup
   log "release $(manifest_field .release "$new") is live"
