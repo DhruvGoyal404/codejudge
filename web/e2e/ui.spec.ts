@@ -156,7 +156,7 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByRole("button", { name: "Submit" }).click();
     await expect(page.getByRole("tab", { name: "Submission" })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("result").getByTestId("verdict")).toHaveAttribute("data-verdict", "AC");
-    await expect(page.getByTestId("result-summary")).toContainText("28/28 tests passed");
+    await expect(page.getByTestId("result-summary")).toContainText(/(\d+)\/\1 tests passed/);
     await expectAccessible(page);
     await shot(page, `result-ac-${theme}`);
 

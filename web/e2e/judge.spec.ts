@@ -39,7 +39,12 @@ test("problem list -> problem page -> C++ reference is Accepted", async ({ page 
   await shot(page, "live-stages");
 
   await expect(page.getByTestId("result").getByTestId("verdict")).toHaveAttribute("data-verdict", "AC");
-  await expect(page.getByTestId("tests-table").getByRole("row")).toHaveCount(29); // header + 28 tests
+  // One row per test plus the header; the count comes from the summary
+  // ("N/N tests passed"), so adding tests to the problem does not break this.
+  const summary = (await page.getByTestId("result-summary").textContent()) ?? "";
+  const tests = Number(/(\d+)\/\1 tests passed/.exec(summary)?.[1]);
+  expect(tests).toBeGreaterThanOrEqual(45);
+  await expect(page.getByTestId("tests-table").getByRole("row")).toHaveCount(tests + 1);
   await expect(page.getByTestId("my-submissions").getByRole("listitem")).toHaveCount(1);
   await shot(page, "ac");
 });
