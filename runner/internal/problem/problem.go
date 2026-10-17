@@ -61,7 +61,7 @@ var Tags = []string{
 	"combinatorics", "constructive", "dfs", "dynamic-programming", "fenwick-tree", "games", "geometry",
 	"graphs", "greedy", "hashing", "heap", "implementation", "intervals", "math", "matrix", "meet-in-the-middle",
 	"number-theory", "prefix-sums", "queue", "recursion", "segment-tree", "shortest-paths",
-	"simulation", "sliding-window", "sorting", "stack", "strings", "topological-sort",
+	"simulation", "sliding-window", "sorting", "sparse-table", "stack", "strings", "topological-sort",
 	"trees", "trie", "two-pointers", "union-find",
 }
 

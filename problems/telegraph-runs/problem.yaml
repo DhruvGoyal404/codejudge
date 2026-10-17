@@ -1,0 +1,11 @@
+id: telegraph-runs
+title: Telegraph Runs
+difficulty: easy
+tags: [strings, implementation]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 3
+samples: ["01", "02"]
