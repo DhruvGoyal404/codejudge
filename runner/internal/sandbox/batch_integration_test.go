@@ -57,7 +57,7 @@ func runBatchFixture(t *testing.T, file string, inputs []string, lim Limits) []*
 }
 
 func TestBatchOK(t *testing.T) {
-	for _, f := range []string{"ok.cpp", "ok.py", "ok.java", "ok.js"} {
+	for _, f := range []string{"ok.cpp", "ok.py", "ok.java", "ok.js", "ok.c", "ok.go"} {
 		t.Run(f, func(t *testing.T) {
 			res := runBatchFixture(t, f, []string{"1 2\n", "40 2\n", "-5 5\n"}, std)
 			for i, want := range []string{"3", "42", "0"} {
@@ -76,7 +76,8 @@ func TestBatchFDs(t *testing.T) {
 	allowed := map[string]bool{"/box/input": true, "/box/.stdout": true, "/box/.stderr": true}
 	// The JVM and Node open their own files, epoll/eventfd handles and pipes;
 	// sockets and anything else are still rejected. (That judge-exec passes
-	// only 0-2 to the program is proven exactly by the C++/Python variants.)
+	// only 0-2 to the program is proven exactly by the C++/Python/C variants.)
+	// The Go runtime may hold an epoll/eventfd pair once its poller starts.
 	runtimeOwn := func(f, target string) bool {
 		switch {
 		case strings.HasSuffix(f, ".java"):
@@ -85,10 +86,15 @@ func TestBatchFDs(t *testing.T) {
 		case strings.HasSuffix(f, ".js"):
 			return strings.HasPrefix(target, "anon_inode:") || strings.HasPrefix(target, "pipe:") ||
 				strings.HasPrefix(target, "/usr/") || strings.HasPrefix(target, "/dev/") || target == "/box/main.js"
+		case strings.HasSuffix(f, ".go"):
+			// The runtime keeps its own cgroup's cpu.max open (cgroup-aware
+			// GOMAXPROCS, Go 1.25+; read-only, the container's own limit).
+			return target == "/sys/fs/cgroup/cpu.max" ||
+				strings.HasPrefix(target, "anon_inode:[eventpoll]") || strings.HasPrefix(target, "anon_inode:[eventfd]")
 		}
 		return false
 	}
-	for _, f := range []string{"fds.cpp", "fds.py", "fds.java", "fds.js"} {
+	for _, f := range []string{"fds.cpp", "fds.py", "fds.java", "fds.js", "fds.c", "fds.go"} {
 		t.Run(f, func(t *testing.T) {
 			for i, res := range runBatchFixture(t, f, []string{"first", "second"}, std) {
 				wantStatus(t, res, StatusOK)
@@ -116,7 +122,7 @@ func TestBatchFDs(t *testing.T) {
 // Reading past the end of its own input must never yield a later test's bytes.
 func TestBatchStdinOverread(t *testing.T) {
 	inputs := []string{"MARK-1", "MARK-2", "MARK-3"}
-	for _, f := range []string{"overread.cpp", "overread.py", "overread.java", "overread.js"} {
+	for _, f := range []string{"overread.cpp", "overread.py", "overread.java", "overread.js", "overread.c", "overread.go"} {
 		t.Run(f, func(t *testing.T) {
 			for i, res := range runBatchFixture(t, f, inputs, std) {
 				wantStatus(t, res, StatusOK)
@@ -133,7 +139,7 @@ func TestBatchStdinOverread(t *testing.T) {
 // yet, earlier ones (and anything the program left behind) have been wiped.
 func TestBatchHiddenInputs(t *testing.T) {
 	inputs := []string{"SECRET-1", "SECRET-2", "SECRET-3"}
-	for _, f := range []string{"snoop.py", "snoop.java", "snoop.js"} {
+	for _, f := range []string{"snoop.py", "snoop.java", "snoop.js", "snoop.c", "snoop.go"} {
 		t.Run(f, func(t *testing.T) {
 			for i, res := range runBatchFixture(t, f, inputs, std) {
 				wantStatus(t, res, StatusOK)
@@ -156,7 +162,7 @@ func TestBatchHiddenInputs(t *testing.T) {
 // A1 result-integrity tests, in batch mode: verdicts reflect the real
 // program, and the batch stays valid (nonce/seq) for the following test.
 func TestBatchVerdictForgery(t *testing.T) {
-	for _, f := range []string{"forge.cpp", "forge.py", "forge.java", "forge.js"} {
+	for _, f := range []string{"forge.cpp", "forge.py", "forge.java", "forge.js", "forge.c", "forge.go"} {
 		t.Run(f, func(t *testing.T) {
 			for i, res := range runBatchFixture(t, f, []string{"", ""}, std) {
 				wantStatus(t, res, StatusRE)
@@ -187,6 +193,20 @@ func TestBatchLimits(t *testing.T) {
 	})
 	t.Run("mle", func(t *testing.T) {
 		res := runBatchFixture(t, "mle.cpp", []string{""}, Limits{TimeLimit: 5 * time.Second, MemoryMB: 64})
+		wantStatus(t, res[0], StatusMLE)
+	})
+	// Go in batch mode: the run environment (GOMAXPROCS, GOMEMLIMIT) reaches
+	// every test, and the runtime's out-of-memory is MLE.
+	t.Run("go-env", func(t *testing.T) {
+		for i, res := range runBatchFixture(t, "threadcount.go", []string{"", ""}, Limits{TimeLimit: 2 * time.Second, MemoryMB: 128}) {
+			wantStatus(t, res, StatusOK)
+			if !strings.Contains(res.Stderr, "GOMAXPROCS=1 memlimit=134217728") {
+				t.Fatalf("test %d: run environment not applied: %q", i+1, res.Stderr)
+			}
+		}
+	})
+	t.Run("go-mle", func(t *testing.T) {
+		res := runBatchFixture(t, "mle.go", []string{""}, Limits{TimeLimit: 5 * time.Second, MemoryMB: 64})
 		wantStatus(t, res[0], StatusMLE)
 	})
 }
@@ -251,6 +271,8 @@ func TestBatchProcessLimit(t *testing.T) {
 
 // Nothing planted in one test survives into the next: /dev/shm (not even
 // mounted under --ipc none), POSIX message queues, and System V shm/msg/sem.
+// (Syscall-level and so language-independent: the C++ and Python probes
+// cover C and Go too.)
 func TestBatchCrossTestState(t *testing.T) {
 	for _, f := range []string{"snoopipc.cpp", "snoopipc.py"} {
 		t.Run(f, func(t *testing.T) {

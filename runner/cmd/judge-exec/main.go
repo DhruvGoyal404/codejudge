@@ -64,12 +64,19 @@ func parse(args []string) (options, error) {
 	fs.StringVar(&o.stdinFile, "stdin", "", "")
 	fs.BoolVar(&o.batch, "batch", false, "")
 	fs.Int64Var(&o.maxInput, "max-input-bytes", 16<<20, "")
-	var arts multiFlag
+	var arts, env multiFlag
 	fs.Var(&arts, "artifact", "")
+	fs.Var(&env, "env", "")
 	if err := fs.Parse(args[1:]); err != nil {
 		return o, err
 	}
 	o.artifacts = arts
+	for _, kv := range env {
+		if !envVarRE.MatchString(kv) {
+			return o, fmt.Errorf("bad --env %q (want KEY=VALUE, KEY in [A-Z0-9_])", kv)
+		}
+	}
+	o.env = env
 	o.cmd = fs.Args()
 	if len(o.cmd) == 0 {
 		return o, errors.New("missing command after --")
@@ -192,7 +199,8 @@ func childMain(args []string) {
 	if !strings.Contains(path, "/") {
 		path = lookPath(path)
 	}
-	err := syscall.Exec(path, cmd, childEnv)
+	// The environment arrives from runOne (programEnv), already final.
+	err := syscall.Exec(path, cmd, os.Environ())
 	fmt.Fprintf(os.Stderr, "judge-exec: exec %s: %v\n", cmd[0], err)
 	os.Exit(127)
 }

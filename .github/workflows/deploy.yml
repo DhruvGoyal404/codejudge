@@ -98,7 +98,7 @@ jobs:
           publish release/api api
           publish release/web web
           publish release/worker worker
-          for s in cpp-compile cpp-run python java-compile java-run node; do
+          for s in cpp-compile cpp-run python java-compile java-run node go-compile; do
             publish "codejudge/judge-$s:dev" "sandbox-$s"
           done
       - name: Release manifest
@@ -111,7 +111,7 @@ jobs:
                       sandbox: ($i | with_entries(select(.key | startswith("sandbox-"))) | with_entries(.key |= ltrimstr("sandbox-")))}}
           ' <"$RUNNER_TEMP/images.txt" >release.json
           cat release.json
-          jq -e '[.images.api, .images.web, .images.worker, .images.sandbox[]] | length == 9 and all(test("@sha256:[0-9a-f]{64}$"))' release.json >/dev/null
+          jq -e '[.images.api, .images.web, .images.worker, .images.sandbox[]] | length == 10 and all(test("@sha256:[0-9a-f]{64}$"))' release.json >/dev/null
           {
             echo '### Release'
             echo '```json'

@@ -239,7 +239,7 @@ if [ "${1:-}" = "--rollback" ]; then
 fi
 
 new=$(base64 -d <<<"${1:?usage: deploy.sh MANIFEST_B64 | --rollback}") || die "manifest is not base64"
-jq -e '.release and .problems_commit and .registry and .images.api and .images.web and .images.worker and (.images.sandbox | length == 6)' <<<"$new" >/dev/null ||
+jq -e '.release and .problems_commit and .registry and .images.api and .images.web and .images.worker and (.images.sandbox | length == 7)' <<<"$new" >/dev/null ||
   die "manifest is incomplete"
 log "deploying release $(manifest_field .release "$new")"
 

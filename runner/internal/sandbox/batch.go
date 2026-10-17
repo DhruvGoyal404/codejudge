@@ -115,7 +115,7 @@ func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTest
 		// judge-exec keeps a copy of the program tar in memory: add progMB to headroom.
 		MemoryBytes: memBytes + (c.Lang.MemOverheadMB+helperHeadroomMB+progMB+boxMB+runTmpMB)<<20,
 		NanoCPUs:    runCPUs, PidsLimit: s.pidsLimit() + int64(c.Lang.ExtraTasks), BoxMB: boxMB, TmpMB: runTmpMB,
-		Cmd: append([]string{"run", "--batch",
+		Cmd: append(append(append([]string{"run", "--batch",
 			"--cpu-ms", strconv.FormatInt(lim.TimeLimit.Milliseconds(), 10),
 			"--wall-ms", strconv.FormatInt(b.wall.Milliseconds(), 10),
 			"--fsize", strconv.FormatInt(lim.OutputBytes, 10),
@@ -126,8 +126,9 @@ func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTest
 			"--stderr-cap", strconv.Itoa(stderrCap),
 			"--max-tar-bytes", strconv.Itoa(len(program)),
 			"--max-files", strconv.Itoa(len(c.Files)),
-			"--max-input-bytes", strconv.Itoa(maxInput),
-			"--"}, lang.Expand(c.Lang.RunCmd, lim.MemoryMB)...),
+			"--max-input-bytes", strconv.Itoa(maxInput)},
+			envFlags(lang.Expand(c.Lang.RunEnv, lim.MemoryMB))...), "--"),
+			lang.Expand(c.Lang.RunCmd, lim.MemoryMB)...),
 	}
 
 	fail := func(err error) (*Batch, error) {

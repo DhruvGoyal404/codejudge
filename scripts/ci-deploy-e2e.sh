@@ -40,7 +40,7 @@ api=$(push ci/api api r1)
 web=$(push ci/web web r1)
 worker=$(push ci/worker worker r1)
 sandbox='{}'
-for s in cpp-compile cpp-run python java-compile java-run node; do
+for s in cpp-compile cpp-run python java-compile java-run node go-compile; do
   ref=$(push "codejudge/judge-$s:dev" "sandbox-$s" r1)
   sandbox=$(jq --arg k "$s" --arg v "$ref" '. + {($k): $v}' <<<"$sandbox")
 done

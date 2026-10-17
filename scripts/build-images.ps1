@@ -27,6 +27,7 @@ $images = [ordered]@{
   'java-compile' = 'java-compile.Dockerfile'
   'java-run'     = 'java-run.Dockerfile'
   'node'         = 'node.Dockerfile'
+  'go-compile'   = 'go-compile.Dockerfile'
 }
 
 $result = [ordered]@{}

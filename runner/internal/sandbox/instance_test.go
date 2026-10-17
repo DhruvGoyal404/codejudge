@@ -5,13 +5,15 @@ import (
 	"runtime"
 	"strconv"
 	"testing"
+
+	"github.com/DhruvGoyal404/codejudge/runner/internal/lang"
 )
 
 func TestReaperThresholdExceedsLifetime(t *testing.T) {
 	life := MaxContainerLifetime()
 	t.Logf("MaxContainerLifetime = %v (compile %v, run %v, batch %v); ReaperThreshold = %v",
 		life,
-		compileWallMs*1e6+hostGrace+removeTimeout,
+		maxCompileWallMs*1e6+hostGrace+removeTimeout,
 		WallLimit(MaxEffectiveTimeLimit)+hostGrace+removeTimeout,
 		batchDeadline(MaxTests, MaxEffectiveTimeLimit, maxBatchInputBytes, MaxOutputBytes)+removeTimeout,
 		ReaperThreshold)
@@ -62,5 +64,19 @@ func TestOwnerDead(t *testing.T) {
 
 	if !ownerDead(map[string]string{LabelManaged: "true"}) {
 		t.Fatal("unlabelled (legacy) container should count as dead-owned")
+	}
+}
+
+// compileLimits never exceeds the caps MaxContainerLifetime is computed from.
+func TestCompileLimitsCapped(t *testing.T) {
+	for _, n := range lang.Names() {
+		l, _ := lang.Get(n)
+		cpu, wall := compileLimits(l)
+		if cpu > maxCompileCPUMs || wall > maxCompileWallMs || cpu > wall {
+			t.Errorf("%s: compile cpu %d ms, wall %d ms (caps %d / %d)", n, cpu, wall, maxCompileCPUMs, maxCompileWallMs)
+		}
+	}
+	if l, _ := lang.Get("go"); func() bool { c, _ := compileLimits(l); return c <= compileCPUMs }() {
+		t.Error("go should get a raised compile limit")
 	}
 }

@@ -70,7 +70,7 @@ var Tags = []string{
 const TestsRootEnv = "CODEJUDGE_PROBLEMS_TESTS_DIR"
 
 // DefaultMultipliers apply to languages a problem does not list.
-var DefaultMultipliers = map[string]float64{"cpp": 1.0, "python": 2.0, "java": 2.0, "javascript": 2.0} // calibrated against the seed references: docs/PHASE5_5.md
+var DefaultMultipliers = map[string]float64{"c": 1.0, "cpp": 1.0, "go": 2.0, "python": 2.0, "java": 2.0, "javascript": 2.0} // calibrated against the seed references: docs/PHASE5_5.md, docs/PHASE5_6.md
 
 var (
 	slugRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)

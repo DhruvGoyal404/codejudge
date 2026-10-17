@@ -40,11 +40,11 @@ const ReaperThreshold = 60 * time.Minute
 // can exist: its host-side deadline (after which it is killed) plus the
 // removal budget.
 //
-//	compile : compileWall + hostGrace + removeTimeout
+//	compile : maxCompileWall + hostGrace + removeTimeout
 //	run     : WallLimit(MaxEffectiveTimeLimit) + hostGrace + removeTimeout
 //	batch   : batchDeadline(MaxTests, MaxEffectiveTimeLimit, maxBatchInputBytes, MaxOutputBytes) + removeTimeout
 func MaxContainerLifetime() time.Duration {
-	compile := compileWallMs*time.Millisecond + hostGrace + removeTimeout
+	compile := maxCompileWallMs*time.Millisecond + hostGrace + removeTimeout
 	run := WallLimit(MaxEffectiveTimeLimit) + hostGrace + removeTimeout
 	batch := batchDeadline(MaxTests, MaxEffectiveTimeLimit, maxBatchInputBytes, MaxOutputBytes) + removeTimeout
 	return max(compile, run, batch)

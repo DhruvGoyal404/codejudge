@@ -4,6 +4,7 @@ package main
 // loop (batch.go), kept OS-independent so the loop's unit tests run on any OS.
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/DhruvGoyal404/codejudge/runner/internal/protocol"
@@ -25,6 +26,7 @@ type options struct {
 	batch       bool  // --batch: run the batch protocol (docs/PROTOCOL.md) instead of a single run
 	maxInput    int64 // --max-input-bytes: largest accepted test input in batch mode
 	artifacts   []string
+	env         []string // --env KEY=VALUE: added to the program's fixed environment
 	cmd         []string
 }
 
@@ -38,3 +40,23 @@ type RunConfig = options
 
 // Result is one judge-exec result frame.
 type Result = protocol.Frame
+
+// envVarRE: an --env entry, KEY=VALUE on one line. The host builds these
+// from lang.go; they are never user input.
+var envVarRE = regexp.MustCompile(`^[A-Z][A-Z0-9_]*=.*$`)
+
+// programEnv is the environment of the judged program: base (childEnv) plus
+// the language's --env entries, which override a base key of the same name.
+func programEnv(base, extra []string) []string {
+	env := make([]string, 0, len(base)+len(extra))
+	override := map[string]bool{}
+	for _, kv := range extra {
+		override[strings.SplitN(kv, "=", 2)[0]] = true
+	}
+	for _, kv := range base {
+		if !override[strings.SplitN(kv, "=", 2)[0]] {
+			env = append(env, kv)
+		}
+	}
+	return append(env, extra...)
+}

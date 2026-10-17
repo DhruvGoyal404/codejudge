@@ -362,12 +362,12 @@ jobs:
         run: python3 scripts/make-tests.py --check
       # Every problem judged with its solutions: ref.* AC (non-C++ within 50%
       # of the multiplied limit), wrong* WA, slow* TLE. C++ on every push; all
-      # four languages nightly. The max_cpu lines are the calibration data.
-      - name: Problems judged (C++ on push, all languages nightly)
+      # six languages weekly. The max_cpu lines are the calibration data.
+      - name: Problems judged (C++ on push, all languages weekly)
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           JUDGE_TEST_RUNTIME: ${{ matrix.runtime == 'runsc' && 'runsc' || '' }}
-          JUDGE_PROBLEM_LANGS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cpp,python,java,javascript' || 'cpp' }}
+          JUDGE_PROBLEM_LANGS: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'c,cpp,go,python,java,javascript' || 'cpp' }}
         run: |
           set -o pipefail
           go test -p 1 -tags integration -count=1 -timeout 30m -v -run 'TestProblems' ./internal/judge/ 2>&1 | tee "$RUNNER_TEMP/seed-${{ matrix.runtime }}.log"

@@ -77,6 +77,10 @@ func langOf(t *testing.T, file string) lang.Lang {
 		name = "java"
 	case strings.HasSuffix(file, ".js"):
 		name = "javascript"
+	case strings.HasSuffix(file, ".c"):
+		name = "c"
+	case strings.HasSuffix(file, ".go"):
+		name = "go"
 	}
 	l, err := lang.Get(name)
 	if err != nil {
@@ -116,7 +120,7 @@ func wantStatus(t *testing.T, res *Result, want string) {
 }
 
 func TestOK(t *testing.T) {
-	for _, f := range []string{"ok.cpp", "ok.py", "ok.java", "ok.js"} {
+	for _, f := range []string{"ok.cpp", "ok.py", "ok.java", "ok.js", "ok.c", "ok.go"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "40 2\n", std)
 			wantStatus(t, res, StatusOK)
@@ -128,7 +132,7 @@ func TestOK(t *testing.T) {
 }
 
 func TestCE(t *testing.T) {
-	for _, f := range []string{"ce.cpp", "ce.py", "ce.java", "ce.js", "nomain.java"} {
+	for _, f := range []string{"ce.cpp", "ce.py", "ce.java", "ce.js", "nomain.java", "ce.c", "ce.go", "nonstd.go"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "", std)
 			wantStatus(t, res, StatusCE)
@@ -140,13 +144,15 @@ func TestCE(t *testing.T) {
 }
 
 func TestRE(t *testing.T) {
-	t.Run("segfault", func(t *testing.T) {
-		res := execute(t, "segv.cpp", "", std)
-		wantStatus(t, res, StatusRE)
-		if res.Signal != 11 {
-			t.Fatalf("signal = %d, want 11 (SIGSEGV)", res.Signal)
-		}
-	})
+	for _, f := range []string{"segv.cpp", "segv.c"} {
+		t.Run("segfault/"+f, func(t *testing.T) {
+			res := execute(t, f, "", std)
+			wantStatus(t, res, StatusRE)
+			if res.Signal != 11 {
+				t.Fatalf("signal = %d, want 11 (SIGSEGV)", res.Signal)
+			}
+		})
+	}
 	t.Run("nonzero-exit", func(t *testing.T) {
 		res := execute(t, "exit3.cpp", "", std)
 		wantStatus(t, res, StatusRE)
@@ -158,6 +164,7 @@ func TestRE(t *testing.T) {
 		"exc.py":   "ValueError: boom",
 		"exc.java": "java.lang.IllegalStateException: boom",
 		"exc.js":   "Error: boom",
+		"exc.go":   "panic: boom",
 	} {
 		t.Run("exception/"+f, func(t *testing.T) {
 			res := execute(t, f, "", std)
@@ -170,7 +177,7 @@ func TestRE(t *testing.T) {
 }
 
 func TestTLE(t *testing.T) {
-	for _, ext := range []string{"cpp", "java", "js"} {
+	for _, ext := range []string{"cpp", "java", "js", "c", "go"} {
 		t.Run("busy-loop-cpu/"+ext, func(t *testing.T) {
 			res := execute(t, "busy."+ext, "", std)
 			wantStatus(t, res, StatusTLE)
@@ -196,7 +203,7 @@ func TestMLE(t *testing.T) {
 	// 64 MB limit; generous CPU so MLE (not TLE) is the binding limit even on
 	// this host's slow page-fault path (see docs/PHASE0.md V2).
 	lim := Limits{TimeLimit: 5 * time.Second, MemoryMB: 64}
-	for _, f := range []string{"mle.cpp", "mle.py", "mle.java", "mle.js"} {
+	for _, f := range []string{"mle.cpp", "mle.py", "mle.java", "mle.js", "mle.c", "mle.go"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "", lim)
 			wantStatus(t, res, StatusMLE)
@@ -208,7 +215,7 @@ func TestOLE(t *testing.T) {
 	lim := Limits{TimeLimit: 2 * time.Second, MemoryMB: 256, OutputBytes: 1 << 20}
 	// The JVM ignores SIGXFSZ and Node buffers failed writes: judge-exec stops
 	// the program when stdout reaches the cap, so all report OLE.
-	for _, f := range []string{"ole.cpp", "ole.java", "ole.js"} {
+	for _, f := range []string{"ole.cpp", "ole.java", "ole.js", "ole.c", "ole.go"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "", lim)
 			wantStatus(t, res, StatusOLE)
@@ -304,7 +311,7 @@ func TestConcurrencyIsolation(t *testing.T) {
 // A program (and a delayed forked child) trying to forge an OK result frame
 // must not change the verdict: the real program exits 3 => RE.
 func TestVerdictForgery(t *testing.T) {
-	for _, f := range []string{"forge.cpp", "forge.py"} {
+	for _, f := range []string{"forge.cpp", "forge.py", "forge.c", "forge.go"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "", std)
 			wantStatus(t, res, StatusRE)
@@ -374,7 +381,7 @@ func TestReaperInstances(t *testing.T) {
 // clone3; under runc it falls back to clone on ENOSYS, under runsc clone3 is
 // allowed by the gVisor profile variant).
 func TestThreads(t *testing.T) {
-	for _, f := range []string{"threads.cpp", "threads.py", "threads.java"} {
+	for _, f := range []string{"threads.cpp", "threads.py", "threads.java", "threads.c", "threads.go"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "", std)
 			wantStatus(t, res, StatusOK)
@@ -578,9 +585,10 @@ func TestUIDNameConflictRetries(t *testing.T) {
 }
 
 // Deep recursion works: -Xss (Java) and --stack-size (Node) are derived from
-// the memory limit, below RLIMIT_STACK.
+// the memory limit, below RLIMIT_STACK; C uses RLIMIT_STACK itself and Go
+// grows goroutine stacks on the heap.
 func TestDeepRecursion(t *testing.T) {
-	for _, f := range []string{"recursion.java", "recursion.js"} {
+	for _, f := range []string{"recursion.java", "recursion.js", "recursion.c", "recursion.go"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "", std)
 			wantStatus(t, res, StatusOK)
@@ -594,7 +602,7 @@ func TestDeepRecursion(t *testing.T) {
 // The runtimes' own threads fit their process budget with room to spare
 // (calibrates lang.ExtraTasks; logged per runtime).
 func TestRuntimeThreadsFit(t *testing.T) {
-	for _, f := range []string{"threadcount.java", "threadcount.js"} {
+	for _, f := range []string{"threadcount.java", "threadcount.js", "threadcount.go"} {
 		t.Run(f, func(t *testing.T) {
 			res := execute(t, f, "", std)
 			wantStatus(t, res, StatusOK)

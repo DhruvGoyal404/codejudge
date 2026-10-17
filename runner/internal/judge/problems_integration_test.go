@@ -71,7 +71,7 @@ func problemsDir(t *testing.T) string {
 
 func judgeFile(t *testing.T, p *problem.Problem, file string, opt Options) *SubmissionResult {
 	t.Helper()
-	name := map[string]string{".cpp": "cpp", ".py": "python", ".java": "java", ".js": "javascript"}[filepath.Ext(file)]
+	name := map[string]string{".c": "c", ".cpp": "cpp", ".go": "go", ".py": "python", ".java": "java", ".js": "javascript"}[filepath.Ext(file)]
 	l, err := lang.Get(name)
 	if err != nil {
 		t.Fatal(err)
@@ -95,8 +95,8 @@ func judgeFile(t *testing.T, p *problem.Problem, file string, opt Options) *Subm
 // TestProblems judges every package in problems/ with every solution in its
 // private solutions/ directory: ref.* must get AC (non-C++ within 50% of the
 // effective limit), wrong*.* WA, slow*.* TLE. JUDGE_PROBLEMS (slugs) and
-// JUDGE_PROBLEM_LANGS (cpp,python,java,javascript) narrow it; CI runs C++ on
-// every push and all languages nightly.
+// JUDGE_PROBLEM_LANGS (c,cpp,go,python,java,javascript) narrow it; CI runs C++ on
+// every push and all languages weekly.
 func TestProblems(t *testing.T) {
 	dir := problemsDir(t)
 	entries, err := os.ReadDir(dir)
@@ -109,8 +109,8 @@ func TestProblems(t *testing.T) {
 			slugs = append(slugs, e.Name())
 		}
 	}
-	langs := filter("JUDGE_PROBLEM_LANGS", []string{"cpp", "python", "java", "javascript"})
-	byExt := map[string]string{".cpp": "cpp", ".py": "python", ".java": "java", ".js": "javascript"}
+	langs := filter("JUDGE_PROBLEM_LANGS", []string{"c", "cpp", "go", "python", "java", "javascript"})
+	byExt := map[string]string{".c": "c", ".cpp": "cpp", ".go": "go", ".py": "python", ".java": "java", ".js": "javascript"}
 	for _, slug := range filter("JUDGE_PROBLEMS", slugs) {
 		t.Run(slug, func(t *testing.T) {
 			p, err := problem.Load(filepath.Join(dir, slug))

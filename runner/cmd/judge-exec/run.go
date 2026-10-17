@@ -76,7 +76,7 @@ func runOne(o RunConfig, inputPath string) Result {
 	start := time.Now()
 	pid, err := syscall.ForkExec(self, argv, &syscall.ProcAttr{
 		Dir:   boxDir,
-		Env:   childEnv,
+		Env:   programEnv(childEnv, o.env),
 		Files: []uintptr{in.Fd(), out.Fd(), errf.Fd()},
 		Sys:   &syscall.SysProcAttr{Setpgid: true},
 	})

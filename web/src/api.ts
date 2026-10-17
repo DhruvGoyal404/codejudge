@@ -1,11 +1,13 @@
 // Typed client for the Express API (same-origin via the /api proxy).
 
-export type Language = "cpp" | "python" | "java" | "javascript";
+export type Language = "c" | "cpp" | "go" | "python" | "java" | "javascript";
 export const LANGUAGES: { id: Language; label: string }[] = [
   { id: "cpp", label: "C++17" },
+  { id: "c", label: "C17" },
   { id: "python", label: "Python 3.12" },
   { id: "java", label: "Java 21" },
   { id: "javascript", label: "JavaScript (Node 22)" },
+  { id: "go", label: "Go 1.27" },
 ];
 export const MAX_SOURCE_BYTES = 64 * 1024;
 

@@ -12,6 +12,36 @@ int main() {
     return 0;
 }
 `,
+  // Fast I/O: one big fread buffer and a hand-rolled integer reader; output
+  // through one buffer written at the end. Link flags: -O2 -static -lm.
+  c: `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static char ibuf[1 << 16];
+static size_t ilen, ipos;
+
+static int rd(void) {
+    if (ipos == ilen) { ilen = fread(ibuf, 1, sizeof ibuf, stdin); ipos = 0; if (ilen == 0) return -1; }
+    return ibuf[ipos++];
+}
+
+static long long next_ll(void) {
+    int c = rd();
+    while (c != '-' && (c < '0' || c > '9')) c = rd();
+    int neg = c == '-';
+    if (neg) c = rd();
+    long long r = 0;
+    for (; c >= '0' && c <= '9'; c = rd()) r = r * 10 + (c - '0');
+    return neg ? -r : r;
+}
+
+int main(void) {
+    // long long n = next_ll();
+
+    return 0;
+}
+`,
   python: `import sys
 
 def main():
@@ -67,6 +97,53 @@ public class Main {
             return sb.toString();
         }
     }
+}
+`,
+  // Fast I/O: a buffered byte reader with a hand-rolled integer parser
+  // (fmt.Fscan is slow on large inputs) and one bufio.Writer flushed at the
+  // end. Standard library only; package main.
+  go: `package main
+
+import (
+	"bufio"
+	"os"
+	"strconv"
+)
+
+var in = bufio.NewReaderSize(os.Stdin, 1<<16)
+
+func nextInt() int {
+	n, c, neg := 0, readByte(), false
+	for c == ' ' || c == '\\n' || c == '\\r' || c == '\\t' {
+		c = readByte()
+	}
+	if c == '-' {
+		neg, c = true, readByte()
+	}
+	for ; c >= '0' && c <= '9'; c = readByte() {
+		n = n*10 + int(c-'0')
+	}
+	if neg {
+		return -n
+	}
+	return n
+}
+
+func readByte() byte {
+	b, err := in.ReadByte()
+	if err != nil {
+		return 0
+	}
+	return b
+}
+
+func main() {
+	out := bufio.NewWriterSize(os.Stdout, 1<<16)
+	defer out.Flush()
+
+	// n := nextInt()
+	// out.WriteString(strconv.Itoa(n)); out.WriteByte('\\n')
+	_ = strconv.Itoa // keeps the import while unused
 }
 `,
   javascript: `// Read all of stdin at once, write the answer at the end.

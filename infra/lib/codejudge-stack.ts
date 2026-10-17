@@ -23,7 +23,7 @@ export const GITHUB_REF = "refs/heads/main";
 /** Every SSM parameter the host may read lives under this prefix. */
 export const PARAM_PREFIX = "/codejudge/prod/";
 export const APP_REPOS = ["api", "web", "worker"] as const;
-export const SANDBOX_REPOS = ["cpp-compile", "cpp-run", "python", "java-compile", "java-run", "node"] as const;
+export const SANDBOX_REPOS = ["cpp-compile", "cpp-run", "python", "java-compile", "java-run", "node", "go-compile"] as const;
 export const DEPLOY_DOCUMENT = "CodeJudge-Deploy";
 /** Where pg-backup.sh writes (deploy.sh renders BACKUP_DEST from the bucket name). */
 export const BACKUP_PREFIX = "codejudge/pg/";

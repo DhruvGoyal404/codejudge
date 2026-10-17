@@ -49,13 +49,15 @@ const (
 	runCPUs    = 1_000_000_000 // 1 CPU
 	hostGrace  = 20 * time.Second
 
-	compileMemoryMB = 1024
-	compileBoxMB    = 128
-	compileTmpMB    = 64
-	compileCPUMs    = 15_000
-	compileWallMs   = 45_000
-	compileOutCap   = 64 << 20 // compile output tar (static binary + result)
-	maxSourceBytes  = 1 << 20
+	compileMemoryMB  = 1024
+	compileBoxMB     = 128
+	compileTmpMB     = 64
+	compileCPUMs     = 15_000 // defaults; a language may raise them (lang.Lang.CompileCPUMs/WallMs) up to:
+	compileWallMs    = 45_000
+	maxCompileCPUMs  = 30_000
+	maxCompileWallMs = 60_000
+	compileOutCap    = 64 << 20 // compile output tar (static binary + result)
+	maxSourceBytes   = 1 << 20
 )
 
 // WallLimit is the wall-clock limit judge-exec enforces for a given CPU limit:
@@ -107,6 +109,27 @@ func (s *Sandbox) nprocLimit() int {
 	return runcNproc
 }
 
+// compileLimits are the CPU and wall limits (ms) of l's compile step.
+func compileLimits(l lang.Lang) (cpuMs, wallMs int) {
+	cpuMs, wallMs = compileCPUMs, compileWallMs
+	if l.CompileCPUMs > 0 {
+		cpuMs = min(l.CompileCPUMs, maxCompileCPUMs)
+	}
+	if l.CompileWallMs > 0 {
+		wallMs = min(l.CompileWallMs, maxCompileWallMs)
+	}
+	return cpuMs, wallMs
+}
+
+// envFlags turns KEY=VALUE pairs into judge-exec --env flags.
+func envFlags(env []string) []string {
+	out := make([]string, 0, 2*len(env))
+	for _, kv := range env {
+		out = append(out, "--env", kv)
+	}
+	return out
+}
+
 func (s *Sandbox) Compile(ctx context.Context, l lang.Lang, src []byte) (*Compiled, *Result, error) {
 	if len(src) > maxSourceBytes {
 		return nil, &Result{Status: StatusCE, Reason: fmt.Sprintf("source larger than %d bytes", maxSourceBytes)}, nil
@@ -115,9 +138,10 @@ func (s *Sandbox) Compile(ctx context.Context, l lang.Lang, src []byte) (*Compil
 	if err != nil {
 		return nil, nil, err
 	}
+	cpuMs, wallMs := compileLimits(l)
 	cmd := []string{"compile",
-		"--cpu-ms", strconv.Itoa(compileCPUMs),
-		"--wall-ms", strconv.Itoa(compileWallMs),
+		"--cpu-ms", strconv.Itoa(cpuMs),
+		"--wall-ms", strconv.Itoa(wallMs),
 		"--fsize", strconv.Itoa(compileOutCap),
 		"--stderr-cap", strconv.Itoa(stderrCap),
 		"--max-tar-bytes", strconv.Itoa(maxSourceBytes),
@@ -127,6 +151,7 @@ func (s *Sandbox) Compile(ctx context.Context, l lang.Lang, src []byte) (*Compil
 	for _, a := range l.Artifacts {
 		cmd = append(cmd, "--artifact", a)
 	}
+	cmd = append(cmd, envFlags(l.CompileEnv)...)
 	cmd = append(append(cmd, "--"), l.CompileCmd...)
 
 	cr, err := s.runContainer(ctx, containerSpec{
@@ -134,7 +159,7 @@ func (s *Sandbox) Compile(ctx context.Context, l lang.Lang, src []byte) (*Compil
 		MemoryBytes: compileMemoryMB << 20, NanoCPUs: runCPUs, PidsLimit: s.pidsLimit() + int64(l.ExtraTasks),
 		BoxMB: compileBoxMB, TmpMB: compileTmpMB,
 		StdinTar: in, StdoutCap: compileOutCap + 1<<20,
-		Deadline: compileWallMs*time.Millisecond + hostGrace,
+		Deadline: time.Duration(wallMs)*time.Millisecond + hostGrace,
 	})
 	res := &Result{CompileMs: cr.Elapsed.Milliseconds()}
 	if err != nil {
@@ -228,9 +253,9 @@ func (s *Sandbox) Run(ctx context.Context, c *Compiled, stdin []byte, lim Limits
 		"--stdin", "input",
 		"--max-tar-bytes", strconv.Itoa(len(in)),
 		"--max-files", strconv.Itoa(len(files)),
-		"--",
 	}
-	cmd = append(cmd, lang.Expand(c.Lang.RunCmd, lim.MemoryMB)...)
+	cmd = append(cmd, envFlags(lang.Expand(c.Lang.RunEnv, lim.MemoryMB))...)
+	cmd = append(append(cmd, "--"), lang.Expand(c.Lang.RunCmd, lim.MemoryMB)...)
 
 	cr, cerr := s.runContainer(ctx, containerSpec{
 		Role: "run", ImageKey: c.Lang.RunImage, Cmd: cmd,

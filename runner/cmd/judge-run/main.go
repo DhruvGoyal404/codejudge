@@ -170,7 +170,7 @@ func judgeCmd(args []string) error {
 
 func outputsCmd(args []string) error {
 	fs := flag.NewFlagSet("outputs", flag.ContinueOnError)
-	langName := fs.String("lang", "", "language: cpp | python | java | javascript")
+	langName := fs.String("lang", "", "language: c | cpp | go | python | java | javascript")
 	srcPath := fs.String("src", "", "source file")
 	inDir := fs.String("inputs", "", "directory of NN.in files")
 	outDir := fs.String("out", "", "directory to write NN.out files to")

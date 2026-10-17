@@ -6,3 +6,4 @@ declare module "monaco-editor/languages/definitions/cpp/register";
 declare module "monaco-editor/languages/definitions/python/register";
 declare module "monaco-editor/languages/definitions/java/register";
 declare module "monaco-editor/languages/definitions/javascript/register";
+declare module "monaco-editor/languages/definitions/go/register";
