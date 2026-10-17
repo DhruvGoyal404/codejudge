@@ -8,10 +8,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  # Nightly: the full matrix again (all four languages, both runtimes) against
-  # whatever the private problems repo holds now.
+  # Weekly (Sunday 02:47 IST): the full matrix again (all languages, both
+  # runtimes, every job) against whatever the private problems repo holds now.
+  # Weekly, not nightly, while the repo is private (2,000 Actions min/month).
   schedule:
-    - cron: "17 21 * * *"
+    - cron: "17 21 * * 6"
 
 permissions:
   contents: read
@@ -27,6 +28,53 @@ defaults:
     shell: bash
 
 jobs:
+  # Which heavy jobs this push needs. Pushes run only the jobs whose inputs
+  # changed (docs-only pushes run the cheap jobs alone); schedule and
+  # workflow_dispatch run everything. Skipped jobs leave the run green, so
+  # Deploy (on CI success) still follows.
+  changes:
+    name: Changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      sandbox: ${{ steps.c.outputs.sandbox }}
+      runtimes: ${{ steps.c.outputs.runtimes }}
+      e2e: ${{ steps.c.outputs.e2e }}
+      host: ${{ steps.c.outputs.host }}
+      infra: ${{ steps.c.outputs.infra }}
+    steps:
+      - id: c
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          all=0 files=""
+          case "$GITHUB_EVENT_NAME" in push|pull_request) ;; *) all=1 ;; esac
+          if [ "$all" = 0 ]; then
+            if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ]; then all=1
+            else
+              files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD" --jq '.files[].filename') || all=1
+              # The compare API lists at most 300 files: assume everything then.
+              [ "$(grep -c . <<<"$files" || true)" -lt 300 ] || all=1
+            fi
+          fi
+          echo "$files"
+          hit() { [ "$all" = 1 ] || grep -qE "$1|^\.github/workflows/ci\.yml$" <<<"$files"; }
+          out() { if hit "$2"; then echo "$1=true"; else echo "$1=false"; fi >>"$GITHUB_OUTPUT"; }
+          out sandbox '^(runner|sandbox|problems)/|^scripts/(build-images\.ps1|make-tests\.py)$'
+          out e2e '^(api|web|runner|sandbox|problems|db)/|^scripts/build-images\.ps1$'
+          out host '^deploy/|^db/|^runner/cmd/judge-admin/|^scripts/ci-'
+          out infra '^infra/|^deploy/host/'
+          # gVisor leg: sandbox internals and the host bootstrap; problem or
+          # judge changes alone are covered by runc (and weekly by both).
+          if hit '^runner/internal/(sandbox|judge|worker)/|^sandbox/|^deploy/host/|^scripts/ci-bootstrap'; then
+            echo 'runtimes=["runc","runsc"]' >>"$GITHUB_OUTPUT"
+          else
+            echo 'runtimes=["runc"]' >>"$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
   go-unit:
     name: Go unit tests + lint
     runs-on: ubuntu-latest
@@ -181,7 +229,8 @@ jobs:
   # and run records (kept instead of cleaned up) are uploaded as an artifact.
   e2e:
     name: End-to-end (browser + API, real worker)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
@@ -257,12 +306,14 @@ jobs:
 
   sandbox:
     name: Sandbox integration (${{ matrix.runtime }})
+    needs: changes
+    if: needs.changes.outputs.sandbox == 'true'
     runs-on: ubuntu-24.04 # the production host's release
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        runtime: [runc, runsc]
+        runtime: ${{ fromJSON(needs.changes.outputs.runtimes) }}
     defaults:
       run:
         working-directory: runner
@@ -342,6 +393,8 @@ jobs:
 
   infra:
     name: Infrastructure (CDK synth + assertions)
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -365,7 +418,8 @@ jobs:
   # rollback), another good one, then a manual rollback.
   host-deploy:
     name: Host deploy end to end (bootstrap, deploy, rollback)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: changes
+    if: needs.changes.outputs.host == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
