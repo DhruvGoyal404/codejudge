@@ -48,7 +48,7 @@ const (
 	MaxTags          = 5
 	// CatalogMinTests is the least number of tests a published problem has
 	// (enforced by judge-admin check, not by Load: fixtures may have fewer).
-	CatalogMinTests = 25
+	CatalogMinTests = 45 // Phase 5.6 (was 25)
 )
 
 // Difficulties are the allowed values of difficulty: in problem.yaml.

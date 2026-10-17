@@ -138,7 +138,7 @@ tags: [graphs, bfs, matrix]   # 1..5 tags from the controlled vocabulary problem
 The vocabulary is fixed in `runner/internal/problem/problem.go` so that a typo can't create a new filter value in the UI. Both fields are imported into `problems.difficulty` and `problems.tags` (migration `20261015000002`), and both are served by `GET /problems` and `GET /problems/:slug`.
 
 **Catalog rules.** `judge-admin check` enforces these on top of what `Load` validates; CI runs it in the "Problems" job:
-- At least 25 tests (`CatalogMinTests`) and at most 50 (`MaxTests`).
+- At least 25 tests (`CatalogMinTests`; 45 since Phase 5.6) and at most 50 (`MaxTests`).
 - Total test size of at most 32 MB per problem (`MaxTotalBytes`, enforced by `Load`).
 - With the private repo present, every problem must have `gen/gen.py`, `gen/validate.py`, `solutions/ref.cpp` and `solutions/ref.py`.
 - A medium or hard problem must also have a `solutions/slow.*`, which must TLE.

@@ -1,6 +1,6 @@
 # Phase 5.6 — content: C and Go, more tests, 100 problems
 
-Status: **0 (CI minutes) and L (C, Go) done**; T (≥45 tests per problem) and P (36 new problems) in progress. Deployment (Phase 6b) waits for this phase.
+Status: **0 (CI minutes), L (C, Go) and T (≥45 tests per problem) done**; P (36 new problems) in progress. Deployment (Phase 6b) waits for this phase.
 
 ## 0. GitHub Actions minutes (report, 2026-10-17)
 
@@ -92,3 +92,20 @@ The sandbox matrix covers all six languages under runc and runsc:
 - **Batch limits:** the Go run environment reaches every test, and Go out-of-memory is MLE in batch mode too.
 
 The System V / mqueue probe is syscall-level, so its C++ and Python variants cover C and Go.
+
+## T. At least 45 tests per problem
+
+- **Every problem gained 17–22 new cases**, written per problem by hand into `gen/gen.py`. They are appended after the existing ones, so `01`/`02` (the public samples) and every earlier test are unchanged. The tooling is `tools/more_tests.py` and `tools/tests56/` in the private repo.
+- **What the new cases cover:**
+  - minimum sizes;
+  - duplicates and ties;
+  - value extremes and 32-bit overflow boundaries;
+  - exhaustive tiny random cases;
+  - medium random cases;
+  - inputs that break common wrong approaches: greedy choices, naive restarts in string matching, quadratic scans, a missing modulo for negative numbers, double rounding.
+- **Size.** New cases are small or medium. Problems that already had several maximum-size tests got none.
+- **Same rules as before.** Every input passes its validator, `ref.cpp` and `ref.py` agree byte for byte, and every problem stays under the 32 MiB / 50-test caps. `farthest-beacons`' `ref.py` now rounds the square root exactly (integer square root): a double sqrt differed from `ref.cpp`'s long double in the sixth decimal on one new test.
+- **The minimum is enforced.** `CatalogMinTests` (and `make-tests.py`) is now 45, checked by `judge-admin check` and `TestProblems`.
+- **Packed size** of codejudge-problems: **244.06 MiB → 272.46 MiB** (`git count-objects`, after `git gc`). The CI warning threshold is 500 MiB.
+- **Headroom.** Python references stay far from their limits: the heaviest uses 19 % on Linux CI (market-stalls, before T). The new cases are smaller than each problem's existing maximum.
+

@@ -30,7 +30,7 @@ import tempfile
 
 # Keep in sync with runner/internal/problem (CatalogMinTests, MaxTotalBytes)
 # and runner/internal/sandbox (MaxTests).
-CATALOG_MIN_TESTS = 25
+CATALOG_MIN_TESTS = 45
 MAX_TESTS = 50
 MAX_TOTAL_BYTES = 32 << 20
 
