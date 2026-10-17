@@ -61,7 +61,7 @@ judge-exec gained `--env KEY=VALUE` (for compile and run, batch included). It ex
 - **Memory.** `GOMEMLIMIT` is a soft limit, so the GC works to stay under the problem's limit. A heap that keeps growing reaches the RSS ceiling (limit + overhead), and that is **MLE**, as is the runtime's own out-of-memory message.
 - **Threads.** A Go program starts with about 3 threads, out of a budget of 64. A program with thousands of goroutines blocked in raw syscalls hits the thread limit: the runtime reports "failed to create new OS thread", and the verdict is RE. `time.Sleep` and channels need no extra threads.
 - **TLE overrun.** The Go runtime handles `SIGXCPU`, so a CPU-bound Go program runs on to the hard CPU limit (+1 s) instead of stopping at the soft one. The verdict is TLE either way; it only costs one more second.
-- **An extra open file.** The runtime keeps its own cgroup's `cpu.max` open (cgroup-aware GOMAXPROCS). `TestBatchFDs` allows that one file for Go, and nothing else.
+- **Extra open files.** The runtime keeps its own cgroup's CPU-limit files open for cgroup-aware GOMAXPROCS: `cpu.max` on cgroup v2 (runc), and `cpu.cfs_quota_us`/`cpu.cfs_period_us` under gVisor, which presents cgroup v1. `TestBatchFDs` allows exactly those files for Go.
 
 ### C
 

@@ -87,9 +87,12 @@ func TestBatchFDs(t *testing.T) {
 			return strings.HasPrefix(target, "anon_inode:") || strings.HasPrefix(target, "pipe:") ||
 				strings.HasPrefix(target, "/usr/") || strings.HasPrefix(target, "/dev/") || target == "/box/main.js"
 		case strings.HasSuffix(f, ".go"):
-			// The runtime keeps its own cgroup's cpu.max open (cgroup-aware
-			// GOMAXPROCS, Go 1.25+; read-only, the container's own limit).
+			// The runtime keeps its own cgroup's CPU limit files open
+			// (cgroup-aware GOMAXPROCS, Go 1.25+; read-only, the container's
+			// own limit): cpu.max on cgroup v2 (runc here), the v1 cfs files
+			// under gVisor, which presents cgroup v1.
 			return target == "/sys/fs/cgroup/cpu.max" ||
+				target == "/sys/fs/cgroup/cpu/cpu.cfs_quota_us" || target == "/sys/fs/cgroup/cpu/cpu.cfs_period_us" ||
 				strings.HasPrefix(target, "anon_inode:[eventpoll]") || strings.HasPrefix(target, "anon_inode:[eventfd]")
 		}
 		return false
