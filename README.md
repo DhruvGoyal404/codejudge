@@ -2,7 +2,7 @@
 
 A LeetCode-style online judge: users submit code, which is compiled and run against test cases inside locked-down, per-submission Docker containers, and receive verdicts (AC / WA / TLE / MLE / RE / CE).
 
-> **Status:** Phase 5.6 in progress — C17, C++17, Go 1.27, Python 3.12, Java 21 and JavaScript (Node 22) ([docs/PHASE5_6.md](docs/PHASE5_6.md), [docs/PHASE5_5.md](docs/PHASE5_5.md)). Phase 5 complete — GitHub login, sessions, rate limits and submission history ([docs/PHASE5.md](docs/PHASE5.md)), on top of the Phase 4 web frontend (Vite + React 19 + Monaco, live judging over SSE) and the Phase 3 service (Express API + Valkey Streams + Go workers + Postgres).
+> **Status:** Phase 5.6 complete — 100 problems, C17, C++17, Go 1.27, Python 3.12, Java 21 and JavaScript (Node 22) ([docs/PHASE5_6.md](docs/PHASE5_6.md), [docs/PHASE5_5.md](docs/PHASE5_5.md)). Phase 5 complete — GitHub login, sessions, rate limits and submission history ([docs/PHASE5.md](docs/PHASE5.md)), on top of the Phase 4 web frontend (Vite + React 19 + Monaco, live judging over SSE) and the Phase 3 service (Express API + Valkey Streams + Go workers + Postgres).
 
 > **Hidden test data is not in this repository.** Hidden tests (inputs and expected outputs), generators and reference/wrong/slow solutions live in the private repo `DhruvGoyal404/codejudge-problems`. This repo has only each problem's `problem.yaml`, `statement.md` and `samples/` (byte-identical copies of the sample tests). Point the tools at a checkout of the private repo with `CODEJUDGE_PROBLEMS_TESTS_DIR`. Never commit `tests/`, `gen/` or `solutions/` here: the loader refuses a public package that contains `tests/` when the variable is set. See [docs/PHASE6.md](docs/PHASE6.md) § 6a.1.
 
