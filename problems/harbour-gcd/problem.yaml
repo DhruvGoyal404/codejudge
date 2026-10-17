@@ -1,0 +1,11 @@
+id: harbour-gcd
+title: Harbour GCD
+difficulty: hard
+tags: [number-theory, math, arrays]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 5
+samples: ["01", "02"]

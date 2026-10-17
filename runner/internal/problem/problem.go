@@ -57,7 +57,7 @@ var Difficulties = []string{"easy", "medium", "hard"}
 // Tags is the controlled vocabulary for tags: in problem.yaml (the UI
 // filters on these, so a typo must not create a new tag).
 var Tags = []string{
-	"arrays", "backtracking", "binary-search", "bit-manipulation", "bfs", "brute-force",
+	"arrays", "backtracking", "binary-lifting", "binary-search", "bit-manipulation", "bfs", "brute-force",
 	"combinatorics", "constructive", "dfs", "dynamic-programming", "fenwick-tree", "games", "geometry",
 	"graphs", "greedy", "hashing", "heap", "implementation", "intervals", "math", "matrix", "meet-in-the-middle",
 	"number-theory", "prefix-sums", "queue", "recursion", "segment-tree", "shortest-paths",

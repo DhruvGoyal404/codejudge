@@ -1,0 +1,11 @@
+id: ancestor-lookup
+title: Ancestor Lookup
+difficulty: medium
+tags: [trees, binary-lifting]
+time_limit: 3s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 3
+samples: ["01", "02"]
