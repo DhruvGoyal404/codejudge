@@ -1,0 +1,11 @@
+id: toll-upgrades
+title: Toll Upgrades
+difficulty: hard
+tags: [shortest-paths, graphs, dynamic-programming]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 5
+samples: ["01", "02"]

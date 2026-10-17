@@ -1,0 +1,11 @@
+id: flood-bridges
+title: Flood Bridges
+difficulty: hard
+tags: [graphs, dfs, binary-lifting]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 5
+samples: ["01", "02"]

@@ -1,0 +1,11 @@
+id: field-sums
+title: Field Sums
+difficulty: easy
+tags: [prefix-sums, matrix]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 4
+samples: ["01", "02"]

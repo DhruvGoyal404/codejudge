@@ -1,0 +1,11 @@
+id: hatchery-costs
+title: Hatchery Costs
+difficulty: hard
+tags: [dynamic-programming, geometry]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 5
+samples: ["01", "02"]
