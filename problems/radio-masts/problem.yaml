@@ -1,0 +1,11 @@
+id: radio-masts
+title: Radio Masts
+difficulty: medium
+tags: [binary-search, greedy]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 3
+samples: ["01", "02"]

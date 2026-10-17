@@ -1,0 +1,11 @@
+id: queue-swaps
+title: Queue Swaps
+difficulty: medium
+tags: [fenwick-tree, sorting]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 4
+samples: ["01", "02"]

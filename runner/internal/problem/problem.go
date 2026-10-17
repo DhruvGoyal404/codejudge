@@ -58,8 +58,8 @@ var Difficulties = []string{"easy", "medium", "hard"}
 // filters on these, so a typo must not create a new tag).
 var Tags = []string{
 	"arrays", "backtracking", "binary-search", "bit-manipulation", "bfs", "brute-force",
-	"combinatorics", "constructive", "dfs", "dynamic-programming", "games", "geometry",
-	"graphs", "greedy", "hashing", "heap", "implementation", "intervals", "math", "matrix",
+	"combinatorics", "constructive", "dfs", "dynamic-programming", "fenwick-tree", "games", "geometry",
+	"graphs", "greedy", "hashing", "heap", "implementation", "intervals", "math", "matrix", "meet-in-the-middle",
 	"number-theory", "prefix-sums", "queue", "recursion", "segment-tree", "shortest-paths",
 	"simulation", "sliding-window", "sorting", "stack", "strings", "topological-sort",
 	"trees", "trie", "two-pointers", "union-find",

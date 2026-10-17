@@ -1,0 +1,9 @@
+id: lucky-plates
+title: Lucky Plates
+difficulty: hard
+tags: [dynamic-programming, math]
+time_limit: 1s
+memory_limit: 256
+checker:
+  type: tokens
+samples: ["01", "02"]

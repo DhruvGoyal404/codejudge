@@ -1,0 +1,11 @@
+id: billboard-strip
+title: Billboard Strip
+difficulty: hard
+tags: [segment-tree]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 5
+samples: ["01", "02"]

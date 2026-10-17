@@ -1,0 +1,11 @@
+id: treasure-weights
+title: Treasure Weights
+difficulty: hard
+tags: [meet-in-the-middle, sorting, binary-search]
+time_limit: 2s
+memory_limit: 256
+checker:
+  type: tokens
+time_multiplier:
+  python: 4
+samples: ["01", "02"]
