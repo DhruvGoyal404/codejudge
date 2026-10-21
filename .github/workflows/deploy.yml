@@ -7,12 +7,15 @@
 # AWS access is GitHub OIDC only (no stored AWS keys): the role trusts exactly
 # repo:DhruvGoyal404@151380878/codejudge@1418599693:ref:refs/heads/main
 # (infra/ GITHUB_SUB; this repository issues immutable subjects, see the
-# "OIDC claims" workflow). Do not add a
+# OIDC token's claims). Do not add a
 # GitHub "environment" to this job: it changes the token's sub claim to
 # ...:environment:<name> and the role would refuse it.
 #
-# Repository variables (Settings -> Secrets and variables -> Actions -> Variables),
-# from the CDK stack outputs; until AWS_DEPLOY_ROLE_ARN is set this workflow skips:
+# Repository SECRETS (Settings -> Secrets and variables -> Actions -> Secrets),
+# from the CDK stack outputs. Not sensitive as credentials, but they identify
+# the AWS account and host, and run logs are public once the repository is:
+# secrets are masked in every log line, and the first step also masks the
+# account ID on its own.
 #   AWS_DEPLOY_ROLE_ARN      DeployRoleArn
 #   CODEJUDGE_INSTANCE_ID    InstanceId
 #   ECR_REGISTRY             Registry (<account>.dkr.ecr.ap-south-1.amazonaws.com)
@@ -49,19 +52,31 @@ env:
 jobs:
   deploy:
     name: Deploy to production
-    # workflow_run fires for every CI run on main; deploy only green pushes.
-    # (A dispatch must also come from main: the role trusts only that ref.)
+    # workflow_run fires for every CI run on main; deploy only green pushes
+    # made to this repository (never a fork's). A dispatch must also come from
+    # main: the role trusts only that ref. Forks never run it.
     if: >-
-      vars.AWS_DEPLOY_ROLE_ARN != '' && github.ref == 'refs/heads/main' &&
+      github.repository == 'DhruvGoyal404/codejudge' && github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-      REGISTRY: ${{ vars.ECR_REGISTRY }}
-      INSTANCE_ID: ${{ vars.CODEJUDGE_INSTANCE_ID }}
+      REGISTRY: ${{ secrets.ECR_REGISTRY }}
+      INSTANCE_ID: ${{ secrets.CODEJUDGE_INSTANCE_ID }}
     steps:
+      # Before anything can print it. The secrets themselves are masked already.
+      - name: Mask the AWS account ID
+        env:
+          ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          account=$(cut -d: -f5 <<<"$ROLE_ARN")
+          [[ "$account" =~ ^[0-9]{12}$ ]] || { echo "::error::secret AWS_DEPLOY_ROLE_ARN is not an IAM role ARN"; exit 1; }
+          echo "::add-mask::$account"
+          [ -n "$REGISTRY" ] && [ -n "$INSTANCE_ID" ] || { echo "::error::set the ECR_REGISTRY and CODEJUDGE_INSTANCE_ID secrets"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.SHA }}
@@ -75,7 +90,7 @@ jobs:
           persist-credentials: false
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           role-session-name: codejudge-deploy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Log in to ECR
@@ -124,7 +139,7 @@ jobs:
           {
             echo '### Release'
             echo '```json'
-            cat release.json
+            sed "s#$REGISTRY#<registry>#g" release.json # summaries are not log lines: keep the account out
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
       - name: Run CodeJudge-Deploy on the host

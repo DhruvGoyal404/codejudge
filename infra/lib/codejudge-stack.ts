@@ -26,7 +26,7 @@ export const GITHUB_REF = "refs/heads/main";
  * repos/DhruvGoyal404/codejudge/actions/oidc/customization/sub:
  * use_immutable_subject = true), which carry the owner's and the repository's
  * numeric IDs: a renamed or re-created repository of the same name does not
- * match. Read from a real token with the "OIDC claims" workflow.
+ * match. Read from a real token (docs/DEPLOY.md, first deploy, step 7).
  */
 export const GITHUB_OWNER_ID = "151380878";
 export const GITHUB_REPO_ID = "1418599693";

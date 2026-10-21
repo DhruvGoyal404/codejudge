@@ -118,7 +118,7 @@ describe("GitHub OIDC deploy role", () => {
             Condition: {
               StringEquals: {
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-                // Exactly the claim a real token carries (workflow "OIDC claims",
+                // Exactly the claim a real token carries (the one-off "OIDC claims" workflow,
                 // run 39559657597): immutable subject, main branch, no environment.
                 "token.actions.githubusercontent.com:sub": "repo:DhruvGoyal404@151380878/codejudge@1418599693:ref:refs/heads/main",
               },

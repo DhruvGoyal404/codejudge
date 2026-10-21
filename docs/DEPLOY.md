@@ -102,16 +102,20 @@ aws ssm get-parameters-by-path --path "$P/" --query 'Parameters[].Name'   # name
 `backup_bucket` (String) is created by the stack. Sessions need no secret:
 session tokens are random and stored only as SHA-256 hashes.
 
-**7. GitHub repository variables** (`DhruvGoyal404/codejudge` → Settings →
-Secrets and variables → Actions → Variables): `AWS_DEPLOY_ROLE_ARN` =
+**7. GitHub repository secrets** (`DhruvGoyal404/codejudge` → Settings →
+Secrets and variables → Actions → Secrets): `AWS_DEPLOY_ROLE_ARN` =
 `DeployRoleArn`, `CODEJUDGE_INSTANCE_ID` = `InstanceId`, `ECR_REGISTRY` =
-`Registry`. The `PROBLEMS_DEPLOY_KEY` secret CI already uses is reused to pin
+`Registry`. None is a credential, but together they identify the AWS account
+and the host; as secrets they are masked in every log line (run logs are public
+once the repository is), and the Deploy job masks the account ID first. The `PROBLEMS_DEPLOY_KEY` secret CI already uses is reused to pin
 the hidden tests' commit. No AWS keys are stored anywhere.
 
 If a run fails at "Configure AWS credentials" with `Not authorized to perform
-sts:AssumeRoleWithWebIdentity`, run Actions -> OIDC claims and compare its
-`sub` with `GITHUB_SUB` in `infra/lib/codejudge-stack.ts` (the role trusts
-exactly that string). This repository issues immutable subjects
+sts:AssumeRoleWithWebIdentity`, compare the token's `sub` claim with
+`GITHUB_SUB` in `infra/lib/codejudge-stack.ts` (the role trusts exactly that
+string). To read the claim, restore the one-off "OIDC claims" diagnostic
+workflow from git history (`git log --all -- .github/workflows/oidc-claims.yml`)
+on a branch, run it by hand, and delete it again. This repository issues immutable subjects
 (`repo:DhruvGoyal404@151380878/codejudge@1418599693:ref:refs/heads/main`).
 
 **8. Deploy.** Actions → Deploy → Run workflow (branch `main`). From now
