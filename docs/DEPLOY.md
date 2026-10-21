@@ -108,6 +108,12 @@ Secrets and variables → Actions → Variables): `AWS_DEPLOY_ROLE_ARN` =
 `Registry`. The `PROBLEMS_DEPLOY_KEY` secret CI already uses is reused to pin
 the hidden tests' commit. No AWS keys are stored anywhere.
 
+If a run fails at "Configure AWS credentials" with `Not authorized to perform
+sts:AssumeRoleWithWebIdentity`, run Actions -> OIDC claims and compare its
+`sub` with `GITHUB_SUB` in `infra/lib/codejudge-stack.ts` (the role trusts
+exactly that string). This repository issues immutable subjects
+(`repo:DhruvGoyal404@151380878/codejudge@1418599693:ref:refs/heads/main`).
+
 **8. Deploy.** Actions → Deploy → Run workflow (branch `main`). From now
 on every green CI run on `main` deploys by itself. Check
 `https://<domain>`, sign in with GitHub, submit a solution.

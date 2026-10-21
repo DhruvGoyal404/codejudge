@@ -4,7 +4,7 @@ import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { AMI_ID, APP_REPOS, BACKUP_PREFIX, CodeJudgeStack, GITHUB_REF, GITHUB_REPO, MANIFEST_MAX_CHARS, PARAM_PREFIX, SANDBOX_REPOS } from "../lib/codejudge-stack.ts";
+import { AMI_ID, APP_REPOS, BACKUP_PREFIX, CodeJudgeStack, GITHUB_REF, GITHUB_SUB, MANIFEST_MAX_CHARS, PARAM_PREFIX, SANDBOX_REPOS } from "../lib/codejudge-stack.ts";
 
 // The committed pin, exactly as `cdk deploy` reads it.
 const HOST_AMI: string = JSON.parse(readFileSync(new URL("../cdk.json", import.meta.url), "utf8")).context["codejudge:hostAmi"];
@@ -118,7 +118,9 @@ describe("GitHub OIDC deploy role", () => {
             Condition: {
               StringEquals: {
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-                "token.actions.githubusercontent.com:sub": `repo:${GITHUB_REPO}:ref:${GITHUB_REF}`,
+                // Exactly the claim a real token carries (workflow "OIDC claims",
+                // run 39559657597): immutable subject, main branch, no environment.
+                "token.actions.githubusercontent.com:sub": "repo:DhruvGoyal404@151380878/codejudge@1418599693:ref:refs/heads/main",
               },
             },
           }),
@@ -308,5 +310,12 @@ describe("SSM document parameters are valid for SSM", () => {
     const b64 = Buffer.from(manifest).toString("base64");
     expect(b64).toMatch(new RegExp(p.allowedPattern));
     expect(b64.length).toBeLessThanOrEqual(p.maxChars);
+  });
+});
+
+describe("the deploy role trusts exactly one GitHub subject", () => {
+  it("is the immutable subject of main, with no environment and no wildcard", () => {
+    expect(GITHUB_SUB).toBe(`repo:DhruvGoyal404@151380878/codejudge@1418599693:ref:${GITHUB_REF}`);
+    expect(GITHUB_SUB).not.toMatch(/[*?]|:environment:/);
   });
 });

@@ -20,6 +20,17 @@ const hostScript = (name: string) => readFileSync(`${REPO}deploy/host/${name}`, 
 /** GitHub repository and branch allowed to deploy (OIDC "sub" claim). */
 export const GITHUB_REPO = "DhruvGoyal404/codejudge";
 export const GITHUB_REF = "refs/heads/main";
+/**
+ * The OIDC "sub" claim GitHub issues for this repository's main branch. The
+ * repository uses immutable subjects (GitHub API
+ * repos/DhruvGoyal404/codejudge/actions/oidc/customization/sub:
+ * use_immutable_subject = true), which carry the owner's and the repository's
+ * numeric IDs: a renamed or re-created repository of the same name does not
+ * match. Read from a real token with the "OIDC claims" workflow.
+ */
+export const GITHUB_OWNER_ID = "151380878";
+export const GITHUB_REPO_ID = "1418599693";
+export const GITHUB_SUB = `repo:DhruvGoyal404@${GITHUB_OWNER_ID}/codejudge@${GITHUB_REPO_ID}:ref:${GITHUB_REF}`;
 /** Every SSM parameter the host may read lives under this prefix. */
 export const PARAM_PREFIX = "/codejudge/prod/";
 export const APP_REPOS = ["api", "web", "worker"] as const;
@@ -294,7 +305,7 @@ export class CodeJudgeStack extends Stack {
       assumedBy: new iam.WebIdentityPrincipal(providerArn, {
         StringEquals: {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": `repo:${GITHUB_REPO}:ref:${GITHUB_REF}`,
+          "token.actions.githubusercontent.com:sub": GITHUB_SUB,
         },
       }),
     });

@@ -5,7 +5,9 @@
 # tests, and rolls back by itself on failure (deploy/host/deploy.sh).
 #
 # AWS access is GitHub OIDC only (no stored AWS keys): the role trusts exactly
-# repo:DhruvGoyal404/codejudge:ref:refs/heads/main (infra/). Do not add a
+# repo:DhruvGoyal404@151380878/codejudge@1418599693:ref:refs/heads/main
+# (infra/ GITHUB_SUB; this repository issues immutable subjects, see the
+# "OIDC claims" workflow). Do not add a
 # GitHub "environment" to this job: it changes the token's sub claim to
 # ...:environment:<name> and the role would refuse it.
 #
