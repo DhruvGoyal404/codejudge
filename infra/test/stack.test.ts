@@ -319,3 +319,28 @@ describe("the deploy role trusts exactly one GitHub subject", () => {
     expect(GITHUB_SUB).not.toMatch(/[*?]|:environment:/);
   });
 });
+
+describe("the deploy document runs under /bin/sh", () => {
+  // SSM's aws:runShellScript writes runCommand to _script.sh and runs it with
+  // sh (dash on Ubuntu). The first deploy died on "set -euo pipefail".
+  const doc = () => resources("AWS::SSM::Document")[0][1].Properties.Content;
+  const lines = (): string[] => doc().mainSteps[0].inputs.runCommand;
+
+  it("uses only POSIX sh outside the embedded script, and runs deploy.sh with bash", () => {
+    const outer = lines().map((l) => l.split("\n")[0]); // the heredoc body is data, not commands
+    for (const l of outer) expect(l, l).not.toMatch(/pipefail|\[\[|\bsource\b|<<<|\bfunction\b|\$\(\(|&>/);
+    expect(outer[0]).toBe("set -eu");
+    expect(lines().at(-1)).toBe("exec /bin/bash /opt/codejudge/bin/deploy.sh '{{ Manifest }}'");
+    expect(lines().join("\n")).toContain("<<'CODEJUDGE_DEPLOY'"); // quoted: nothing expands inside
+  });
+
+  it("can never be broken out of by the parameter", () => {
+    const p = doc().parameters.Manifest;
+    expect(lines().join("\n").match(/\{\{ *Manifest *\}\}/g)).toEqual(["{{ Manifest }}"]); // used once, single-quoted
+    for (const bad of ["a'b", "a b", "$(id)", "`id`", "a;b", "a\nb"]) expect(bad).not.toMatch(new RegExp(p.allowedPattern));
+  });
+
+  it("is updated in place: a new version of the same named document", () => {
+    t.hasResourceProperties("AWS::SSM::Document", { Name: "CodeJudge-Deploy", UpdateMethod: "NewVersion" });
+  });
+});

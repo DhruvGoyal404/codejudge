@@ -127,7 +127,8 @@ jobs:
           # CodeJudge-Deploy accepts at most 4000 characters (maxChars in infra/).
           [ "${#manifest}" -le 4000 ] || { echo "::error::manifest is ${#manifest} characters, the document allows 4000"; exit 1; }
           params=$(jq -cn --arg m "$manifest" '{Manifest: [$m]}')
-          id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "$DOCUMENT" \
+          # $LATEST: the version cdk deploy just created (UpdateMethod NewVersion).
+          id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "$DOCUMENT" --document-version '$LATEST' \
             --parameters "$params" --timeout-seconds 600 --comment "deploy ${SHA:0:12}" \
             --query Command.CommandId --output text)
           echo "command $id"

@@ -38,6 +38,15 @@ export const SANDBOX_REPOS = ["cpp-compile", "cpp-run", "python", "java-compile"
 export const DEPLOY_DOCUMENT = "CodeJudge-Deploy";
 /** Longest base64 release manifest the deploy document accepts (one today is ~2.5 KB). */
 export const MANIFEST_MAX_CHARS = 4000;
+/** The deploy document's runCommand lines (run by SSM with /bin/sh). */
+export const DEPLOY_RUN_COMMAND = (deployScript: string) => [
+  "set -eu",
+  "install -d -m 0755 /opt/codejudge/bin",
+  `cat > /opt/codejudge/bin/deploy.sh.new <<'CODEJUDGE_DEPLOY'\n${deployScript}CODEJUDGE_DEPLOY`,
+  "chmod 0755 /opt/codejudge/bin/deploy.sh.new",
+  "mv -f /opt/codejudge/bin/deploy.sh.new /opt/codejudge/bin/deploy.sh",
+  "exec /bin/bash /opt/codejudge/bin/deploy.sh '{{ Manifest }}'",
+];
 /** Where pg-backup.sh writes (deploy.sh renders BACKUP_DEST from the bucket name). */
 export const BACKUP_PREFIX = "codejudge/pg/";
 export const HOST_REGION = "ap-south-1";
@@ -273,13 +282,12 @@ export class CodeJudgeStack extends Stack {
             inputs: {
               // The worker restart waits for in-flight submissions (up to 45 min).
               timeoutSeconds: "3600",
-              runCommand: [
-                "set -euo pipefail",
-                "install -d -m 0755 /opt/codejudge/bin",
-                `cat > /opt/codejudge/bin/deploy.sh <<'CODEJUDGE_DEPLOY'\n${deployScript}CODEJUDGE_DEPLOY`,
-                "chmod 0755 /opt/codejudge/bin/deploy.sh",
-                "/opt/codejudge/bin/deploy.sh '{{ Manifest }}'",
-              ],
+              // SSM runs these lines with /bin/sh (dash on Ubuntu): POSIX only
+              // here, then exec bash for deploy.sh. {{ Manifest }} is pasted in
+              // textually; its allowedPattern (base64 characters) keeps it from
+              // ever containing a quote, so the single quotes cannot be broken.
+              // CI runs exactly these lines with sh (scripts/ci-deploy-e2e.sh).
+              runCommand: DEPLOY_RUN_COMMAND(deployScript),
             },
           },
         ],

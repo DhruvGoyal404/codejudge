@@ -64,7 +64,7 @@ jobs:
           out() { if hit "$2"; then echo "$1=true"; else echo "$1=false"; fi >>"$GITHUB_OUTPUT"; }
           out sandbox '^(runner|sandbox|problems)/|^scripts/(build-images\.ps1|make-tests\.py)$'
           out e2e '^(api|web|runner|sandbox|problems|db)/|^scripts/build-images\.ps1$'
-          out host '^deploy/|^db/|^runner/cmd/judge-admin/|^scripts/ci-'
+          out host '^deploy/|^db/|^runner/cmd/judge-admin/|^scripts/ci-|^infra/'
           out infra '^infra/|^deploy/host/'
           # gVisor leg: sandbox internals and the host bootstrap; problem or
           # judge changes alone are covered by runc (and weekly by both).
@@ -434,7 +434,18 @@ jobs:
         run: scripts/ci-bootstrap-check.sh
       - name: Build sandbox images
         run: pwsh -NoProfile -File scripts/build-images.ps1
-      - name: Deploy, roll back, roll back by hand
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+      # The deploy document's commands come from the real template (offline synth).
+      - name: Synthesize the stack
+        working-directory: infra
+        run: npm ci --no-audit --no-fund && npx cdk synth --quiet
+      - name: Deploy (through the SSM document's commands, run with sh), roll back, roll back by hand
+        env:
+          SSM_DOC_TEMPLATE: infra/cdk.out/CodeJudgeProd.template.json
         run: scripts/ci-deploy-e2e.sh problems-private
       - name: Host logs
         if: failure()

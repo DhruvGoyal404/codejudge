@@ -4,7 +4,10 @@
 # instead of ECR, a parameters file instead of SSM, the hidden tests from a
 # local checkout instead of GitHub over SSH.
 #
-#   scripts/ci-deploy-e2e.sh PROBLEMS_CHECKOUT
+#   SSM_DOC_TEMPLATE=infra/cdk.out/CodeJudgeProd.template.json scripts/ci-deploy-e2e.sh PROBLEMS_CHECKOUT
+#
+# Deploys go through the SSM document's own commands, run with sh as SSM
+# does; the manual rollback calls deploy.sh directly.
 #
 # Requires: bootstrap.sh already run, sandbox images built
 # (scripts/build-images.ps1). Scenario:
@@ -67,6 +70,19 @@ deploy() {
   sudo env AWS_REGION=ap-south-1 DEPLOY_SSM_JSON="$params" DEPLOY_SKIP_ECR_LOGIN=1 \
     DEPLOY_PROBLEMS_REPO="file://$problems" deploy/host/deploy.sh "$@"
 }
+
+# deploy_doc MANIFEST_B64: what SSM does for CodeJudge-Deploy. The document's
+# runCommand lines (from the synthesized template) go into _script.sh, the
+# parameter is pasted in textually, and the file runs with sh (dash).
+doc_template=${SSM_DOC_TEMPLATE:?set SSM_DOC_TEMPLATE to the synthesized CodeJudgeProd template}
+deploy_doc() {
+  local script="$tmp/_script.sh"
+  jq -r '[.Resources[] | select(.Type == "AWS::SSM::Document")][0].Properties.Content.mainSteps[0].inputs.runCommand | join("\n")' \
+    "$doc_template" | sed "s#{{ Manifest }}#$1#g" >"$script"
+  grep -q "deploy.sh '$1'" "$script" || fail "the manifest was not substituted into the document"
+  sudo env AWS_REGION=ap-south-1 DEPLOY_SSM_JSON="$params" DEPLOY_SKIP_ECR_LOGIN=1 \
+    DEPLOY_PROBLEMS_REPO="file://$problems" sh "$script"
+}
 expect_live() { # expect_live RELEASE [PREVIOUS]
   [ "$(readlink /opt/codejudge/current)" = "/opt/codejudge/releases/$1" ] || fail "current -> $(readlink /opt/codejudge/current), want $1"
   [ "$(sudo jq -r .release /opt/codejudge/state/current.json)" = "$1" ] || fail "state/current.json is not $1"
@@ -80,7 +96,7 @@ expect_live() { # expect_live RELEASE [PREVIOUS]
 }
 
 log "deploy r1"
-deploy "$(manifest r1 "$api")"
+deploy_doc "$(manifest r1 "$api")"
 expect_live r1
 sudo stat -c '%a %U:%G %n' /etc/codejudge/prod.env /etc/codejudge/worker.env /etc/codejudge/backup.env
 for f in prod.env worker.env backup.env; do
@@ -89,15 +105,15 @@ done
 sudo systemd-analyze verify /etc/systemd/system/judge-worker.service /etc/systemd/system/pg-backup.service /etc/systemd/system/pg-backup.timer
 
 log "deploy r2 (broken API): must fail and roll back to r1"
-if deploy "$(manifest r2 "$api_broken")"; then fail "the broken release deployed"; fi
+if deploy_doc "$(manifest r2 "$api_broken")"; then fail "the broken release deployed"; fi
 expect_live r1
 
 log "deploy r3"
-deploy "$(manifest r3 "$api")"
+deploy_doc "$(manifest r3 "$api")"
 expect_live r3 r1
 
 log "redeploy the live release (secret rotation): previous stays r1"
-deploy "$(sudo base64 -w0 /opt/codejudge/state/current.json)"
+deploy_doc "$(sudo base64 -w0 /opt/codejudge/state/current.json)"
 expect_live r3 r1
 
 log "manual rollback"
