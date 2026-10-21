@@ -1,15 +1,14 @@
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
 import { enterCode as pasteCode } from "./helpers.ts";
-import { REPO, solutionPath } from "./stack.ts";
+import { RANGE_LEDGER_OFF_BY_ONE, RANGE_LEDGER_OK } from "./showcase.ts";
+import { REPO } from "./stack.ts";
 
-// range-ledger: its wrong solution (off-by-one) fails on SAMPLE 01, so the WA
-// case exercises the sample diff view.
+// range-ledger: the off-by-one program fails on SAMPLE 01, so the WA case
+// exercises the sample diff view. Programs from showcase.ts (screenshots).
 const SLUG = "range-ledger";
-const solution = (file: string) => readFileSync(solutionPath(SLUG, file), "utf8");
 const SHOTS = process.env.PHASE4_SCREENSHOTS === "1"; // write docs/img/phase4-*.png
 const shot = async (page: Page, name: string) => {
   if (SHOTS) await page.screenshot({ path: join(REPO, "docs", "img", `phase4-${name}.png`) });
@@ -23,13 +22,13 @@ test.beforeEach(async ({ context, page }) => {
   await page.evaluate(() => localStorage.clear());
 });
 
-test("problem list -> problem page -> C++ reference is Accepted", async ({ page }) => {
+test("problem list -> problem page -> a correct C++ program is Accepted", async ({ page }) => {
   await page.goto("/problems");
   await expect(page.getByRole("heading", { name: "Problems" })).toBeVisible();
   await page.getByRole("link", { name: "Range Ledger" }).click();
   await expect(page.getByRole("heading", { name: "Range Ledger", level: 1 })).toBeVisible();
   await expect(page.getByText("Sample 01 input")).toBeVisible();
-  await enterCode(page, solution("ref.cpp"));
+  await enterCode(page, RANGE_LEDGER_OK);
   await shot(page, "problem-page");
 
   await page.getByRole("button", { name: "Submit" }).click();
@@ -51,7 +50,7 @@ test("problem list -> problem page -> C++ reference is Accepted", async ({ page 
 
 test("wrong solution: WA on a sample shows input, expected and the diff", async ({ page }) => {
   await page.goto(`/problems/${SLUG}`);
-  await enterCode(page, solution("wrong.cpp"));
+  await enterCode(page, RANGE_LEDGER_OFF_BY_ONE);
   await page.keyboard.press("ControlOrMeta+Enter"); // keyboard shortcut submits
 
   await expect(page.getByTestId("result").getByTestId("verdict")).toHaveAttribute("data-verdict", "WA");
