@@ -27,6 +27,9 @@
   --color-hard-fg: #9f1239;
   --color-chip-bg: #f4f4f5;
   --color-chip-fg: #3f3f46;
+  /* Logo colours (web/brand/logo-source.png): manifest theme_color, social card. */
+  --color-brand: #22204f;
+  --color-brand-accent: #0ab687;
 }
 
 .dark {

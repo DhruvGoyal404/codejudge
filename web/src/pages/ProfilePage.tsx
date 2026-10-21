@@ -10,7 +10,7 @@ import { useTitle } from "../lib/useTitle.ts";
 
 /** The logged-in user's profile: solved/attempted problems and full submission history. */
 export function ProfilePage() {
-  useTitle("Profile");
+  useTitle("Profile", "Your CodeJudge progress: solved problems and recent submissions.");
   const me = useMe();
   if (me.isPending) return <p className="p-4 text-sm text-muted">Loading…</p>;
   if (me.isError) return <div className="p-4"><ErrorBanner>{me.error.message}</ErrorBanner></div>;

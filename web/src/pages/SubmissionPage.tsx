@@ -11,7 +11,7 @@ const CodeEditor = lazy(() => import("../editor/CodeEditor.tsx"));
 
 /** One submission: result details, and (for its author only) the code in a read-only editor. */
 export function SubmissionPage({ dark }: { dark: boolean }) {
-  useTitle("Submission");
+  useTitle("Submission", "A CodeJudge submission: its verdict, per-test results and source.");
   const { id = "" } = useParams();
   const q = useQuery({
     queryKey: ["submission", id, "detail"],

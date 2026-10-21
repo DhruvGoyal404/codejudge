@@ -80,7 +80,8 @@ export function Layout({ children, dark, onToggleDark }: { children: ReactNode; 
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
         <nav aria-label="Main" className="flex items-center gap-4">
-          <Link to="/" className="font-semibold tracking-tight">
+          <Link to="/" className="flex items-center gap-2 font-semibold tracking-tight">
+            <img src="/logo-64.png" alt="" width={24} height={24} className="size-6" />
             CodeJudge
           </Link>
           <NavLink

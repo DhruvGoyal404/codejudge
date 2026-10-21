@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { useTitle } from "../lib/useTitle.ts";
 
 export function NotFound() {
-  useTitle("Page not found");
+  useTitle("Page not found", "This page does not exist on CodeJudge.");
   return (
     <main className="mx-auto max-w-xl px-4 py-16 text-center">
       <h1 className="text-2xl font-semibold">Page not found</h1>

@@ -1,0 +1,11 @@
+# The domain is filled in by Caddy's templates when served (deploy/Caddyfile).
+User-agent: *
+Allow: /$
+Allow: /problems$
+Allow: /problems/
+Disallow: /api/
+Disallow: /profile
+Disallow: /me
+Disallow: /submissions/
+
+Sitemap: https://{{env `CODEJUDGE_DOMAIN`}}/sitemap.xml

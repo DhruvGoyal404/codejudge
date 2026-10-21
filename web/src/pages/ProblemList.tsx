@@ -13,7 +13,10 @@ import { useTitle } from "../lib/useTitle.ts";
 const control = "rounded border border-line bg-canvas px-2 py-1 text-sm";
 
 export function ProblemList() {
-  useTitle("Problems");
+  useTitle(
+    "Problems",
+    "Browse CodeJudge's original algorithm problems by difficulty and topic: easy, medium and hard, each judged on hidden tests.",
+  );
   const q = useQuery({ queryKey: ["problems"], queryFn: api.problems });
   const me = useMe();
   const [params, setParams] = useSearchParams();

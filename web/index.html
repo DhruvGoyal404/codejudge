@@ -5,6 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>CodeJudge</title>
+    <meta name="description" content="Practise algorithms on CodeJudge: 100 original problems, from easy warm-ups to hard classics, judged on hidden tests in a gVisor sandbox. C, C++, Go, Python, Java and JavaScript." />
+    <meta name="theme-color" content="#22204f" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <!--
+      Social previews need absolute URLs. Caddy's templates fill in the domain
+      when it serves this page (deploy/Caddyfile); it comes from SSM
+      /codejudge/prod/domain, never from source.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CodeJudge" />
+    <meta property="og:title" content="CodeJudge: practise algorithms on a judge you can trust" />
+    <meta property="og:description" content="Practise algorithms on CodeJudge: 100 original problems, from easy warm-ups to hard classics, judged on hidden tests in a gVisor sandbox. C, C++, Go, Python, Java and JavaScript." />
+    <meta property="og:url" content="https://{{env `CODEJUDGE_DOMAIN`}}/" />
+    <meta property="og:image" content="https://{{env `CODEJUDGE_DOMAIN`}}/og-card.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="CodeJudge logo: practise algorithms on a judge you can trust." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CodeJudge: practise algorithms on a judge you can trust" />
+    <meta name="twitter:description" content="Practise algorithms on CodeJudge: 100 original problems, from easy warm-ups to hard classics, judged on hidden tests in a gVisor sandbox. C, C++, Go, Python, Java and JavaScript." />
+    <meta name="twitter:image" content="https://{{env `CODEJUDGE_DOMAIN`}}/og-card.png" />
+    <meta name="twitter:image:alt" content="CodeJudge logo: practise algorithms on a judge you can trust." />
   </head>
   <body class="bg-canvas text-fg">
     <div id="root"></div>

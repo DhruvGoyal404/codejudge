@@ -26,7 +26,12 @@ export function ProblemPage({ dark }: { dark: boolean }) {
   const { slug = "" } = useParams();
   const narrow = useMediaQuery("(max-width: 767px)");
   const q = useQuery({ queryKey: ["problem", slug], queryFn: () => api.problem(slug) });
-  useTitle(q.data?.title ?? null);
+  useTitle(
+    q.data?.title ?? null,
+    q.data
+      ? `${q.data.title}: a ${q.data.difficulty} problem on CodeJudge (${q.data.tags.join(", ")}). Solve it in C, C++, Go, Python, Java or JavaScript.`
+      : undefined,
+  );
   if (q.isPending)
     return (
       <div className="space-y-3 p-4" aria-busy="true" aria-label="Loading problem">

@@ -41,6 +41,7 @@ export function Landing() {
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
       <section className="space-y-4" aria-labelledby="landing-title">
+        <img src="/logo-64.png" alt="" width={64} height={64} className="size-16" />
         <h1 id="landing-title" className="max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
           Practise algorithms on a judge you can trust.
         </h1>

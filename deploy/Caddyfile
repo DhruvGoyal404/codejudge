@@ -46,11 +46,31 @@
 		file_server
 	}
 
-	# SPA: any other path serves index.html (client-side routes), always revalidated.
+	# robots.txt and sitemap.xml carry absolute URLs: the templates directive
+	# fills in {{env `CODEJUDGE_DOMAIN`}} (from SSM /codejudge/prod/domain via
+	# deploy.sh), so no domain is baked into the image.
+	@seo path /robots.txt /sitemap.xml
+	handle @seo {
+		root * /srv/web
+		header Cache-Control "public, max-age=3600"
+		header /sitemap.xml Content-Type "application/xml; charset=utf-8"
+		templates {
+			mime text/plain application/xml
+		}
+		file_server
+	}
+
+	# SPA: any other path serves index.html (client-side routes), always
+	# revalidated. Templates fill in the domain in its Open Graph tags (text/html
+	# only: icons and other files pass through untouched).
 	handle {
 		root * /srv/web
 		header Cache-Control "no-cache"
+		header /site.webmanifest Content-Type "application/manifest+json"
 		import csp
+		templates {
+			mime text/html
+		}
 		try_files {path} /index.html
 		file_server
 	}
