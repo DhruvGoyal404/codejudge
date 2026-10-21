@@ -43,3 +43,6 @@ Thumbs.db
 
 # machine-local image IDs written by scripts/build-images.ps1
 sandbox/images/images.lock.json
+
+# cdk diff output kept by hand: carries the AWS account ID
+infra/diff*.txt
