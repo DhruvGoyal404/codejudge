@@ -1,15 +1,20 @@
+import { readFileSync } from "node:fs";
+
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { APP_REPOS, BACKUP_PREFIX, CodeJudgeStack, GITHUB_REF, GITHUB_REPO, PARAM_PREFIX, SANDBOX_REPOS } from "../lib/codejudge-stack.ts";
+import { AMI_ID, APP_REPOS, BACKUP_PREFIX, CodeJudgeStack, GITHUB_REF, GITHUB_REPO, PARAM_PREFIX, SANDBOX_REPOS } from "../lib/codejudge-stack.ts";
+
+// The committed pin, exactly as `cdk deploy` reads it.
+const HOST_AMI: string = JSON.parse(readFileSync(new URL("../cdk.json", import.meta.url), "utf8")).context["codejudge:hostAmi"];
 
 let t: Template;
 let json: Record<string, any>;
 
 beforeAll(() => {
   const app = new App();
-  const stack = new CodeJudgeStack(app, "Test", { env: { account: "123456789012", region: "ap-south-1" }, offline: true });
+  const stack = new CodeJudgeStack(app, "Test", { env: { account: "123456789012", region: "ap-south-1" }, offline: true, hostAmi: HOST_AMI });
   t = Template.fromStack(stack);
   json = t.toJSON();
 }, 120_000);
@@ -58,9 +63,8 @@ describe("instance", () => {
     });
   });
 
-  it("boots Ubuntu 24.04 and its user data carries no secrets", () => {
+  it("its user data runs the bootstrap and carries no secrets", () => {
     const [[, inst]] = resources("AWS::EC2::Instance");
-    expect(JSON.stringify(json.Parameters)).toContain("ubuntu/server/24.04");
     const userData = JSON.stringify(inst.Properties.UserData);
     expect(userData).toContain("bootstrap.sh");
     expect(userData).not.toContain("\\r"); // LF only, even when synthesised from a Windows checkout
@@ -189,5 +193,53 @@ describe("deploy document", () => {
       }),
     });
     expect(JSON.stringify(resources("AWS::SSM::Document"))).toContain("deploy.sh '{{ Manifest }}'");
+  });
+});
+
+
+describe("the host is never replaced by accident", () => {
+  it("boots a literal, pinned AMI ID, not one resolved from SSM at deploy time", () => {
+    expect(HOST_AMI).toMatch(AMI_ID);
+    const [[, inst]] = resources("AWS::EC2::Instance");
+    expect(inst.Properties.ImageId).toBe(HOST_AMI); // a string, not { Ref: <SSM parameter> }
+    // No image ID resolved at deploy time. (CDK's own BootstrapVersion
+    // parameter is also read from SSM, but it is a version number, not an AMI.)
+    const params = Object.values((json.Parameters ?? {}) as Record<string, any>);
+    expect(params.filter((p) => String(p.Type).includes("AWS::EC2::Image::Id"))).toEqual([]);
+    expect(JSON.stringify(json)).not.toContain("/aws/service/canonical/");
+  });
+
+  it("keeps a stable logical ID (a new ID means a new instance)", () => {
+    // userDataCausesReplacement: false, so user-data edits do not alter the
+    // logical ID; CloudFormation applies UserData changes with a stop/start.
+    expect(resources("AWS::EC2::Instance").map(([id]) => id)).toEqual(["HostB4E45AD7"]);
+  });
+
+  it("refuses to synthesise without a pinned AMI", () => {
+    for (const bad of [undefined, "", "ami-", "resolve:ssm:/aws/service/canonical/x", "ami-XYZ"]) {
+      expect(() => new CodeJudgeStack(new App(), "Bad", { env: { account: "123456789012", region: "ap-south-1" }, offline: true, hostAmi: bad as string })).toThrow(/pinned AMI/);
+    }
+  });
+});
+
+describe("cdk destroy leaves nothing behind", () => {
+  it("creates no custom resources or Lambdas (their log groups would outlive the stack)", () => {
+    const types = Object.values(json.Resources as Record<string, any>).map((r) => r.Type as string);
+    expect(types.filter((x) => x.startsWith("Custom::") || x.startsWith("AWS::Lambda::") || x === "AWS::Logs::LogGroup")).toEqual([]);
+    t.resourceCountIs("AWS::IAM::OIDCProvider", 1);
+  });
+
+  it("retains only the backup bucket; everything else is deleted with the stack", () => {
+    const retained = Object.entries(json.Resources as Record<string, any>)
+      .filter(([, r]) => r.DeletionPolicy === "Retain" || r.DeletionPolicy === "RetainExceptOnCreate" || r.UpdateReplacePolicy === "Retain")
+      .map(([, r]) => r.Type);
+    expect(retained).toEqual(["AWS::S3::Bucket"]);
+  });
+
+  it("empties the image repositories and releases the address and the volume", () => {
+    for (const [, r] of resources("AWS::ECR::Repository")) expect(r.Properties.EmptyOnDelete).toBe(true);
+    const [[, inst]] = resources("AWS::EC2::Instance");
+    expect(inst.Properties.BlockDeviceMappings[0].Ebs.DeleteOnTermination).toBe(true);
+    t.resourceCountIs("AWS::EC2::EIP", 1); // released when the stack deletes it
   });
 });

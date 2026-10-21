@@ -27,6 +27,9 @@ export const SANDBOX_REPOS = ["cpp-compile", "cpp-run", "python", "java-compile"
 export const DEPLOY_DOCUMENT = "CodeJudge-Deploy";
 /** Where pg-backup.sh writes (deploy.sh renders BACKUP_DEST from the bucket name). */
 export const BACKUP_PREFIX = "codejudge/pg/";
+export const HOST_REGION = "ap-south-1";
+/** An EC2 AMI ID. */
+export const AMI_ID = /^ami-[0-9a-f]{8,17}$/;
 
 export interface CodeJudgeStackProps extends StackProps {
   /**
@@ -38,6 +41,13 @@ export interface CodeJudgeStackProps extends StackProps {
   alarmEmail?: string;
   /** Set if the account already has GitHub's OIDC provider (only one per URL). */
   existingOidcProviderArn?: string;
+  /**
+   * The host's AMI, pinned (cdk.json context "codejudge:hostAmi"). A literal ID
+   * keeps the instance's ImageId fixed: resolving an SSM "current" parameter at
+   * deploy time would change it on every Ubuntu release and REPLACE the host
+   * (and its on-box Postgres). OS updates happen on the host (unattended-upgrades).
+   */
+  hostAmi: string;
 }
 
 /**
@@ -46,8 +56,11 @@ export interface CodeJudgeStackProps extends StackProps {
  * role. See docs/DEPLOY.md.
  */
 export class CodeJudgeStack extends Stack {
-  constructor(scope: Construct, id: string, props: CodeJudgeStackProps = {}) {
+  constructor(scope: Construct, id: string, props: CodeJudgeStackProps) {
     super(scope, id, props);
+    if (!AMI_ID.test(props.hostAmi ?? "")) {
+      throw new Error(`hostAmi must be a pinned AMI ID (cdk.json context "codejudge:hostAmi"), got ${JSON.stringify(props.hostAmi)}`);
+    }
 
     const vpc = props.offline
       ? ec2.Vpc.fromVpcAttributes(this, "DefaultVpc", {
@@ -170,9 +183,7 @@ export class CodeJudgeStack extends Stack {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.SMALL),
-      machineImage: ec2.MachineImage.fromSsmParameter("/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id", {
-        os: ec2.OperatingSystemType.LINUX,
-      }),
+      machineImage: ec2.MachineImage.genericLinux({ [HOST_REGION]: props.hostAmi }),
       role,
       securityGroup: sg,
       requireImdsv2: true,
@@ -260,14 +271,22 @@ export class CodeJudgeStack extends Stack {
     });
 
     // --- GitHub OIDC deploy role ---------------------------------------------------------
-    const provider = props.existingOidcProviderArn
-      ? iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(this, "GitHubOidc", props.existingOidcProviderArn)
-      : new iam.OpenIdConnectProvider(this, "GitHubOidc", { url: "https://token.actions.githubusercontent.com", clientIds: ["sts.amazonaws.com"] });
+    // Native AWS::IAM::OIDCProvider, not iam.OpenIdConnectProvider: that one is a
+    // custom resource whose Lambda leaves a log group behind after cdk destroy.
+    const providerArn =
+      props.existingOidcProviderArn ??
+      new iam.CfnOIDCProvider(this, "GitHubOidc", {
+        url: "https://token.actions.githubusercontent.com",
+        clientIdList: ["sts.amazonaws.com"],
+        // IAM validates GitHub's certificate chain itself; the list is kept for
+        // compatibility with older account settings.
+        thumbprintList: ["6938fd4d98bab03faadb97b34396831e3780aea1", "1c58a3a8518e8759bf075b76b750d4f2df264fcd"],
+      }).attrArn;
     const deployRole = new iam.Role(this, "DeployRole", {
       roleName: "codejudge-github-deploy",
       description: `GitHub Actions in ${GITHUB_REPO} on ${GITHUB_REF}: push images, run the deploy document`,
       maxSessionDuration: Duration.hours(2),
-      assumedBy: new iam.WebIdentityPrincipal(provider.openIdConnectProviderArn, {
+      assumedBy: new iam.WebIdentityPrincipal(providerArn, {
         StringEquals: {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
           "token.actions.githubusercontent.com:sub": `repo:${GITHUB_REPO}:ref:${GITHUB_REF}`,

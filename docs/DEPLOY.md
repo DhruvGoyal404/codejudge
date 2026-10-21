@@ -240,12 +240,63 @@ Before that date:
 2. **Record a demo** while it is live: landing page, problem list with
    filters, a problem with Run on custom input, an Accepted and a Wrong
    Answer submission, the submission history, the mobile view.
-3. **Tear down**: `npx cdk destroy --profile codejudge` from `infra/`. The
-   ECR repositories are emptied and deleted; the backup bucket is retained on
-   purpose: empty and delete it after step 1
-   (`aws s3 rb s3://<BackupBucket> --force`). Delete the SSM parameters
-   (`aws ssm delete-parameters --names ...`), the DNS record, and the GitHub
-   repository variables (the Deploy workflow then skips again).
+3. **Tear down.** From `infra/`, run `npx cdk destroy --profile codejudge`. Destroy removes everything the stack created:
+
+   | Resource | On `cdk destroy` |
+   |---|---|
+   | EC2 instance and its 20 GB root volume | Terminated; the volume is deleted with it (`DeleteOnTermination`). |
+   | Elastic IP and its association | Released. |
+   | Launch template, security group, instance role and profile | Deleted. |
+   | The 10 ECR repositories | Emptied (`EmptyOnDelete`: every image goes) and deleted. |
+   | SNS topic and email subscription, both CloudWatch alarms | Deleted. |
+   | SSM document `CodeJudge-Deploy`, SSM parameter `/codejudge/prod/backup_bucket` | Deleted. |
+   | GitHub OIDC provider and deploy role | Deleted. This is a native `AWS::IAM::OIDCProvider`, so there is no custom-resource Lambda and no log group. |
+   | **S3 backup bucket** | **Kept** (`DeletionPolicy: Retain`, on purpose: backups survive an accidental destroy). |
+
+   The stack creates no Lambda functions, custom resources or CloudWatch log groups. A CDK assertion test enforces that, and that only the bucket is retained.
+
+   **Delete these by hand** (after step 1 has copied the final dump off AWS):
+
+   ```sh
+   export AWS_PROFILE=codejudge AWS_REGION=ap-south-1
+   # 1. The retained backup bucket (versioning is off, so --force removes everything)
+   aws s3 rb s3://<BackupBucket> --force
+   # 2. The SecureString parameters you created by hand (the stack never owned them)
+   aws ssm delete-parameters --names /codejudge/prod/domain /codejudge/prod/acme_email \
+     /codejudge/prod/pg_password /codejudge/prod/valkey_password /codejudge/prod/github_client_id \
+     /codejudge/prod/github_client_secret /codejudge/prod/problems_deploy_key
+   # 3. The CDK bootstrap stack, if nothing else in the account uses CDK. Its
+   #    staging bucket is retained and versioned, so empty it first (console:
+   #    S3 -> the bucket -> Empty), then:
+   aws s3api delete-bucket --bucket cdk-hnb659fds-assets-<ACCOUNT_ID>-ap-south-1
+   aws ecr delete-repository --force --repository-name cdk-hnb659fds-container-assets-<ACCOUNT_ID>-ap-south-1
+   aws cloudformation delete-stack --stack-name CDKToolkit
+   ```
+
+   Outside AWS, also delete:
+   - the DNS `A` record;
+   - the GitHub repository variables (the Deploy workflow then skips again);
+   - the deploy key on codejudge-problems;
+   - the OAuth app, if it will not be reused.
+
+   An OIDC provider passed in with `-c existingOidcProviderArn=...` was never the stack's own, so it stays.
+
+   **Check that nothing is left** (each command should print an empty list, or only things that are not CodeJudge's):
+
+   ```sh
+   aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED --query 'StackSummaries[].StackName'
+   aws ec2 describe-instances --filters Name=instance-state-name,Values=pending,running,stopping,stopped --query 'Reservations[].Instances[].InstanceId'
+   aws ec2 describe-addresses --query 'Addresses[].PublicIp'
+   aws ec2 describe-volumes --query 'Volumes[].VolumeId'
+   aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[].SnapshotId'
+   aws ecr describe-repositories --query 'repositories[].repositoryName'
+   aws s3 ls
+   aws ssm describe-parameters --query 'Parameters[].Name'
+   aws logs describe-log-groups --query 'logGroups[].logGroupName'
+   aws sns list-topics --query 'Topics[].TopicArn'
+   ```
+
+   A day later, Billing → Bills should show no running charges for EC2, EBS, the public IPv4 address, ECR, S3 or CloudWatch.
 
 **Redeploying elsewhere** (any Ubuntu 24.04 VM with 2 GiB RAM and ports 80/443):
 
@@ -261,3 +312,38 @@ Before that date:
 4. Restore the final dump: `BACKUP_DEST=file:///root/codejudge-final deploy/backup/pg-restore.sh latest --into-live`.
 5. Backups: point `BACKUP_DEST` in `/etc/codejudge/backup.env` at an
    S3-compatible bucket, or a `file:///` path you copy off the host.
+
+## 7. The host's AMI, and what would replace the host
+
+**The AMI is pinned.** `infra/cdk.json` context `codejudge:hostAmi` is the image the host was launched from: `ami-065d2b03fb493085a`. That is Canonical's Ubuntu 24.04 LTS amd64, `hvm:ebs-ssd-gp3`, serial 20261004, in ap-south-1, taken from cloud-images.ubuntu.com/locator. The stack passes it to CloudFormation as a literal `ImageId`. A CDK test fails if it ever becomes an SSM parameter resolved at deploy time; such a parameter would change with every Ubuntu release and make the next `cdk deploy` replace the host, and with it the on-box Postgres.
+
+Before the first deploy, check once that the image is Canonical's (owner `099720109477`):
+
+```sh
+aws ec2 describe-images --image-ids ami-065d2b03fb493085a --profile codejudge --region ap-south-1 \
+  --query 'Images[0].[OwnerId,Name,State]'
+```
+
+**OS updates happen on the host, not through new AMIs.**
+- `bootstrap.sh` installs `unattended-upgrades` and enables the daily security run (`/etc/apt/apt.conf.d/20auto-upgrades`).
+- The Docker packages are on `apt-mark hold`, so upgrades never move them.
+- Kernel updates need a reboot, and unattended-upgrades does not reboot by itself. Check now and then in a quiet hour: `[ -f /var/run/reboot-required ] && sudo reboot` (SSM session). Everything comes back on its own: Docker restarts the compose services, and `judge-worker` is enabled.
+
+**What CloudFormation would do to the instance:**
+
+| Change | Effect |
+|---|---|
+| `codejudge:hostAmi`, the subnet / availability zone, the root volume's size, type or encryption, the launch template (IMDS settings) | **Replaces the instance** |
+| User data (`bootstrap.sh`) | Stop and start only (`userDataCausesReplacement: false`; a test pins the instance's logical ID). User data runs only on first boot, so the change has no effect on the running host anyway: re-run `bootstrap.sh` in an SSM session instead. |
+| The instance type | Stop and start only |
+| The security group, the role's policies, tags, alarms | No interruption |
+
+**Before every `cdk deploy`, read `cdk diff`.** If `CodeJudgeProd/Host` shows `[-]` / `[+]` (or "requires replacement"), stop.
+
+**To move to a newer AMI deliberately:**
+1. Take a backup (§4, `systemctl start pg-backup.service`).
+2. Change the pin.
+3. Deploy (a new host; the Elastic IP moves with it).
+4. Run the Deploy workflow.
+5. Restore the dump into the live database (§4).
+

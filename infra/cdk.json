@@ -2,6 +2,7 @@
   "app": "npx tsx bin/app.ts",
   "context": {
     "@aws-cdk/core:checkSecretUsage": true,
-    "@aws-cdk/aws-iam:minimizePolicies": true
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "codejudge:hostAmi": "ami-065d2b03fb493085a"
   }
 }
