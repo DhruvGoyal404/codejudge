@@ -1,4 +1,9 @@
-# DRAFT: public gVisor GitHub issue (not filed; to be filed by the repository owner)
+# gVisor issue: `--oci-seccomp` ignores `errnoRet`
+
+Text for a public issue on google/gvisor, to be filed by the repository owner.
+Filed as: <ISSUE URL: errnoRet>
+
+---
 
 **Title:** `--oci-seccomp` ignores `errnoRet` (per-rule and `defaultErrnoRet`); denied syscalls always return EPERM, which breaks glibc's clone3 → clone fallback
 
@@ -14,6 +19,7 @@ This matters in practice. Docker's default profile maps `clone3` to `SCMP_ACT_ER
 - Docker Engine 28.0.4 (API 1.48), runc 1.5.2 for comparison
 - Host: Ubuntu 24.04 (GitHub Actions `ubuntu-24.04` runner image 20261004), kernel 6.17.0-1022-azure, cgroup v2
 - Container image: `gcc:14.2.0` (Debian 12 bookworm, glibc 2.36); the probe is a static binary built in that image
+- Not yet re-checked on a newer gVisor release
 
 `runsc` was registered with `runsc install -- --oci-seccomp`. The debug log shows `Config.OCISeccomp (--oci-seccomp): true`, and the spec passed to `runsc boot` contains the rule with `"errnoRet": 38`.
 
@@ -82,7 +88,7 @@ To check `defaultErrnoRet`, repeat with `jq '.defaultErrnoRet = 38' profile.json
 ## Impact
 
 - Any workload whose profile maps `clone3` to ENOSYS (Docker's default does) can't spawn processes through `posix_spawn` or create threads with `pthread_create` under `runsc --oci-seccomp`. That covers compilers (g++ → cc1plus), JVMs, Node.js, and C++/Python threading.
-- The workaround is to allow `clone3` outright in the profile used with runsc. That gives up the reason the profile denies it in the first place: seccomp cannot inspect clone3's flags.
+- The workaround is to allow `clone3` outright in the profile used with runsc. That gives up the reason the profile denies it in the first place: seccomp cannot inspect clone3's flags. With `clone3` allowed, namespace flags reach gVisor's own checks; one of them is missing: <ISSUE URL: clone3 CLONE_NEWNS>.
 
 ## Suggested fix
 

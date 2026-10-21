@@ -22,8 +22,9 @@ func IsGVisor(runtime string) bool { return strings.HasPrefix(runtime, "runsc") 
 //
 // Under runsc, clone3 is handled by gVisor's Sentry, not the host kernel,
 // which removes the reason the base profile blocks it; capabilities stay
-// dropped (no CLONE_NEW* that needs CAP_SYS_ADMIN) and no-new-privileges
-// stays on. So the variant allows clone3 and changes nothing else. Under runc
+// dropped and no-new-privileges stays on. (gVisor lets clone3(CLONE_NEWNS)
+// through without CAP_SYS_ADMIN; that namespace exists only inside the
+// Sentry: docs/upstream/gvisor-clone3-newns-issue.md.) So the variant allows clone3 and changes nothing else. Under runc
 // the base profile is used unchanged. See docs/PHASE6.md § 6a.7.
 func gVisorProfile(base []byte) (string, error) {
 	var p map[string]any
