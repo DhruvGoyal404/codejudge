@@ -4,7 +4,7 @@ import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { AMI_ID, APP_REPOS, BACKUP_PREFIX, CodeJudgeStack, GITHUB_REF, GITHUB_REPO, PARAM_PREFIX, SANDBOX_REPOS } from "../lib/codejudge-stack.ts";
+import { AMI_ID, APP_REPOS, BACKUP_PREFIX, CodeJudgeStack, GITHUB_REF, GITHUB_REPO, MANIFEST_MAX_CHARS, PARAM_PREFIX, SANDBOX_REPOS } from "../lib/codejudge-stack.ts";
 
 // The committed pin, exactly as `cdk deploy` reads it.
 const HOST_AMI: string = JSON.parse(readFileSync(new URL("../cdk.json", import.meta.url), "utf8")).context["codejudge:hostAmi"];
@@ -241,5 +241,72 @@ describe("cdk destroy leaves nothing behind", () => {
     const [[, inst]] = resources("AWS::EC2::Instance");
     expect(inst.Properties.BlockDeviceMappings[0].Ebs.DeleteOnTermination).toBe(true);
     t.resourceCountIs("AWS::EC2::EIP", 1); // released when the stack deletes it
+  });
+});
+
+
+// SSM validates a document parameter's allowedPattern with RE2 (Go regexp):
+// bounded repeats stop at {1000}, and lookaround, backreferences and atomic
+// groups do not exist. A violation fails only at deploy time, in AWS; this
+// catches it at synth. (No native re2 binding: a static check is enough.)
+function re2Problems(pattern: string): string[] {
+  const out: string[] = [];
+  try {
+    new RegExp(pattern);
+  } catch (e) {
+    out.push(`does not compile: ${(e as Error).message}`);
+  }
+  // Repeat counts: {n}, {n,}, {n,m}, not preceded by a backslash.
+  for (const m of pattern.matchAll(/(?<!\\)\{(\d+)(?:,(\d*))?\}/g)) {
+    for (const n of [m[1], m[2]]) if (n && Number(n) > 1000) out.push(`repeat count ${n} > 1000 in ${m[0]}`);
+  }
+  for (const [re, what] of [
+    [/\(\?[=!]/, "lookahead"],
+    [/\(\?<[=!]/, "lookbehind"],
+    [/\(\?>/, "atomic group"],
+    [/\\[1-9]/, "backreference"],
+    [/\\k</, "named backreference"],
+  ] as const) {
+    if (re.test(pattern)) out.push(`${what} is not RE2`);
+  }
+  return out;
+}
+
+describe("SSM document parameters are valid for SSM", () => {
+  it("the RE2 checker itself rejects what SSM rejects", () => {
+    expect(re2Problems("^[A-Za-z0-9+/=]{1,4000}$")).not.toEqual([]); // the pattern that failed the first deploy
+    expect(re2Problems("^a{1001}$")).not.toEqual([]);
+    expect(re2Problems("^(?=a)a$")).not.toEqual([]);
+    expect(re2Problems("^(a)\\1$")).not.toEqual([]);
+    expect(re2Problems("^[A-Za-z0-9+/=]+$")).toEqual([]);
+    expect(re2Problems("^a{2,1000}\\{5000\\}$")).toEqual([]); // escaped braces are literals
+  });
+
+  it("every allowedPattern is RE2-compatible", () => {
+    const docs = resources("AWS::SSM::Document");
+    expect(docs.length).toBeGreaterThan(0);
+    for (const [id, d] of docs) {
+      for (const [name, p] of Object.entries((d.Properties.Content.parameters ?? {}) as Record<string, any>)) {
+        if (p.allowedPattern !== undefined) expect(re2Problems(p.allowedPattern), `${id}.${name}`).toEqual([]);
+      }
+    }
+  });
+
+  it("the manifest's length is bounded by maxChars, and a real manifest fits", () => {
+    const [[, d]] = resources("AWS::SSM::Document");
+    const p = d.Properties.Content.parameters.Manifest;
+    expect(p.maxChars).toBe(MANIFEST_MAX_CHARS);
+    const digest = "sha256:" + "a".repeat(64);
+    const registry = "123456789012.dkr.ecr.ap-south-1.amazonaws.com";
+    const img = (repo: string) => `${registry}/codejudge/${repo}@${digest}`;
+    const manifest = JSON.stringify({
+      release: "f".repeat(40),
+      problems_commit: "e".repeat(40),
+      registry,
+      images: { api: img("api"), web: img("web"), worker: img("worker"), sandbox: Object.fromEntries(SANDBOX_REPOS.map((s) => [s, img(`sandbox-${s}`)])) },
+    });
+    const b64 = Buffer.from(manifest).toString("base64");
+    expect(b64).toMatch(new RegExp(p.allowedPattern));
+    expect(b64.length).toBeLessThanOrEqual(p.maxChars);
   });
 });

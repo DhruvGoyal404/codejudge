@@ -25,6 +25,8 @@ export const PARAM_PREFIX = "/codejudge/prod/";
 export const APP_REPOS = ["api", "web", "worker"] as const;
 export const SANDBOX_REPOS = ["cpp-compile", "cpp-run", "python", "java-compile", "java-run", "node", "go-compile"] as const;
 export const DEPLOY_DOCUMENT = "CodeJudge-Deploy";
+/** Longest base64 release manifest the deploy document accepts (one today is ~2.5 KB). */
+export const MANIFEST_MAX_CHARS = 4000;
 /** Where pg-backup.sh writes (deploy.sh renders BACKUP_DEST from the bucket name). */
 export const BACKUP_PREFIX = "codejudge/pg/";
 export const HOST_REGION = "ap-south-1";
@@ -247,7 +249,10 @@ export class CodeJudgeStack extends Stack {
           Manifest: {
             type: "String",
             description: "base64 of release.json",
-            allowedPattern: "^[A-Za-z0-9+/=]{1,4000}$",
+            // SSM checks allowedPattern with RE2, whose repeat counts stop at
+            // 1000: the character set goes in the pattern, the length in maxChars.
+            allowedPattern: "^[A-Za-z0-9+/=]+$",
+            maxChars: MANIFEST_MAX_CHARS,
           },
         },
         mainSteps: [

@@ -121,7 +121,10 @@ jobs:
       - name: Run CodeJudge-Deploy on the host
         run: |
           set -euo pipefail
-          params=$(jq -cn --arg m "$(base64 -w0 release.json)" '{Manifest: [$m]}')
+          manifest=$(base64 -w0 release.json)
+          # CodeJudge-Deploy accepts at most 4000 characters (maxChars in infra/).
+          [ "${#manifest}" -le 4000 ] || { echo "::error::manifest is ${#manifest} characters, the document allows 4000"; exit 1; }
+          params=$(jq -cn --arg m "$manifest" '{Manifest: [$m]}')
           id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "$DOCUMENT" \
             --parameters "$params" --timeout-seconds 600 --comment "deploy ${SHA:0:12}" \
             --query Command.CommandId --output text)
