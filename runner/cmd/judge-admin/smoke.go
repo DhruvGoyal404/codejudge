@@ -80,18 +80,23 @@ func smokeCmd(args []string) error {
 	for time.Now().Before(deadline) {
 		var status string
 		var verdict, reason *string
-		if err := pool.QueryRow(ctx, `SELECT status, verdict, reason FROM submissions WHERE id = $1`, id).Scan(&status, &verdict, &reason); err != nil {
+		var ms *float64 // submit (row created) to verdict (row finished), server side
+		if err := pool.QueryRow(ctx, `SELECT status, verdict, reason, EXTRACT(EPOCH FROM finished_at - created_at) * 1000
+			FROM submissions WHERE id = $1`, id).Scan(&status, &verdict, &reason, &ms); err != nil {
 			return err
 		}
 		if status == "done" {
 			v, r := deref(verdict), deref(reason)
 			fmt.Printf("smoke: verdict %s %s\n", v, r)
+			if ms != nil {
+				fmt.Printf("smoke: submit to verdict %.0f ms\n", *ms)
+			}
 			if v != "AC" {
 				return fmt.Errorf("verdict %s, want AC", v)
 			}
 			return nil
 		}
-		time.Sleep(time.Second)
+		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("no verdict within %v (is judge-worker running?)", *timeout)
 }

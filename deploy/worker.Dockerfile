@@ -14,7 +14,8 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY runner/ ./
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     go build -trimpath -ldflags="-s -w" -o /out/judge-worker ./cmd/judge-worker && \
-    go build -trimpath -ldflags="-s -w" -o /out/judge-admin ./cmd/judge-admin
+    go build -trimpath -ldflags="-s -w" -o /out/judge-admin ./cmd/judge-admin && \
+    go build -trimpath -ldflags="-s -w" -o /out/judge-run ./cmd/judge-run
 
 FROM scratch
 COPY --from=build /out/ /opt/codejudge/bin/

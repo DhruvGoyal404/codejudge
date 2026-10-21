@@ -210,6 +210,43 @@ deploy() { # deploy MANIFEST_JSON
   smoke
 }
 
+# Time-limit calibration (deploy/host/calibrate.sh). A manifest with
+# "calibrate": "start" starts one in the background after a successful deploy
+# (optional "calibrate_problems": "a,b", "calibrate_runs": N). Every deploy
+# then reports the latest one: running, failed, or its summary as gzip+base64
+# between CALIBRATION-BEGIN/END lines (the Deploy workflow decodes it).
+CALIBRATION=$STATE/calibration
+calibration() { # calibration MANIFEST_JSON
+  local out
+  if [ "$(jq -r '.calibrate // ""' <<<"$1")" = start ]; then
+    if systemctl is-active --quiet codejudge-calibrate; then
+      log "calibration: one is already running"
+    else
+      out="$CALIBRATION/$(date -u +%Y%m%dT%H%M%SZ)"
+      mkdir -p "$out" && ln -sfn "$out" "$CALIBRATION/latest"
+      systemd-run --unit codejudge-calibrate --collect --quiet \
+        --setenv=CALIBRATE_PROBLEMS="$(jq -r '.calibrate_problems // ""' <<<"$1")" \
+        --setenv=CALIBRATE_RUNS="$(jq -r '.calibrate_runs // 3' <<<"$1")" \
+        --setenv=CALIBRATE_LATENCY_N="$(jq -r '.calibrate_latency_n // 20' <<<"$1")" \
+        /bin/bash "$ROOT/current/app/deploy/host/calibrate.sh" "$ROOT/current" "$PROBLEMS_DIR" "$out"
+      log "calibration: started ($out)"
+    fi
+  fi
+  [ -e "$CALIBRATION/latest" ] || return 0
+  out=$(readlink -f "$CALIBRATION/latest")
+  if systemctl is-active --quiet codejudge-calibrate; then
+    log "calibration: running since $(basename "$out"), $(wc -l <"$out/results.jsonl" 2>/dev/null || echo 0) judgements so far"
+  elif [ -s "$out/summary.tsv" ]; then
+    log "calibration: $(basename "$out") finished"
+    echo "CALIBRATION-BEGIN $(basename "$out")"
+    gzip -9c "$out/summary.tsv" | base64 -w0
+    echo
+    echo "CALIBRATION-END"
+  else
+    log "calibration: $(basename "$out") failed: $(tail -n 3 "$out/stderr.txt" 2>/dev/null | tr '\n' ' ')"
+  fi
+}
+
 # attempt CMD...: runs CMD in a subshell with errexit really on and sets
 # ATTEMPT_RC. Call it as a plain statement, never in "if", "&&" or "||":
 # there bash ignores set -e for everything inside, subshells included, so a
@@ -254,9 +291,10 @@ if [ "$ATTEMPT_RC" = 0 ]; then
   if [ -s "$STATE/current.json" ] && [ "$(jq -r .release "$STATE/current.json")" != "$(manifest_field .release "$new")" ]; then
     cp "$STATE/current.json" "$STATE/previous.json"
   fi
-  echo "$new" >"$STATE/current.json"
+  jq -c 'del(.calibrate, .calibrate_problems, .calibrate_runs, .calibrate_latency_n)' <<<"$new" >"$STATE/current.json"
   cleanup
   log "release $(manifest_field .release "$new") is live"
+  attempt calibration "$new" # never fails the deploy
   exit 0
 fi
 

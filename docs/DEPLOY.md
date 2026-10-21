@@ -353,3 +353,35 @@ aws ec2 describe-images --image-ids ami-065d2b03fb493085a --profile codejudge --
 4. Run the Deploy workflow.
 5. Restore the dump into the live database (§4).
 
+
+## 8. Time-limit calibration on the host
+
+Time limits are measured on the production host, in the production sandbox
+(runsc, the release's images and seccomp profile), through the deploy path
+only; nobody logs in to the host.
+
+1. At a quiet time: **Actions → Deploy → Run workflow**, branch `main`, tick
+   **calibrate**. The deploy runs as usual; once the release is live, deploy.sh
+   starts `deploy/host/calibrate.sh` in a transient unit
+   (`codejudge-calibrate`) and returns.
+2. The calibration judges every private `ref.*` and `slow*.*` solution with
+   `judge-run`, three passes over the catalogue, then submits 20 C++
+   references each for `ledger-total` and the problem with the most test
+   data through the real queue and worker (`judge-admin smoke`), measuring
+   submit-to-verdict from Postgres (`finished_at - created_at`). It runs
+   beside the live worker (one more sandbox at a time) and changes nothing.
+   Expect one to two hours. The t3.small runs in unlimited-credit mode, so
+   it isn't throttled; the surplus CPU costs a few cents.
+3. Any later deploy (a push to main, or Run workflow without the tick)
+   reports it: "running … judgements so far", or the summary in the job
+   summary under **Time-limit calibration**, with these columns:
+   - `slug`, `file`, `limit_ms` (effective, after the language multiplier);
+   - `worst_cpu_ms` over all passes, `pct` of the limit, and every verdict seen;
+   - latency rows: n, p50, p95 and max in ms.
+
+   Raw results stay on the host under `/opt/codejudge/state/calibration/`.
+4. Don't deploy a different problems commit while a calibration runs: the
+   private checkout it reads would change under it.
+
+The acceptance rule is that every reference uses at most 50% of its limit in
+every pass, and every slow solution is TLE.

@@ -116,6 +116,24 @@ log "redeploy the live release (secret rotation): previous stays r1"
 deploy_doc "$(sudo base64 -w0 /opt/codejudge/state/current.json)"
 expect_live r3 r1
 
+log "calibration: a deploy starts it, a later deploy reports it"
+cal=$(base64 -d <<<"$(manifest r3 "$api")" |
+  jq -c '. + {calibrate: "start", calibrate_problems: "ledger-total", calibrate_runs: 1, calibrate_latency_n: 2}' | base64 -w0)
+deploy_doc "$cal" | tee "$tmp/cal1.out"
+grep -q "calibration: started" "$tmp/cal1.out" || fail "the calibration did not start"
+sudo jq -e 'has("calibrate") | not' /opt/codejudge/state/current.json >/dev/null || fail "the calibration request was kept in current.json"
+for _ in $(seq 120); do systemctl is-active --quiet codejudge-calibrate || break; sleep 5; done
+deploy_doc "$(sudo base64 -w0 /opt/codejudge/state/current.json)" | tee "$tmp/cal2.out"
+grep -q "calibration: started" "$tmp/cal2.out" && fail "a plain redeploy started another calibration"
+summary=$(sed -n '/^CALIBRATION-BEGIN/,/^CALIBRATION-END/{/^CALIBRATION-/d;p}' "$tmp/cal2.out" | base64 -d | gunzip) ||
+  fail "no calibration summary in the deploy output"
+echo "$summary"
+# Six references (all AC), one slow solution (TLE), two latency samples.
+[ "$(awk -F'\t' '$1 == "ledger-total" && $2 ~ /^ref\./ && $6 == "AC"' <<<"$summary" | wc -l)" = 6 ] || fail "references not all AC"
+awk -F'\t' '$1 == "ledger-total" && $2 ~ /^slow/ && $6 == "TLE" {ok = 1} END {exit !ok}' <<<"$summary" || fail "slow solution did not TLE"
+awk -F'\t' '$1 == "latency" && $2 == "ledger-total" && $3 == 2 && $4 > 0 {ok = 1} END {exit !ok}' <<<"$summary" || fail "no latency"
+expect_live r3 r1
+
 log "manual rollback"
 deploy --rollback
 expect_live r1 r3
