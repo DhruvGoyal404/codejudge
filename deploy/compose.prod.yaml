@@ -32,7 +32,7 @@ services:
       context: ..
       dockerfile: deploy/web.Dockerfile
     environment:
-      CODEJUDGE_DOMAIN: ${CODEJUDGE_DOMAIN:-judge.dhruvgoyal.tech}
+      CODEJUDGE_DOMAIN: ${CODEJUDGE_DOMAIN:?set CODEJUDGE_DOMAIN (deploy.sh renders it from SSM /codejudge/prod/domain)}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL (Let's Encrypt account contact)}
     ports:
       - "${HTTP_PORT:-80}:80"
@@ -59,13 +59,13 @@ services:
       PORT: "8080"
       LOG_LEVEL: info
       NODE_OPTIONS: --max-old-space-size=160
-      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-https://judge.dhruvgoyal.tech}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN (deploy.sh renders it from SSM /codejudge/prod/domain)}
       TRUST_PROXY: "1" # exactly one hop: Caddy
       CODEJUDGE_DATABASE_URL: postgres://codejudge:${CODEJUDGE_PG_PASSWORD:?set CODEJUDGE_PG_PASSWORD}@postgres:5432/codejudge?sslmode=disable
       CODEJUDGE_VALKEY_URL: redis://:${CODEJUDGE_VALKEY_PASSWORD:?set CODEJUDGE_VALKEY_PASSWORD}@valkey:6379
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:?set GITHUB_CLIENT_SECRET}
-      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-https://judge.dhruvgoyal.tech/api/auth/github/callback}
+      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:?set GITHUB_REDIRECT_URI (deploy.sh renders it from SSM /codejudge/prod/domain)}
     networks: [edge, backend]
     depends_on:
       postgres: { condition: service_healthy }

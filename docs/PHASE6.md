@@ -151,7 +151,7 @@ host: judge-worker (systemd) ──unix sockets /run/codejudge/{postgresql,valke
 - **Logs:** json-file, 10 MB × 3 per container.
 
 **Caddy behavior:**
-- Automatic HTTPS for `$CODEJUDGE_DOMAIN` (default `judge.dhruvgoyal.tech`, ACME contact `$ACME_EMAIL`), and HTTP redirects to HTTPS.
+- Automatic HTTPS for `$CODEJUDGE_DOMAIN` (production: `codejudge.dhruvgoyal.tech`, from SSM `/codejudge/prod/domain`; there is no default), ACME contact `$ACME_EMAIL`, and HTTP redirects to HTTPS.
 - `/api/*` goes to the API with the prefix stripped, using `flush_interval -1` so SSE streams aren't buffered.
 - Hashed `/assets/*` files are cached as immutable for a year. A missing asset is a real **404**, not the SPA page, and error responses are `no-store`.
 - Every other path serves `index.html` with `no-cache`.
@@ -165,7 +165,7 @@ host: judge-worker (systemd) ──unix sockets /run/codejudge/{postgresql,valke
 
 ## 6a.3 API production settings and the page CSP
 
-- **Production settings:** `TRUST_PROXY=1` (exactly one hop, Caddy), `PUBLIC_ORIGIN=https://judge.dhruvgoyal.tech`, and `NODE_ENV=production`. The last gives the `__Host-cj_session` and `__Host-cj_oauth` cookies, which are `Secure`, `HttpOnly`, `SameSite=Lax` and `Path=/` (Phase 5).
+- **Production settings:** `TRUST_PROXY=1` (exactly one hop, Caddy), `PUBLIC_ORIGIN=https://codejudge.dhruvgoyal.tech`, and `NODE_ENV=production`. The last gives the `__Host-cj_session` and `__Host-cj_oauth` cookies, which are `Secure`, `HttpOnly`, `SameSite=Lax` and `Path=/` (Phase 5).
 - **Startup checks.** The config now refuses to start in production without `TRUST_PROXY`, since otherwise all clients would share one per-IP bucket. It also refuses an http `PUBLIC_ORIGIN` and missing GitHub credentials (`api/test/config.test.ts`).
 - **Two CSPs, because a CSP only protects the document it arrives with.** The API serves only JSON and SSE, so helmet sends `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` plus `X-Frame-Options: DENY`. The page's policy has to arrive with the HTML and with the worker scripts, which Caddy serves. It is defined once, in the Caddyfile's `(csp)` snippet, and applied to the SPA and to `/assets/*`.
 

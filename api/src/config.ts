@@ -84,6 +84,12 @@ const Env = z
     if (!c.PUBLIC_ORIGIN.startsWith("https://")) {
       ctx.addIssue({ code: "custom", path: ["PUBLIC_ORIGIN"], message: "must be https in production" });
     }
+    // Both come from the one domain (SSM /codejudge/prod/domain via deploy.sh);
+    // a callback anywhere else (or the localhost default) breaks login.
+    const callback = `${c.PUBLIC_ORIGIN}/api/auth/github/callback`;
+    if (c.GITHUB_REDIRECT_URI !== callback) {
+      ctx.addIssue({ code: "custom", path: ["GITHUB_REDIRECT_URI"], message: `must be ${callback} in production` });
+    }
   });
 
 export type Config = z.infer<typeof Env>;

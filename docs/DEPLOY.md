@@ -65,7 +65,7 @@ units). Check it: `sudo tail -n 20 /var/log/cloud-init-output.log` should end wi
 `bootstrap: done`.
 
 **3. DNS.** An `A` record `<domain>` → `PublicIp`, e.g.
-`judge.dhruvgoyal.tech  A  <PublicIp>`, TTL 300. Caddy requests the
+`codejudge.dhruvgoyal.tech  A  <PublicIp>`, TTL 300. Caddy requests the
 certificate on the first deploy, so the record must resolve before then.
 
 **4. GitHub OAuth app** (github.com → Settings → Developer settings → OAuth Apps → New):
@@ -88,7 +88,7 @@ step), then delete both local files.
 ```sh
 P=/codejudge/prod
 put() { aws ssm put-parameter --name "$P/$1" --type SecureString --value "$2" --overwrite >/dev/null; }
-put domain               '<domain>'
+put domain               'codejudge.dhruvgoyal.tech'   # the only place the domain is set
 put acme_email           '<you@example.com>'
 put pg_password          "$(openssl rand -hex 24)"
 put valkey_password      "$(openssl rand -hex 24)"
