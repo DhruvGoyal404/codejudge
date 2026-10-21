@@ -1,7 +1,7 @@
 # gVisor issue: `--oci-seccomp` ignores `errnoRet`
 
-Text for a public issue on google/gvisor, to be filed by the repository owner.
-Filed as: <ISSUE URL: errnoRet>
+Text of the public issue filed on google/gvisor.
+Filed as: [google/gvisor#16119](https://github.com/google/gvisor/issues/16119)
 
 ---
 
@@ -88,7 +88,7 @@ To check `defaultErrnoRet`, repeat with `jq '.defaultErrnoRet = 38' profile.json
 ## Impact
 
 - Any workload whose profile maps `clone3` to ENOSYS (Docker's default does) can't spawn processes through `posix_spawn` or create threads with `pthread_create` under `runsc --oci-seccomp`. That covers compilers (g++ → cc1plus), JVMs, Node.js, and C++/Python threading.
-- The workaround is to allow `clone3` outright in the profile used with runsc. That gives up the reason the profile denies it in the first place: seccomp cannot inspect clone3's flags. With `clone3` allowed, namespace flags reach gVisor's own checks; one of them is missing: <ISSUE URL: clone3 CLONE_NEWNS>.
+- The workaround is to allow `clone3` outright in the profile used with runsc. That gives up the reason the profile denies it in the first place: seccomp cannot inspect clone3's flags. With `clone3` allowed, namespace flags reach gVisor's own checks; one of them is missing: [google/gvisor#16118](https://github.com/google/gvisor/issues/16118).
 
 ## Suggested fix
 

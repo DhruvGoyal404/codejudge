@@ -1,7 +1,7 @@
 # gVisor issue: clone3(CLONE_NEWNS) succeeds without CAP_SYS_ADMIN
 
-Text for a public issue on google/gvisor, to be filed by the repository owner.
-Filed as: <ISSUE URL: clone3 CLONE_NEWNS>
+Text of the public issue filed on google/gvisor.
+Filed as: [google/gvisor#16118](https://github.com/google/gvisor/issues/16118)
 
 ---
 
@@ -96,4 +96,4 @@ docker run --rm --runtime runsc --network none --cap-drop ALL \
   behave the same way. Docker's default seccomp profile blocks those flags
   before gVisor sees them.
 
-Related: `--oci-seccomp` ignores `errnoRet`: <ISSUE URL: errnoRet>
+Related: `--oci-seccomp` ignores `errnoRet`: [google/gvisor#16119](https://github.com/google/gvisor/issues/16119)
