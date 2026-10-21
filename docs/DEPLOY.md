@@ -139,6 +139,15 @@ document. On the host, [deploy/host/deploy.sh](../deploy/host/deploy.sh):
 Output of a run: the workflow log, or
 `aws ssm list-command-invocations --details --max-items 1`.
 
+**`deploy/host/deploy.sh` ships inside the SSM document, not the release.**
+A push updates the images and everything under `deploy/` in the worker image,
+but the host runs the copy of deploy.sh embedded in `CodeJudge-Deploy`, which
+only `cdk deploy` (in `infra/`) replaces. After changing deploy.sh, run
+`cdk diff` (it should show only the document's new version) and `cdk deploy`
+before relying on the change. deploy.sh logs its own SHA-256, and the Deploy
+workflow warns ("The host ran a deploy.sh that differs …") when it isn't this
+commit's.
+
 ## 3. Rollback
 
 **Automatic.** A deploy that fails after the switch rolls back by itself
@@ -364,6 +373,10 @@ Time limits are measured on the production host, in the production sandbox
 (runsc, the release's images and seccomp profile), through the deploy path
 only; nobody logs in to the host.
 
+0. The calibration hook is part of deploy.sh, which ships in the SSM document
+   (§2): the document must be current (`cdk deploy`). Otherwise the request
+   is silently ignored, and the Deploy run warns that the host's deploy.sh
+   is stale.
 1. At a quiet time: **Actions → Deploy → Run workflow**, branch `main`, tick
    **calibrate**. The deploy runs as usual; once the release is live, deploy.sh
    starts `deploy/host/calibrate.sh` in a transient unit

@@ -258,6 +258,10 @@ attempt() {
   set -e
 }
 
+# This script reaches the host inside the CodeJudge-Deploy SSM document, which
+# changes only with cdk deploy. The Deploy workflow compares this hash with its
+# commit's deploy/host/deploy.sh and warns when the host's copy is stale.
+log "script sha256 $(sha256sum "$0" | cut -d' ' -f1)"
 REGION=$(region)
 PARAMS=$(fetch_params)
 

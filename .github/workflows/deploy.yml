@@ -163,6 +163,13 @@ jobs:
           done
           aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
             --query '[StandardOutputContent, StandardErrorContent]' --output text | tee "$RUNNER_TEMP/deploy.out" || true
+          # deploy.sh lives in the SSM document and changes only with cdk deploy.
+          want=$(sha256sum deploy/host/deploy.sh | cut -d' ' -f1)
+          if ! grep -q "deploy: script sha256 $want" "$RUNNER_TEMP/deploy.out"; then
+            msg="The host ran a deploy.sh that differs from this commit's deploy/host/deploy.sh. Run cdk deploy (infra/) to update the CodeJudge-Deploy document."
+            echo "::warning::$msg"
+            echo "**Warning:** $msg" >>"$GITHUB_STEP_SUMMARY"
+          fi
           # A finished calibration's summary (deploy/host/calibrate.sh), into the job summary.
           if summary=$(sed -n '/^CALIBRATION-BEGIN/,/^CALIBRATION-END/{/^CALIBRATION-/d;p}' "$RUNNER_TEMP/deploy.out" | base64 -d | gunzip 2>/dev/null) && [ -n "$summary" ]; then
             { echo '### Time-limit calibration'; echo '```'; echo "$summary"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
