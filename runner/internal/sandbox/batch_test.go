@@ -29,3 +29,11 @@ func TestValidateFrame(t *testing.T) {
 		}
 	}
 }
+
+// The host's frame limit for the largest output limit stays within the
+// protocol's hard cap, so ReadFrame never refuses a legitimate frame.
+func TestMaxFrameBytesCoversLargestOutput(t *testing.T) {
+	if got := frameBytes(MaxOutputBytes); got > protocol.MaxFrameBytes {
+		t.Fatalf("frameBytes(MaxOutputBytes) = %d > protocol.MaxFrameBytes %d", got, protocol.MaxFrameBytes)
+	}
+}

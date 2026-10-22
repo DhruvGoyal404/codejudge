@@ -40,6 +40,15 @@ const FrameMagic = "JFR1"
 // NonceSize is the length of the per-batch nonce at the start of MsgProgram.
 const NonceSize = 16
 
+// MaxFrameBytes bounds a result frame's JSON body, on both sides. The largest
+// real frame carries the largest accepted stdout (sandbox.MaxOutputBytes,
+// 16 MiB) plus capped stderr (64 KiB), base64-encoded by encoding/json (x4/3),
+// and a few hundred bytes of metadata: about 22.5 MB, which is what the host
+// allows for it (sandbox frameBytes). 32 MiB is comfortably above that, and far
+// below the u32 length prefix's range, so 8+len and the uint32 conversion can
+// never overflow.
+const MaxFrameBytes = 32 << 20
+
 // Framing errors.
 var (
 	ErrTruncated  = errors.New("truncated message")
@@ -120,6 +129,9 @@ func WriteFrame(w io.Writer, f Frame) error {
 	if err != nil {
 		return err
 	}
+	if len(body) > MaxFrameBytes {
+		return fmt.Errorf("%w: frame body %d > %d bytes", ErrTooLarge, len(body), MaxFrameBytes)
+	}
 	buf := make([]byte, 0, 8+len(body))
 	buf = append(buf, FrameMagic...)
 	buf = binary.BigEndian.AppendUint32(buf, uint32(len(body)))
@@ -128,7 +140,8 @@ func WriteFrame(w io.Writer, f Frame) error {
 	return err
 }
 
-// ReadFrame reads one result frame of at most maxLen JSON bytes.
+// ReadFrame reads one result frame of at most min(maxLen, MaxFrameBytes) JSON
+// bytes, refusing a larger length prefix before allocating anything.
 func ReadFrame(r io.Reader, maxLen uint32) (Frame, error) {
 	var f Frame
 	var hdr [8]byte
@@ -146,8 +159,8 @@ func ReadFrame(r io.Reader, maxLen uint32) (Frame, error) {
 		return f, ErrBadMagic
 	}
 	size := binary.BigEndian.Uint32(hdr[4:])
-	if size > maxLen {
-		return f, fmt.Errorf("%w: %d > %d bytes", ErrTooLarge, size, maxLen)
+	if size > maxLen || size > MaxFrameBytes {
+		return f, fmt.Errorf("%w: %d > %d bytes", ErrTooLarge, size, min(maxLen, MaxFrameBytes))
 	}
 	body := make([]byte, size)
 	if _, err := io.ReadFull(r, body); err != nil {

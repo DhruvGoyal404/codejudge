@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
+	"runtime"
 	"testing"
 )
 
@@ -158,5 +160,43 @@ func TestFrameErrors(t *testing.T) {
 	r := &countingReader{r: bytes.NewReader(huge), limit: 8, t: t}
 	if _, err := ReadFrame(r, 1<<20); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("huge length: %v", err)
+	}
+}
+
+// A body over MaxFrameBytes is refused before the frame (8+len) is built, and
+// nothing is written.
+func TestWriteFrameRejectsOversizeBody(t *testing.T) {
+	var buf bytes.Buffer
+	// base64 makes the JSON body 4/3 the size of Stdout: just over the limit.
+	big := Frame{Mode: "batch", Status: StatusExited, Stdout: make([]byte, MaxFrameBytes/4*3+1)}
+	if err := WriteFrame(&buf, big); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("oversize body: %v, want ErrTooLarge", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("%d bytes written for a refused frame", buf.Len())
+	}
+	// The largest real frame (16 MiB stdout + 64 KiB stderr) still fits.
+	largest := Frame{Mode: "batch", Status: StatusExited, Stdout: make([]byte, 16<<20), Stderr: make([]byte, 64<<10)}
+	if err := WriteFrame(&buf, largest); err != nil {
+		t.Fatalf("largest real frame: %v", err)
+	}
+}
+
+// A length prefix over MaxFrameBytes is refused from the header alone, even
+// when the caller allows more: nothing past the 8-byte header is read, and no
+// body-sized buffer is allocated.
+func TestReadFrameRejectsLengthAboveMaxFrameBytes(t *testing.T) {
+	hdr := binary.BigEndian.AppendUint32([]byte(FrameMagic), MaxFrameBytes+1)
+	r := &countingReader{r: io.MultiReader(bytes.NewReader(hdr), bytes.NewReader(make([]byte, 64))), limit: 8, t: t}
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := ReadFrame(r, math.MaxUint32)
+	runtime.ReadMemStats(&after)
+	if !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("length MaxFrameBytes+1: %v, want ErrTooLarge", err)
+	}
+	if alloc := after.TotalAlloc - before.TotalAlloc; alloc > 1<<20 {
+		t.Fatalf("allocated %d bytes for a refused frame", alloc)
 	}
 }
