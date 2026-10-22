@@ -185,6 +185,7 @@ smoke() {
   compose exec -T api node -e "fetch('http://127.0.0.1:8080/health').then(r=>r.json()).then(j=>process.exit(j.ok?0:1),()=>process.exit(1))" ||
     die "smoke: API health check failed"
   systemctl is-active --quiet judge-worker || die "smoke: judge-worker is not running"
+  systemctl is-active --quiet pg-backup.timer || die "smoke: pg-backup.timer is not active (no nightly backups)"
   set -a && . "$ETC/worker.env" && set +a
   "$ROOT/current/bin/judge-admin" smoke --problem ledger-total --lang cpp --timeout 5m \
     --src "$PROBLEMS_DIR/ledger-total/solutions/ref.cpp" || die "smoke: the test submission was not accepted"
