@@ -49,12 +49,12 @@ name `codejudge`, region `ap-south-1`, output `json`. Check it with
 
 ```sh
 cd infra && npm ci
-npx cdk bootstrap aws://<ACCOUNT_ID>/ap-south-1 --profile codejudge
+npx cdk bootstrap aws://<ACCOUNT_ID>/ap-south-1 --profile codejudge -c alarmEmail=<you@example.com>
 npx cdk diff   --profile codejudge -c alarmEmail=<you@example.com>
 npx cdk deploy --profile codejudge -c alarmEmail=<you@example.com>
 ```
 
-`-c alarmEmail` subscribes an address to the alarms; confirm the email AWS
+`-c alarmEmail` subscribes an address to the alarms. It is required: every cdk command that synthesizes the app (`bootstrap`, `diff`, `deploy`, `destroy`) stops without it, because a deploy without it would drop the subscription; confirm the email AWS
 sends. If the account already has a GitHub OIDC provider, also pass
 `-c existingOidcProviderArn=arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com`.
 Note the outputs: `InstanceId`, `PublicIp`, `BackupBucket`, `Registry`,
@@ -261,7 +261,7 @@ Before that date:
 2. **Record a demo** while it is live: landing page, problem list with
    filters, a problem with Run on custom input, an Accepted and a Wrong
    Answer submission, the submission history, the mobile view.
-3. **Tear down.** From `infra/`, run `npx cdk destroy --profile codejudge`. Destroy removes everything the stack created:
+3. **Tear down.** From `infra/`, run `npx cdk destroy --profile codejudge -c alarmEmail=<you@example.com>`. Destroy removes everything the stack created:
 
    | Resource | On `cdk destroy` |
    |---|---|

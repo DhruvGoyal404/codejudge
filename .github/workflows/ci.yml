@@ -409,7 +409,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       # No AWS credentials: synthesises against a placeholder VPC (review only).
-      - run: npm run synth
+      # alarmEmail is required by the app; CI passes a placeholder.
+      - run: npm run synth -- -c alarmEmail=ci@example.invalid
       - run: npm test
 
   # deploy/host/deploy.sh end to end on a bootstrapped Ubuntu 24.04 host, the
@@ -442,7 +443,7 @@ jobs:
       # The deploy document's commands come from the real template (offline synth).
       - name: Synthesize the stack
         working-directory: infra
-        run: npm ci --no-audit --no-fund && npx cdk synth --quiet
+        run: npm ci --no-audit --no-fund && npx cdk synth --quiet -c alarmEmail=ci@example.invalid
       - name: Deploy (through the SSM document's commands, run with sh), roll back, roll back by hand
         env:
           SSM_DOC_TEMPLATE: infra/cdk.out/CodeJudgeProd.template.json
