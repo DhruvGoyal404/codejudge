@@ -24,9 +24,11 @@ CLI profile `codejudge` (ap-south-1).
 | Monthly | **Reboot if a kernel update is waiting.** In a quiet hour, in a host session: `if [ -f /var/run/reboot-required ]; then sudo reboot; fi`. |
 | Monthly | **Cost check:** Billing → Bills, and Free Tier usage. The "surplus CPU credits charged" alarm emails you if the t3.small bursts on paid credits. |
 | Quarterly | **Test a restore:** `sudo -u codejudge bash -c 'set -a; . /etc/codejudge/backup.env; /opt/codejudge/current/app/deploy/backup/pg-restore.sh latest'` restores into a new `codejudge_restore_<ts>` database and prints its row counts next to the live ones. Then drop that database. |
+| Quarterly | First restore test due Jan 2027 (prod dump never restored yet). |
 | Twice a year | **AMI bump:** pick a newer Ubuntu 24.04 image and update `codejudge:hostAmi` in `infra/cdk.json`. This **replaces the host**, including the on-box Postgres, so follow docs/DEPLOY.md § 7 (backup first, then restore). |
 | Before expiry | **Domain renewal** for `dhruvgoyal.tech` at the registrar. If it lapses, the site and certificate renewal both stop. |
 | After 19 Dec 2026 | **One-time check that the certificate renewed** (the first one expires 19 Jan 2027): `curl -vI https://codejudge.dhruvgoyal.tech 2>&1 \| grep "expire date"` should show a date in 2027-03 or later. |
+| Within 3 days of a `cdk deploy` that creates or recreates the alarm subscription | **Confirm the alarm email.** Click the link in the message from no-reply@sns.amazonaws.com; AWS deletes subscriptions left unconfirmed for 3 days, and until then no alarm reaches you. Then check that the subscription shows an ARN, not `PendingConfirmation`: `aws sns list-subscriptions --profile codejudge --region ap-south-1 --query "Subscriptions[?Protocol=='email'].[Endpoint,SubscriptionArn]" --output table` |
 | After changing `deploy/host/deploy.sh` | Run `npx cdk deploy` with `-c alarmEmail` (the script ships inside the SSM document). The Deploy workflow warns if the host's copy is stale. |
 
 ## Commands
