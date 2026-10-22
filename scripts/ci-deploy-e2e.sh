@@ -90,6 +90,11 @@ expect_live() { # expect_live RELEASE [PREVIOUS]
     [ "$(sudo jq -r .release /opt/codejudge/state/previous.json)" = "$2" ] || fail "state/previous.json is not $2"
   fi
   systemctl is-active --quiet judge-worker || fail "judge-worker is not active"
+  # Every timer must be running, not just enabled (enabled timers only start
+  # at the next boot: production went without backups that way).
+  for t in deploy/systemd/*.timer; do
+    systemctl is-active --quiet "$(basename "$t")" || fail "$(basename "$t") is not active"
+  done
   code=$(curl -sk -o /dev/null -w '%{http_code}' --resolve localhost:443:127.0.0.1 https://localhost/api/health)
   [ "$code" = 200 ] || fail "https://localhost/api/health answered $code"
   echo "ok: $1 is live"
@@ -103,6 +108,25 @@ for f in prod.env worker.env backup.env; do
   [ "$(sudo stat -c '%a %U:%G' "/etc/codejudge/$f")" = "640 root:codejudge" ] || fail "/etc/codejudge/$f permissions"
 done
 sudo systemd-analyze verify /etc/systemd/system/judge-worker.service /etc/systemd/system/pg-backup.service /etc/systemd/system/pg-backup.timer
+
+log "nightly backup: the real unit (user, sandboxing, env) runs under systemd"
+# Same unit as production; only the destination differs (no AWS here): a
+# drop-in replaces backup.env with a local directory the sandbox may write.
+sudo install -d -o codejudge -g codejudge -m 0750 /srv/cj-backup-test
+sudo install -d /etc/systemd/system/pg-backup.service.d
+printf '[Service]\nEnvironmentFile=\nEnvironment=BACKUP_DEST=file:///srv/cj-backup-test\nReadWritePaths=/srv/cj-backup-test\n' |
+  sudo tee /etc/systemd/system/pg-backup.service.d/ci-local-dest.conf >/dev/null
+sudo systemctl daemon-reload
+if ! sudo systemctl start pg-backup.service; then
+  sudo journalctl -u pg-backup.service --no-pager -n 50
+  fail "pg-backup.service failed under systemd"
+fi
+sudo journalctl -u pg-backup.service --no-pager -n 5
+dump=$(sudo find /srv/cj-backup-test -name 'codejudge-*.dump' -print -quit)
+[ -n "$dump" ] || fail "pg-backup.service wrote no dump"
+sudo sh -c "cd /srv/cj-backup-test && sha256sum -c '$(basename "$dump").sha256'" || fail "dump checksum mismatch"
+sudo rm -rf /etc/systemd/system/pg-backup.service.d /srv/cj-backup-test
+sudo systemctl daemon-reload
 
 log "deploy r2 (broken API): must fail and roll back to r1"
 if deploy_doc "$(manifest r2 "$api_broken")"; then fail "the broken release deployed"; fi

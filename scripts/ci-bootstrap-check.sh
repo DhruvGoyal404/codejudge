@@ -31,6 +31,10 @@ id -nG codejudge | tr ' ' '\n' | grep -qx docker || fail "codejudge is not in th
 [ "$(stat -c '%a %U:%G' /etc/codejudge)" = "750 root:codejudge" ] || fail "/etc/codejudge permissions"
 systemctl is-enabled --quiet judge-worker || fail "judge-worker not enabled"
 systemctl is-enabled --quiet pg-backup.timer || fail "pg-backup.timer not enabled"
+# Enabled is not enough: an enabled timer only starts at the next boot.
+for t in deploy/systemd/*.timer; do
+  systemctl is-active --quiet "$(basename "$t")" || fail "$(basename "$t") is enabled but not active"
+done
 sudo test -d /run/codejudge/postgresql || fail "tmpfiles not applied" # 0750 root:codejudge
 for p in docker-ce docker-ce-cli containerd.io docker-compose-plugin; do
   apt-mark showhold | grep -qx "$p" || fail "$p is not held"
