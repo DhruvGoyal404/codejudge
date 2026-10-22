@@ -51,6 +51,20 @@ const (
 // samples. Output of hidden tests is never returned.
 const sampleOutputCap = 4 << 10
 
+// MaxTotalCPU caps the CPU time one submission may use over all its tests.
+const MaxTotalCPU = 60 * time.Second
+
+// TotalBudget is the CPU time a submission may spend on all its tests
+// together: the sum of its per-test limits, at most MaxTotalCPU. Its tests'
+// total wall time may be twice that, as each test's wall limit is about twice
+// its CPU limit (sandbox.WallLimit). This bounds how long one submission holds
+// a worker: a program just under the per-test limit on every test would
+// otherwise run tests x limit (450 s for 45 tests at 10 s). The budget is
+// checked after each test; the test that exhausts it is TLE.
+func TotalBudget(tests int, perTest time.Duration) time.Duration {
+	return min(time.Duration(tests)*perTest, MaxTotalCPU)
+}
+
 // TestDetail is the outcome of one executed test.
 type TestDetail struct {
 	Index           int    `json:"index"` // 1-based execution order
@@ -129,20 +143,39 @@ func Judge(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, l lang.
 		return nil, err
 	}
 	defer runner.close()
+	if err := runTests(sr, p, runner, TotalBudget(len(p.Tests), lim.TimeLimit), opt, progress); err != nil {
+		return nil, err
+	}
+	return sr, nil
+}
 
+// runTests runs p's tests in order and fills sr: per-test details, the first
+// failure, and the verdict. It stops at the first non-AC test (unless
+// opt.RunAll), when the container dies, or when the submission's total budget
+// (TotalBudget: CPU, and twice that in wall time) is exhausted.
+func runTests(sr *SubmissionResult, p *problem.Problem, r *runner, budget time.Duration, opt Options, progress func(string, int)) error {
+	var cpuMs, wallMs int64
 	for i, t := range p.Tests {
 		input, err := t.Input()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		progress(StageTesting, i+1)
-		res, alive := runner.run(input)
+		res, alive := r.run(input)
 		d := TestDetail{Index: i + 1, Name: t.Name, Sample: t.Sample, Verdict: verdictOf(res.Status), Message: res.Reason,
 			CPUMs: res.CPUMs, WallMs: res.WallMs, MaxRSSKB: res.MaxRSSKB, ExitCode: res.ExitCode, Signal: res.Signal, RunMs: res.RunMs}
+		cpuMs += res.CPUMs
+		wallMs += res.WallMs
+		overBudget := cpuMs > budget.Milliseconds() || wallMs > 2*budget.Milliseconds()
+		if overBudget && d.Verdict == AC {
+			d.Verdict = TLE
+			d.Message = fmt.Sprintf("total time budget exceeded: %d ms CPU, %d ms wall over %d tests (budget %d ms CPU, %d ms wall)",
+				cpuMs, wallMs, i+1, budget.Milliseconds(), 2*budget.Milliseconds())
+		}
 		var want []byte
 		if d.Verdict == AC {
 			if want, err = t.Expected(); err != nil {
-				return nil, err
+				return err
 			}
 			if c := checker.Check(p.Checker, []byte(res.Stdout), want); !c.OK {
 				d.Verdict, d.Message = WA, c.Message
@@ -164,14 +197,14 @@ func Judge(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, l lang.
 			sr.Verdict, sr.Reason = d.Verdict, d.Message
 			sr.FailedTest, sr.FailedTestIndex, sr.FailedIsSample = d.Name, d.Index, d.Sample
 		}
-		if !alive || (d.Verdict != AC && !opt.RunAll) {
-			break // a dead container ends the submission even with RunAll
+		if !alive || overBudget || (d.Verdict != AC && !opt.RunAll) {
+			break // a dead container or an exhausted budget ends the submission even with RunAll
 		}
 	}
 	if sr.Verdict == "" {
 		sr.Verdict = AC
 	}
-	return sr, nil
+	return nil
 }
 
 // verdictOf maps a sandbox run status to a submission verdict (OK -> AC,

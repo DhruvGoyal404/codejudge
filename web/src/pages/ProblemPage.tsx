@@ -347,7 +347,8 @@ function StatementBody({ problem }: { problem: Problem }) {
         ))}
       </div>
       <div className="flex flex-wrap gap-3 text-xs text-muted">
-        <span>Time limit: {problem.time_limit_ms / 1000} s</span>
+        <span>Time limit: {problem.time_limit_ms / 1000} s per test</span>
+        <span>At most 60 s CPU per submission in total</span>
         <span>Memory limit: {problem.memory_limit_mb} MB</span>
       </div>
     </header>

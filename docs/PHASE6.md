@@ -375,3 +375,156 @@ Runbooks and the manual steps: [DEPLOY.md](DEPLOY.md).
 - [deploy/host/bootstrap.sh](../deploy/host/bootstrap.sh): idempotent host setup (pinned Docker, gVisor with `--oci-seccomp`, 2 GiB swap, user, layout, units). Run from user data; CI runs it twice on ubuntu-24.04 and then the sandbox suite under runsc.
 - [deploy/host/deploy.sh](../deploy/host/deploy.sh) + [.github/workflows/deploy.yml](../.github/workflows/deploy.yml): images by digest, secrets from SSM, hidden tests at a pinned commit, migrations, smoke test (one AC submission via `judge-admin smoke`), automatic rollback. CI job `host-deploy` runs good → broken (auto rollback) → good → redeploy → manual rollback against a local registry.
 - Secrets: SSM SecureString under `/codejudge/prod/`. "Session settings" needed no secret (random tokens, stored hashed); `valkey_password` was added instead.
+
+## 6c Time-limit calibration on the production host
+
+**Done 2026-10-21** (`deploy/host/calibrate.sh`, started by Deploy run #38, reported by run #39, calibration `20261021T195409Z`). It used the production sandbox: t3.small, gVisor `runsc`, the release's images and seccomp profile. Method and runbook: [DEPLOY.md § 8](DEPLOY.md#8-time-limit-calibration-on-the-host).
+
+**Rule:** every reference uses at most 50% of its effective limit (worst test, worst of 3 passes), and every slow solution is TLE.
+
+**Coverage:** 100 problems × 3 passes.
+- Every problem has a C++ and a Python reference.
+- 5 problems also have C, Go, Java and JavaScript references: courier-grid, farthest-beacons, ledger-total, range-ledger and rising-towers.
+- 72 problems have a C++ slow solution.
+
+### Results
+
+- **References:** 660 of 660 judgements Accepted. Distribution of each reference's worst test as a share of its limit:
+
+  | 0–9% | 10–19% | 20–29% | 30–39% | 40–49% | ≥ 50% |
+  |---|---|---|---|---|---|
+  | 79 | 88 | 46 | 4 | 2 | 1 |
+
+- **Over 50%:** only cargo-hold's Python reference (1090 of 2000 ms, 54%). Fixed with `time_multiplier: python: 3` (3000 ms, 36%). The base limit stays 1 s, so C++ and the slow solution are unaffected.
+- **Highest remaining:** field-sums C++ (42%) and fare-combinations Python (41%). No other limit changed.
+- **Slow solutions:** 216 of 216 judgements TLE. Their times in the table are lower bounds: the program is killed, so "≥2000" means at least 2000 ms.
+
+### Submit-to-verdict latency
+
+20 C++ reference submissions per problem, timed in Postgres (`finished_at - created_at`). Each one went through the real queue and the single worker, and the time includes the C++ compile under gVisor.
+
+| Problem | p50 | p95 | max |
+|---|---|---|---|
+| ledger-total (small) | 3517 ms | 3665 ms | 4160 ms |
+| relay-delays (largest test data) | 6114 ms | 6388 ms | 6745 ms |
+
+### Known limitations
+
+- **Slow solutions exist only in C++.** Go, Java and JavaScript get ×2 the C++ limit, so a brute force in those languages that is only slightly slower than the C++ limit might pass. For example, a quadratic solution that needs 1.5 s in Go on a 1 s problem would get AC. Python's larger multipliers widen the same gap.
+- **References in all six languages exist for 5 problems only.** For the other 95, the 50% rule is measured for C++ and Python. C, Go, Java and JavaScript rely on the default multipliers (×1 C, ×2 Go/Java/JS), which the 5 six-language problems confirm. Their worst result there was Java at 27%.
+
+### Total budget per submission
+
+Limits are per test, and judging stops at the first failing test. Before this, a submission that passed every test ran all of them, however slowly. A correct Python solution just under billboard-strip's 10 s limit on each of 45 tests would hold the single worker for about 7.5 minutes, and a program that sleeps most of each test's wall limit about 16 minutes.
+
+- **The budget:** a submission may use at most `min(tests × per-test limit, 60 s)` of CPU in total. Its tests' total wall time may be twice that, matching the per-test wall limit of about 2× the CPU limit.
+- **Enforcement:** `judge.TotalBudget` is checked after each test, and the test that exhausts the budget is **TLE** ("total time budget exceeded"). So a submission holds the worker for at most the budget plus one test.
+- **Where users see it:** the problem page says "per test" and "at most 60 s CPU per submission in total".
+- **Safety margin:** the 11 heaviest Python references (worst test × number of tests over 60 s) were judged in full on a development machine. That machine is slower than production (1.4–2.9× per test). Their total CPU was 10–23 s, so even the heaviest has more than 2.6× headroom under 60 s.
+
+<details><summary>All results (worst of 3 passes: CPU ms / effective limit ms)</summary>
+
+| Problem | Diff | Limit (ms) | C++ ref | Python ref | Other refs | slow.cpp |
+|---|---|---|---|---|---|---|
+| anagram-groups | E | 1000 | 130 / 1000 (13%) | 300 / 2000 (15%) | - | - |
+| ancestor-lookup | M | 3000 | 470 / 3000 (16%) | 1260 / 9000 (14%) | - | >=4000 TLE |
+| badge-codes | E | 1000 | 250 / 1000 (25%) | 240 / 2000 (12%) | - | - |
+| bamboo-growth | H | 1000 | 40 / 1000 (4%) | 250 / 2000 (12%) | - | >=2000 TLE |
+| billboard-strip | H | 2000 | 170 / 2000 (8%) | 1100 / 10000 (11%) | - | >=3000 TLE |
+| bracket-ledger | E | 1000 | 80 / 1000 (8%) | 340 / 2000 (17%) | - | - |
+| bracket-repair | H | 1000 | 50 / 1000 (5%) | 140 / 5000 (3%) | - | >=2000 TLE |
+| bulk-cargo | H | 2000 | 60 / 2000 (3%) | 660 / 10000 (7%) | - | >=3000 TLE |
+| canal-routes | H | 2000 | 370 / 2000 (18%) | 2010 / 8000 (25%) | - | >=3000 TLE |
+| caravan-split | E | 1000 | 130 / 1000 (13%) | 210 / 2000 (10%) | - | - |
+| cargo-hold | M | 1000 | 50 / 1000 (5%) | **1090 / 2000 (54%)** → ×3: 3000 (36%) | - | >=2000 TLE |
+| cipher-wheel | E | 1000 | 70 / 1000 (7%) | 110 / 2000 (6%) | - | - |
+| clock-drift | E | 1000 | 100 / 1000 (10%) | 160 / 2000 (8%) | - | - |
+| courier-grid | M | 1000 | 60 / 1000 (6%) | 600 / 2000 (30%) | c 50/1000 (5%), go 80/2000 (4%), java 460/2000 (23%), javascript 210/2000 (10%) | >=1510 TLE |
+| course-order | M | 2000 | 280 / 2000 (14%) | 1090 / 4000 (27%) | - | >=3000 TLE |
+| critical-roads | M | 2000 | 450 / 2000 (22%) | 2120 / 10000 (21%) | - | >=3000 TLE |
+| digit-roots | E | 1000 | 130 / 1000 (13%) | 190 / 2000 (10%) | - | - |
+| distinct-snippets | M | 2000 | 250 / 2000 (12%) | 240 / 8000 (3%) | - | >=3000 TLE |
+| dock-crates | E | 1000 | 110 / 1000 (11%) | 340 / 2000 (17%) | - | - |
+| echo-log | E | 1000 | 170 / 1000 (17%) | 310 / 2000 (16%) | - | - |
+| echo-palindromes | H | 2000 | 60 / 2000 (3%) | 1000 / 10000 (10%) | - | >=3000 TLE |
+| echo-phrase | H | 2000 | 210 / 2000 (10%) | 1600 / 8000 (20%) | - | >=3000 TLE |
+| elevator-log | E | 1000 | 80 / 1000 (8%) | 200 / 2000 (10%) | - | - |
+| exhibit-variety | H | 2000 | 150 / 2000 (8%) | 1620 / 8000 (20%) | - | >=3000 TLE |
+| fare-combinations | M | 2000 | 50 / 2000 (2%) | 1650 / 4000 (41%) | - | >=3000 TLE |
+| farthest-beacons | H | 2000 | 170 / 2000 (8%) | 870 / 4000 (22%) | c 120/2000 (6%), go 150/4000 (4%), java 840/4000 (21%), javascript 810/4000 (20%) | >=3000 TLE |
+| fence-posts | M | 2000 | 170 / 2000 (8%) | 1200 / 8000 (15%) | - | >=3000 TLE |
+| festival-guards | M | 2000 | 380 / 2000 (19%) | 1050 / 8000 (13%) | - | >=3000 TLE |
+| field-sums | E | 1000 | 420 / 1000 (42%) | 900 / 4000 (22%) | - | - |
+| flood-bridges | H | 2000 | 330 / 2000 (16%) | 1640 / 10000 (16%) | - | >=3000 TLE |
+| frost-spread | M | 2000 | 80 / 2000 (4%) | 700 / 4000 (18%) | - | >=3010 TLE |
+| fuel-window | M | 1000 | 100 / 1000 (10%) | 430 / 2000 (22%) | - | >=2000 TLE |
+| gap-ranking | M | 2000 | 90 / 2000 (4%) | 1170 / 4000 (29%) | - | >=3000 TLE |
+| grade-curve | E | 2000 | 220 / 2000 (11%) | 600 / 4000 (15%) | - | - |
+| guild-alliances | M | 1000 | 180 / 1000 (18%) | 700 / 2000 (35%) | - | >=2000 TLE |
+| hall-bookings | M | 2000 | 200 / 2000 (10%) | 740 / 4000 (18%) | - | >=3000 TLE |
+| harbour-gcd | H | 1000 | 90 / 1000 (9%) | 280 / 5000 (6%) | - | >=2000 TLE |
+| hatchery-costs | H | 1000 | 90 / 1000 (9%) | 550 / 5000 (11%) | - | >=2010 TLE |
+| island-courier | H | 2000 | 60 / 2000 (3%) | 200 / 4000 (5%) | - | >=3000 TLE |
+| lamp-panel | E | 1000 | 90 / 1000 (9%) | 350 / 2000 (18%) | - | - |
+| lantern-festival | M | 1000 | 190 / 1000 (19%) | 470 / 2000 (24%) | - | >=2000 TLE |
+| leaderboard | E | 1000 | 130 / 1000 (13%) | 490 / 5000 (10%) | - | - |
+| ledger-total | E | 1000 | 90 / 1000 (9%) | 190 / 2000 (10%) | c 70/1000 (7%), go 80/2000 (4%), java 350/2000 (18%), javascript 320/2000 (16%) | >=2010 TLE |
+| lucky-plates | H | 1000 | 50 / 1000 (5%) | 130 / 2000 (6%) | - | >=2000 TLE |
+| map-rotation | E | 1000 | 60 / 1000 (6%) | 100 / 2000 (5%) | - | - |
+| market-stalls | M | 1000 | 150 / 1000 (15%) | 690 / 2000 (34%) | - | >=2000 TLE |
+| mirror-cuts | M | 1000 | 50 / 1000 (5%) | 1170 / 4000 (29%) | - | >=2000 TLE |
+| mirror-tags | E | 1000 | 70 / 1000 (7%) | 500 / 2000 (25%) | - | - |
+| motif-search | M | 1000 | 60 / 1000 (6%) | 460 / 2000 (23%) | - | >=2000 TLE |
+| network-backbone | M | 2000 | 300 / 2000 (15%) | 1240 / 8000 (16%) | - | >=3000 TLE |
+| one-way-districts | H | 2000 | 480 / 2000 (24%) | 1780 / 8000 (22%) | - | >=3000 TLE |
+| orchard-path | M | 2000 | 270 / 2000 (14%) | 800 / 4000 (20%) | - | >=3000 TLE |
+| pair-sums | E | 1000 | 130 / 1000 (13%) | 420 / 2000 (21%) | - | - |
+| press-split | M | 2000 | 80 / 2000 (4%) | 470 / 4000 (12%) | - | >=3000 TLE |
+| prime-lamps | E | 1000 | 230 / 1000 (23%) | 420 / 2000 (21%) | - | - |
+| queen-garden | H | 2000 | 50 / 2000 (2%) | 600 / 6000 (10%) | - | >=3000 TLE |
+| queue-swaps | M | 2000 | 130 / 2000 (6%) | 1910 / 8000 (24%) | - | >=3000 TLE |
+| radio-masts | M | 1000 | 110 / 1000 (11%) | 700 / 3000 (23%) | - | >=2000 TLE |
+| rail-fares | M | 2000 | 90 / 2000 (4%) | 1060 / 8000 (13%) | - | >=3000 TLE |
+| rainfall-median | E | 1000 | 100 / 1000 (10%) | 250 / 2000 (12%) | - | - |
+| range-ledger | E | 1000 | 230 / 1000 (23%) | 400 / 2000 (20%) | c 90/1000 (9%), go 90/2000 (4%), java 540/2000 (27%), javascript 390/2000 (20%) | >=2000 TLE |
+| reef-islands | M | 2000 | 70 / 2000 (4%) | 970 / 4000 (24%) | - | >=3000 TLE |
+| relay-delays | M | 3000 | 250 / 3000 (8%) | 970 / 6000 (16%) | - | >=4000 TLE |
+| ridge-lookout | M | 1000 | 310 / 1000 (31%) | 850 / 4000 (21%) | - | >=2000 TLE |
+| rising-towers | M | 1000 | 80 / 1000 (8%) | 170 / 2000 (8%) | c 70/1000 (7%), go 80/2000 (4%), java 280/2000 (14%), javascript 300/2000 (15%) | >=2000 TLE |
+| rival-teams | M | 2000 | 290 / 2000 (14%) | 940 / 4000 (24%) | - | >=3000 TLE |
+| river-stones | M | 1000 | 70 / 1000 (7%) | 280 / 2000 (14%) | - | >=2000 TLE |
+| rope-joining | M | 1000 | 50 / 1000 (5%) | 290 / 4000 (7%) | - | >=2000 TLE |
+| running-median | M | 2000 | 120 / 2000 (6%) | 620 / 4000 (16%) | - | >=3000 TLE |
+| shared-melody | M | 1000 | 150 / 1000 (15%) | 120 / 2000 (6%) | - | >=2000 TLE |
+| shared-members | E | 1000 | 150 / 1000 (15%) | 400 / 2000 (20%) | - | - |
+| signal-hub | H | 2000 | 360 / 2000 (18%) | 1870 / 10000 (19%) | - | >=3000 TLE |
+| signal-interference | M | 1000 | 170 / 1000 (17%) | 830 / 5000 (17%) | - | >=2000 TLE |
+| signal-towers | H | 2000 | 160 / 2000 (8%) | 1660 / 6000 (28%) | - | >=3000 TLE |
+| skyline-watch | M | 1000 | 110 / 1000 (11%) | 520 / 2000 (26%) | - | >=2000 TLE |
+| snow-paths | M | 1000 | 60 / 1000 (6%) | 340 / 5000 (7%) | - | >=2000 TLE |
+| spiral-tour | E | 1000 | 100 / 1000 (10%) | 190 / 2000 (10%) | - | - |
+| sprinkler-cover | M | 2000 | 180 / 2000 (9%) | 790 / 4000 (20%) | - | >=3000 TLE |
+| stair-hops | E | 1000 | 120 / 1000 (12%) | 400 / 2000 (20%) | - | - |
+| stepping-ledges | M | 1000 | 100 / 1000 (10%) | 280 / 4000 (7%) | - | >=2010 TLE |
+| stone-duel | H | 1000 | 70 / 1000 (7%) | 710 / 4000 (18%) | - | >=2000 TLE |
+| subset-tally | M | 1000 | 90 / 1000 (9%) | 570 / 5000 (11%) | - | >=2000 TLE |
+| summit-pass | M | 2000 | 170 / 2000 (8%) | 970 / 10000 (10%) | - | >=3000 TLE |
+| survey-plot | H | 1000 | 130 / 1000 (13%) | 400 / 2000 (20%) | - | >=2000 TLE |
+| swamp-crossing | M | 1000 | 50 / 1000 (5%) | 310 / 4000 (8%) | - | >=2010 TLE |
+| tally-windows | M | 1000 | 150 / 1000 (15%) | 330 / 2000 (16%) | - | >=2000 TLE |
+| tandem-bikes | E | 1000 | 140 / 1000 (14%) | 290 / 2000 (14%) | - | - |
+| team-draft | H | 1000 | 50 / 1000 (5%) | 580 / 4000 (14%) | - | >=2010 TLE |
+| telegraph-runs | E | 1000 | 80 / 1000 (8%) | 810 / 3000 (27%) | - | - |
+| tide-gauge | E | 1000 | 90 / 1000 (9%) | 210 / 2000 (10%) | - | - |
+| tile-floors | E | 1000 | 230 / 1000 (23%) | 460 / 2000 (23%) | - | - |
+| toll-passes | H | 1000 | 50 / 1000 (5%) | 190 / 5000 (4%) | - | >=2000 TLE |
+| toll-upgrades | H | 2000 | 60 / 2000 (3%) | 1300 / 10000 (13%) | - | >=3000 TLE |
+| trail-length | M | 2000 | 440 / 2000 (22%) | 1870 / 8000 (23%) | - | >=3000 TLE |
+| trail-markers | H | 3000 | 280 / 3000 (9%) | 1330 / 9000 (15%) | - | >=4000 TLE |
+| treasure-weights | H | 2000 | 130 / 2000 (6%) | 910 / 8000 (11%) | - | >=3000 TLE |
+| tree-walks | E | 2000 | 100 / 2000 (5%) | 230 / 4000 (6%) | - | - |
+| typo-distance | M | 2000 | 70 / 2000 (4%) | 940 / 4000 (24%) | - | >=3000 TLE |
+| vending-change | E | 1000 | 110 / 1000 (11%) | 200 / 2000 (10%) | - | - |
+| window-peaks | M | 1000 | 120 / 1000 (12%) | 410 / 2000 (20%) | - | >=2000 TLE |
+
+</details>

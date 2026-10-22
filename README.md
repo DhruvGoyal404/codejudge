@@ -70,7 +70,9 @@ flowchart LR
    kills every leftover process.
 3. **Measure each test:** CPU time against the time limit, peak memory
    against the memory limit, and output size. A host-side wall-clock
-   timeout backs this up.
+   timeout backs this up. The whole submission also has a budget: at most
+   `min(tests × time limit, 60 s)` of CPU in total, and twice that in wall
+   time. The test that exhausts it is TLE.
 4. **Check the output** with the problem's checker (token-wise comparison by
    default).
 5. **Verdict:**
