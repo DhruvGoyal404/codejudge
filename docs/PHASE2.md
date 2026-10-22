@@ -9,7 +9,7 @@ All tests pass:
 
 Every suite ends with 0 containers left by its process.
 
-> ⚠️ **All problem time limits are PROVISIONAL.** They were calibrated on Windows 11 + Docker Desktop (WSL2) under heavy host memory pressure (0.5–1.5 GB free). Recalibrate on the Linux worker in Phase 6. In particular, `farthest-beacons` was raised from 1 s to 2 s because of *per-test-mode* first-touch page-fault costs (Python reference up to 1.98 s CPU in fresh containers). In batch mode, the real path, the same reference used 0.82 s.
+> **Time limits were recalibrated on the production host** (gVisor, t3.small) on 2026-10-21; see [PHASE6.md § 6c](PHASE6.md#6c-time-limit-calibration-on-the-production-host). The Windows-era note that used to be here (`farthest-beacons` raised to 2 s because of per-test-mode page-fault costs) is history; the production numbers confirm the 2 s limit (worst reference 22% of its limit).
 
 ## Contents
 1. [Security notes](#security-notes)
@@ -224,7 +224,7 @@ CPU time on this host swings by 2–3× with memory pressure and concurrent load
 7. **Wrong and slow solutions are all C++,** so that WA/TLE can't be confused with Python slowness.
 8. **Large tests use n = 10⁵** (not the 2·10⁵ given as an example) to keep the repository at about 16 MB of test data. The slow solutions still need ≥ 5·10⁹ steps and TLE reliably.
 9. **The exact checker strips *all* trailing newlines,** not just one.
-10. **`farthest-beacons` time limit is 2 s** (see the PROVISIONAL note at the top).
+10. **`farthest-beacons` time limit is 2 s** (confirmed by the production calibration, PHASE6.md § 6c).
 11. **The Python "clear margin" is enforced as ≤ 50%** of the effective limit, asserted in `TestSeedProblems`.
 12. **Post-suite leak checks count only the current process's containers** (`judge.instance` label), so a concurrently running suite can't trip them. The reaper's behaviour is unchanged.
 
