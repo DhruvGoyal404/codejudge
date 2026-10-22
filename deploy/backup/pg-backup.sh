@@ -49,6 +49,7 @@ case "$BACKUP_DEST" in
       log "uploaded ${BACKUP_DEST%/}/$name, but publishing CodeJudge/BackupSucceeded failed"
       exit 3
     fi
+    log "metric published: CodeJudge/BackupSucceeded=1"
     ;;
   file://*)
     dir=${BACKUP_DEST#file://}
