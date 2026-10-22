@@ -211,7 +211,8 @@ the worker under systemd with gVisor.
 
 Postgres is backed up to S3 every night. Runbook (first deploy, rollback,
 restore, secret rotation, teardown, time-limit calibration):
-[docs/DEPLOY.md](docs/DEPLOY.md).
+[docs/DEPLOY.md](docs/DEPLOY.md). What runs by itself and what needs a person, how often:
+[MAINTENANCE.md](MAINTENANCE.md).
 
 ## Project history
 

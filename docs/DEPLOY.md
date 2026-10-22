@@ -143,7 +143,9 @@ Output of a run: the workflow log, or
 A push updates the images and everything under `deploy/` in the worker image,
 but the host runs the copy of deploy.sh embedded in `CodeJudge-Deploy`, which
 only `cdk deploy` (in `infra/`) replaces. After changing deploy.sh, run
-`cdk diff` (it should show only the document's new version) and `cdk deploy`
+`cdk diff` (it should show only the document's new version) and `cdk deploy`,
+both with `-c alarmEmail=<you@example.com>` (without it, the deploy removes the
+alarm email subscription),
 before relying on the change. deploy.sh logs its own SHA-256, and the Deploy
 workflow warns ("The host ran a deploy.sh that differs …") when it isn't this
 commit's.
@@ -374,7 +376,7 @@ Time limits are measured on the production host, in the production sandbox
 only; nobody logs in to the host.
 
 0. The calibration hook is part of deploy.sh, which ships in the SSM document
-   (§2): the document must be current (`cdk deploy`). Otherwise the request
+   (§2): the document must be current (`cdk deploy -c alarmEmail=…`). Otherwise the request
    is silently ignored, and the Deploy run warns that the host's deploy.sh
    is stale.
 1. At a quiet time: **Actions → Deploy → Run workflow**, branch `main`, tick
