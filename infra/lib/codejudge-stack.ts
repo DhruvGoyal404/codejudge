@@ -266,6 +266,29 @@ export class CodeJudgeStack extends Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
     credits.addAlarmAction(new cwActions.SnsAction(topic));
+    // No successful backup in 26 hours. pg-backup.sh publishes
+    // CodeJudge/BackupSucceeded=1 once per nightly upload (03:30 UTC + up to
+    // 10 min). Hourly periods: with a period of at least an hour, CloudWatch
+    // allows an evaluation range of up to 7 days, so 26 x 1 h is valid. Every
+    // one of the 26 hourly sums must be below 1 (missing counts as breaching),
+    // so a normal daily cadence (gaps of about 24 h) never fires it.
+    // Deploy it only after the first backup has published data: with no data
+    // at all, a "breaching" alarm goes to ALARM at once (MAINTENANCE.md).
+    const backupMissing = new cloudwatch.Alarm(this, "BackupMissing", {
+      alarmDescription: "No successful database backup in 26 hours (CodeJudge/BackupSucceeded): see MAINTENANCE.md, Backups",
+      metric: new cloudwatch.Metric({
+        namespace: HOST_METRIC_NAMESPACE,
+        metricName: "BackupSucceeded",
+        statistic: "Sum",
+        period: Duration.hours(1),
+      }),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      evaluationPeriods: 26,
+      datapointsToAlarm: 26,
+      treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+    });
+    backupMissing.addAlarmAction(new cwActions.SnsAction(topic));
 
     // --- Deploy document -------------------------------------------------------------
     const deployScript = hostScript("deploy.sh");

@@ -91,6 +91,24 @@ describe("backup freshness", () => {
     });
   });
 
+  it("alarms when no backup succeeded for 26 hours", () => {
+    t.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      Namespace: "CodeJudge",
+      MetricName: "BackupSucceeded",
+      Statistic: "Sum",
+      Period: 3600,
+      Threshold: 1,
+      ComparisonOperator: "LessThanThreshold",
+      EvaluationPeriods: 26,
+      DatapointsToAlarm: 26,
+      TreatMissingData: "breaching",
+    });
+    const [, a] = resources("AWS::CloudWatch::Alarm").find(([, x]) => x.Properties.MetricName === "BackupSucceeded")!;
+    // CloudWatch: evaluation range (period x periods) at most 7 days for periods of an hour or more.
+    expect(a.Properties.Period * a.Properties.EvaluationPeriods).toBeLessThanOrEqual(7 * 24 * 3600);
+    expect(a.Properties.AlarmActions).toHaveLength(1); // the SNS topic
+  });
+
   it("lets the host upload dumps exactly where pg-backup.sh writes them", () => {
     // deploy.sh renders BACKUP_DEST=s3://<bucket>/codejudge/pg; the role allows that prefix only.
     expect(BACKUP_PREFIX).toBe("codejudge/pg/");
