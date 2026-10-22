@@ -38,6 +38,8 @@ export const SANDBOX_REPOS = ["cpp-compile", "cpp-run", "python", "java-compile"
 export const DEPLOY_DOCUMENT = "CodeJudge-Deploy";
 /** Longest base64 release manifest the deploy document accepts (one today is ~2.5 KB). */
 export const MANIFEST_MAX_CHARS = 4000;
+/** CloudWatch namespace of the host's own metrics (deploy/backup/pg-backup.sh). */
+export const HOST_METRIC_NAMESPACE = "CodeJudge";
 /** The deploy document's runCommand lines (run by SSM with /bin/sh). */
 export const DEPLOY_RUN_COMMAND = (deployScript: string) => [
   "set -eu",
@@ -177,6 +179,16 @@ export class CodeJudgeStack extends Stack {
     );
     // GetAuthorizationToken has no resource-level permissions.
     role.addToPolicy(new iam.PolicyStatement({ sid: "RegistryLogin", actions: ["ecr:GetAuthorizationToken"], resources: ["*"] }));
+    // pg-backup.sh publishes CodeJudge/BackupSucceeded after each upload.
+    // PutMetricData has no resource ARNs; the namespace condition scopes it.
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "HostMetrics",
+        actions: ["cloudwatch:PutMetricData"],
+        resources: ["*"],
+        conditions: { StringEquals: { "cloudwatch:namespace": HOST_METRIC_NAMESPACE } },
+      }),
+    );
 
     // --- Host --------------------------------------------------------------------
     const sg = new ec2.SecurityGroup(this, "HostSg", {

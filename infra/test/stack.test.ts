@@ -80,6 +80,26 @@ describe("instance", () => {
   });
 });
 
+describe("backup freshness", () => {
+  it("lets the host publish metrics only in its own namespace", () => {
+    const s = statementsOf("InstanceRole").find((x: any) => x.Sid === "HostMetrics");
+    expect(s).toMatchObject({
+      Effect: "Allow",
+      Action: "cloudwatch:PutMetricData",
+      Resource: "*",
+      Condition: { StringEquals: { "cloudwatch:namespace": "CodeJudge" } },
+    });
+  });
+
+  it("lets the host upload dumps exactly where pg-backup.sh writes them", () => {
+    // deploy.sh renders BACKUP_DEST=s3://<bucket>/codejudge/pg; the role allows that prefix only.
+    expect(BACKUP_PREFIX).toBe("codejudge/pg/");
+    const s = statementsOf("InstanceRole").find((x: any) => x.Sid === "BackupPrefixObjects");
+    expect(s.Action).toEqual(["s3:PutObject", "s3:GetObject"]);
+    expect(JSON.stringify(s.Resource)).toContain("/codejudge/pg/*");
+  });
+});
+
 describe("storage and registries", () => {
   it("backup bucket: private, encrypted, unversioned, expires after 14 days, retained on stack deletion", () => {
     t.hasResource("AWS::S3::Bucket", {

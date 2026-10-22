@@ -11,6 +11,9 @@
 # server, no client on the host), custom format (compressed, selective
 # restore). The dump is checked with pg_restore --list before upload and its
 # SHA-256 is stored as object metadata and checked again on restore.
+#
+# After an S3 upload it publishes CodeJudge/BackupSucceeded = 1, the metric the
+# BackupMissing alarm (infra/) watches; if that fails the unit fails too.
 set -euo pipefail
 
 : "${BACKUP_DEST:?set BACKUP_DEST (s3://bucket/prefix or file:///dir)}"
@@ -42,6 +45,10 @@ case "$BACKUP_DEST" in
   s3://*)
     aws s3 cp "$tmp/$name" "${BACKUP_DEST%/}/$name" \
       --sse AES256 --metadata "sha256=$sha" --only-show-errors
+    if ! aws cloudwatch put-metric-data --namespace CodeJudge --metric-name BackupSucceeded --unit Count --value 1; then
+      log "uploaded ${BACKUP_DEST%/}/$name, but publishing CodeJudge/BackupSucceeded failed"
+      exit 3
+    fi
     ;;
   file://*)
     dir=${BACKUP_DEST#file://}
