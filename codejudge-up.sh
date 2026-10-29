@@ -137,8 +137,7 @@ CHECK="health on the IP $IP with the domain's certificate"
 check retry curl -fsS --max-time 15 --resolve "$DOMAIN:443:$IP" "https://$DOMAIN/api/health" -o /dev/null
 CHECK="health on https://$DOMAIN (DNS -> $IP, valid certificate)"
 domain_ok() {
-  local i
-  for i in $(seq 60); do
+  for _ in $(seq 60); do
     [ "$(curl -fsS --max-time 10 -o /dev/null -w '%{remote_ip}' "https://$DOMAIN/api/health" 2>/dev/null)" = "$IP" ] && return 0
     sleep 10
   done
@@ -149,7 +148,7 @@ CHECK="certificate: $(curl -fsS --max-time 10 --resolve "$DOMAIN:443:$IP" -o /de
 check true
 CHECK="GitHub OAuth: authorize page for our client"
 oauth_ok() {
-  local loc code
+  local loc
   loc=$(curl -fsS --max-time 15 -o /dev/null -w '%{redirect_url}' --resolve "$DOMAIN:443:$IP" "https://$DOMAIN/api/auth/github")
   [[ "$loc" == https://github.com/login/oauth/authorize?* ]] || return 1
   # Logged out, GitHub shows its sign-in page for any client ID, but only a
