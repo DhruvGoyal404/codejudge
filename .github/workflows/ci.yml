@@ -100,7 +100,7 @@ jobs:
           systemd-analyze verify deploy/systemd/judge-worker.service deploy/systemd/pg-backup.service deploy/systemd/pg-backup.timer
       - name: shellcheck
         working-directory: .
-        run: shellcheck --severity=warning deploy/backup/*.sh deploy/host/*.sh scripts/*.sh
+        run: shellcheck --severity=warning deploy/backup/*.sh deploy/host/*.sh scripts/*.sh ./*.sh
 
   # Hidden tests live in the private codejudge-problems repo, read through a
   # read-only deploy key (secret PROBLEMS_DEPLOY_KEY). Fork PRs get no secrets,

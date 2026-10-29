@@ -25,17 +25,21 @@ fi
 
 if [ -n "$ID" ]; then
   log "1/5 Backup, restore drill and Caddy data on the host"
+  # The drill runs this checkout's pg-restore.sh, whatever release the host has.
+  drill=$(tr -d '\r' <"$ROOT/deploy/backup/pg-restore.sh")
   out=$(ssm_run "$ID" '
 set -euo pipefail
 set -a; . /etc/codejudge/backup.env; set +a
-app=/opt/codejudge/current/app
+cat >/root/pg-restore-drill.sh <<'"'CODEJUDGE_DRILL'"'
+'"$drill"'
+CODEJUDGE_DRILL
 start=$(date +%s)
 systemctl start pg-backup.service
 dump=$(journalctl -u pg-backup.service --since "@$start" -o cat --no-pager | sed -n "s/^.*pg-backup: uploaded \(s3:\/\/.*\.dump\)$/\1/p" | tail -n 1)
 [ -n "$dump" ] || { echo "pg-backup.service ran but uploaded nothing"; exit 1; }
 echo "RESULT dump=$dump"
 # The drill: restore that very dump into a new database, compare every table.
-"$app/deploy/backup/pg-restore.sh" "$dump" --check
+bash /root/pg-restore-drill.sh "$dump" --check
 vol=$(docker volume ls -q --filter label=com.docker.compose.volume=caddy_data --filter label=com.docker.compose.project='"$COMPOSE_PROJECT"' | head -n 1)
 [ -n "$vol" ] || { echo "no caddy_data volume"; exit 1; }
 dir=$(docker volume inspect -f "{{.Mountpoint}}" "$vol")
