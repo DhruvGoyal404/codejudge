@@ -26,7 +26,8 @@ KEEP_FINAL=5
 PRICE_HOUR_USD=0.0299 # t3.small 0.0224 + gp3 20 GB (0.0912/GB-month) 0.0025 + public IPv4 0.005
 USD_INR=88
 
-WORK=$(mktemp -d)
+# Windows form too (C:/...): native jq, curl and aws.exe must open these files.
+WORK=$(cd "$(mktemp -d)" && { pwd -W 2>/dev/null || pwd; })
 trap 'rm -rf "$WORK"' EXIT
 T0=$(date +%s)
 
