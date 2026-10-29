@@ -6,6 +6,8 @@
 export MSYS_NO_PATHCONV=1 # "/codejudge/..." SSM names must reach aws.exe unchanged
 export AWS_PROFILE=${AWS_PROFILE:-codejudge}
 export AWS_REGION=ap-south-1 AWS_DEFAULT_REGION=ap-south-1 AWS_PAGER=""
+# aws.exe prints in the Windows code page and dies on characters such as "->" in host output.
+export PYTHONUTF8=1
 
 # pwd -W: the Windows form (E:/...) that native git and aws.exe accept with MSYS_NO_PATHCONV set.
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && { pwd -W 2>/dev/null || pwd; })
