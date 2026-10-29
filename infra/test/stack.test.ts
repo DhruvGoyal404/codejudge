@@ -4,25 +4,35 @@ import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { AMI_ID, APP_REPOS, BACKUP_PREFIX, CodeJudgeStack, GITHUB_REF, GITHUB_SUB, MANIFEST_MAX_CHARS, PARAM_PREFIX, SANDBOX_REPOS } from "../lib/codejudge-stack.ts";
+import { AMI_ID, APP_REPOS, BACKUP_PREFIX, BUDGET_USD, CodeJudgeHostStack, CodeJudgeStack, GITHUB_REF, GITHUB_SUB, HOST_TAG, MANIFEST_MAX_CHARS, PARAM_PREFIX, SANDBOX_REPOS } from "../lib/codejudge-stack.ts";
 
 // The committed pin, exactly as `cdk deploy` reads it.
 const HOST_AMI: string = JSON.parse(readFileSync(new URL("../cdk.json", import.meta.url), "utf8")).context["codejudge:hostAmi"];
 
+const ENV = { account: "123456789012", region: "ap-south-1" };
+// t/json: the persistent stack (CodeJudgeProd); h/hjson: the host stack (CodeJudgeHost).
 let t: Template;
 let json: Record<string, any>;
+let h: Template;
+let hjson: Record<string, any>;
+let persistent: CodeJudgeStack;
 
 beforeAll(() => {
   const app = new App();
-  const stack = new CodeJudgeStack(app, "Test", { env: { account: "123456789012", region: "ap-south-1" }, offline: true, hostAmi: HOST_AMI });
-  t = Template.fromStack(stack);
+  persistent = new CodeJudgeStack(app, "Test", { env: ENV, alarmEmail: "alarms@example.invalid", budgetEmail: "budget@example.invalid" });
+  const host = new CodeJudgeHostStack(app, "TestHost", { env: ENV, offline: true, hostAmi: HOST_AMI, persistent });
+  t = Template.fromStack(persistent);
   json = t.toJSON();
+  h = Template.fromStack(host);
+  hjson = h.toJSON();
 }, 120_000);
 
-const resources = (type: string) => Object.entries(json.Resources as Record<string, any>).filter(([, r]) => r.Type === type);
+const resources = (type: string, j: Record<string, any> = json) => Object.entries(j.Resources as Record<string, any>).filter(([, r]) => r.Type === type);
+const hostResources = (type: string) => resources(type, hjson);
 /** Every policy statement of every inline policy attached to the role with this logical-id prefix. */
 function statementsOf(rolePrefix: string): any[] {
-  return resources("AWS::IAM::Policy")
+  const j = rolePrefix === "InstanceRole" ? hjson : json;
+  return resources("AWS::IAM::Policy", j)
     .filter(([, p]) => p.Properties.Roles.some((r: any) => JSON.stringify(r).includes(rolePrefix)))
     .flatMap(([, p]) => p.Properties.PolicyDocument.Statement);
 }
@@ -30,41 +40,45 @@ const asList = <T>(x: T | T[]) => (Array.isArray(x) ? x : [x]);
 
 describe("network exposure", () => {
   it("never opens port 22, and opens only 80/443 to the world", () => {
-    for (const [, sg] of resources("AWS::EC2::SecurityGroup")) {
+    expect(hostResources("AWS::EC2::SecurityGroup").length).toBeGreaterThan(0);
+    expect(resources("AWS::EC2::SecurityGroup")).toHaveLength(0); // nothing network-facing stays while down
+    for (const [, sg] of hostResources("AWS::EC2::SecurityGroup")) {
       for (const rule of sg.Properties.SecurityGroupIngress ?? []) {
         expect(rule.FromPort <= 22 && rule.ToPort >= 22, JSON.stringify(rule)).toBe(false);
         expect([80, 443]).toContain(rule.FromPort);
         expect(rule.ToPort).toBe(rule.FromPort);
       }
     }
-    expect(resources("AWS::EC2::SecurityGroupIngress")).toHaveLength(0); // no rules added elsewhere
+    expect(hostResources("AWS::EC2::SecurityGroupIngress")).toHaveLength(0); // no rules added elsewhere
   });
 
   it("has an Elastic IP associated with the instance", () => {
-    t.resourceCountIs("AWS::EC2::EIP", 1);
-    t.hasResourceProperties("AWS::EC2::EIPAssociation", { InstanceId: Match.anyValue(), AllocationId: Match.anyValue() });
+    h.resourceCountIs("AWS::EC2::EIP", 1);
+    t.resourceCountIs("AWS::EC2::EIP", 0);
+    h.hasResourceProperties("AWS::EC2::EIPAssociation", { InstanceId: Match.anyValue(), AllocationId: Match.anyValue() });
   });
 });
 
 describe("instance", () => {
   it("is a t3.small with credits UNLIMITED", () => {
-    t.hasResourceProperties("AWS::EC2::Instance", { InstanceType: "t3.small", CreditSpecification: { CPUCredits: "unlimited" } });
+    h.hasResourceProperties("AWS::EC2::Instance", { InstanceType: "t3.small", CreditSpecification: { CPUCredits: "unlimited" } });
+    t.resourceCountIs("AWS::EC2::Instance", 0);
   });
 
   it("requires IMDSv2", () => {
-    t.hasResourceProperties("AWS::EC2::LaunchTemplate", {
+    h.hasResourceProperties("AWS::EC2::LaunchTemplate", {
       LaunchTemplateData: { MetadataOptions: { HttpTokens: "required" } },
     });
   });
 
   it("has a 20 GB encrypted gp3 root volume", () => {
-    t.hasResourceProperties("AWS::EC2::Instance", {
+    h.hasResourceProperties("AWS::EC2::Instance", {
       BlockDeviceMappings: [{ DeviceName: "/dev/sda1", Ebs: { VolumeSize: 20, VolumeType: "gp3", Encrypted: true } }],
     });
   });
 
   it("its user data runs the bootstrap and carries no secrets", () => {
-    const [[, inst]] = resources("AWS::EC2::Instance");
+    const [[, inst]] = hostResources("AWS::EC2::Instance");
     const userData = JSON.stringify(inst.Properties.UserData);
     expect(userData).toContain("bootstrap.sh");
     expect(userData).not.toContain("\\r"); // LF only, even when synthesised from a Windows checkout
@@ -74,9 +88,14 @@ describe("instance", () => {
   });
 
   it("recovers on a failed system status check and alarms on surplus credit charges", () => {
-    const recover = resources("AWS::CloudWatch::Alarm").find(([, a]) => a.Properties.MetricName === "StatusCheckFailed_System")![1];
+    const recover = hostResources("AWS::CloudWatch::Alarm").find(([, a]) => a.Properties.MetricName === "StatusCheckFailed_System")![1];
     expect(JSON.stringify(recover.Properties.AlarmActions)).toContain(":automate:ap-south-1:ec2:recover");
-    t.hasResourceProperties("AWS::CloudWatch::Alarm", { MetricName: "CPUSurplusCreditsCharged", Threshold: 0, ComparisonOperator: "GreaterThanThreshold" });
+    h.hasResourceProperties("AWS::CloudWatch::Alarm", { MetricName: "CPUSurplusCreditsCharged", Threshold: 0, ComparisonOperator: "GreaterThanThreshold" });
+  });
+
+  it("carries the tag the deploy workflow and the deploy role find it by", () => {
+    const [[, inst]] = hostResources("AWS::EC2::Instance");
+    expect(inst.Properties.Tags).toContainEqual({ Key: HOST_TAG.key, Value: HOST_TAG.value });
   });
 });
 
@@ -130,10 +149,13 @@ describe("storage and registries", () => {
     });
     const [[, bucket]] = resources("AWS::S3::Bucket");
     expect(bucket.Properties.VersioningConfiguration).toBeUndefined();
+    // Only the nightly prefix expires: codejudge-down.sh's final backups must survive a long down.
+    expect(bucket.Properties.LifecycleConfiguration.Rules).toEqual([expect.objectContaining({ Prefix: BACKUP_PREFIX, ExpirationInDays: 14 })]);
   });
 
   it("one ECR repo per image, each keeping the last 10 images", () => {
-    const repos = resources("AWS::ECR::Repository");
+    const repos = hostResources("AWS::ECR::Repository");
+    expect(resources("AWS::ECR::Repository")).toHaveLength(0); // registries go with the host
     expect(repos.map(([, r]) => r.Properties.RepositoryName).sort()).toEqual(
       [...APP_REPOS, ...SANDBOX_REPOS.map((s) => `sandbox-${s}`)].map((n) => `codejudge/${n}`).sort(),
     );
@@ -174,7 +196,7 @@ describe("GitHub OIDC deploy role", () => {
 
 describe("least privilege", () => {
   // Actions AWS offers no resource-level permissions for.
-  const UNSCOPABLE = new Set(["ecr:GetAuthorizationToken", "ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]);
+  const UNSCOPABLE = new Set(["ecr:GetAuthorizationToken", "ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ec2:DescribeInstances"]);
 
   for (const role of ["InstanceRole", "DeployRole"]) {
     it(`${role}: every statement names specific ARNs (except unscopable actions)`, () => {
@@ -202,24 +224,27 @@ describe("least privilege", () => {
     expect(JSON.stringify(bySid("BackupPrefixList").Condition)).toContain(BACKUP_PREFIX);
     expect(asList(bySid("PullOwnImages").Resource)).toHaveLength(APP_REPOS.length + SANDBOX_REPOS.length);
     expect(asList(bySid("PullOwnImages").Action)).not.toContain("ecr:PutImage");
-    t.hasResourceProperties("AWS::IAM::Role", {
+    h.hasResourceProperties("AWS::IAM::Role", {
       ManagedPolicyArns: [Match.objectLike({ "Fn::Join": Match.arrayWith([Match.arrayWith([":iam::aws:policy/AmazonSSMManagedInstanceCore"])]) })],
     });
   });
 
-  it("deploy role: SendCommand only to this instance with our document; push only to our repos", () => {
+  it("deploy role: SendCommand only with our document and only to the tagged host; push only to our repos", () => {
     const s = statementsOf("DeployRole");
-    const send = s.find((x) => x.Sid === "RunDeployDocumentOnHost")!;
-    expect(asList(send.Action)).toEqual(["ssm:SendCommand"]);
-    const res = JSON.stringify(send.Resource);
-    expect(res).toContain(":instance/");
-    expect(res).toContain(":document/");
-    expect(asList(send.Resource)).toHaveLength(2);
+    const doc = s.find((x) => x.Sid === "RunDeployDocument")!;
+    expect(asList(doc.Action)).toEqual(["ssm:SendCommand"]);
+    expect(JSON.stringify(doc.Resource)).toContain(":document/");
+    expect(asList(doc.Resource)).toHaveLength(1);
+    const onHost = s.find((x) => x.Sid === "RunOnTaggedHost")!;
+    expect(asList(onHost.Action)).toEqual(["ssm:SendCommand"]);
+    expect(JSON.stringify(onHost.Resource)).toContain(":instance/*");
+    expect(onHost.Condition).toEqual({ StringEquals: { [`ssm:resourceTag/${HOST_TAG.key}`]: HOST_TAG.value } });
     const push = s.find((x) => x.Sid === "PushOwnImages")!;
-    expect(asList(push.Resource)).toHaveLength(APP_REPOS.length + SANDBOX_REPOS.length);
+    expect(JSON.stringify(push.Resource)).toContain(":repository/codejudge/*");
+    expect(asList(push.Resource)).toHaveLength(1);
     const actions = s.flatMap((x) => asList(x.Action));
-    expect(actions.filter((a: string) => !a.startsWith("ecr:") && !a.startsWith("ssm:")), "only ECR + deploy").toEqual([]);
-    expect(actions.filter((a: string) => a.startsWith("ssm:")).sort()).toEqual(["ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ssm:SendCommand"]);
+    expect(actions.filter((a: string) => !a.startsWith("ecr:") && !a.startsWith("ssm:")), "only ECR, deploy, find host").toEqual(["ec2:DescribeInstances"]);
+    expect([...new Set(actions.filter((a: string) => a.startsWith("ssm:")))].sort()).toEqual(["ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ssm:SendCommand"]);
   });
 });
 
@@ -240,47 +265,53 @@ describe("deploy document", () => {
 describe("the host is never replaced by accident", () => {
   it("boots a literal, pinned AMI ID, not one resolved from SSM at deploy time", () => {
     expect(HOST_AMI).toMatch(AMI_ID);
-    const [[, inst]] = resources("AWS::EC2::Instance");
+    const [[, inst]] = hostResources("AWS::EC2::Instance");
     expect(inst.Properties.ImageId).toBe(HOST_AMI); // a string, not { Ref: <SSM parameter> }
     // No image ID resolved at deploy time. (CDK's own BootstrapVersion
     // parameter is also read from SSM, but it is a version number, not an AMI.)
-    const params = Object.values((json.Parameters ?? {}) as Record<string, any>);
+    const params = Object.values((hjson.Parameters ?? {}) as Record<string, any>);
     expect(params.filter((p) => String(p.Type).includes("AWS::EC2::Image::Id"))).toEqual([]);
-    expect(JSON.stringify(json)).not.toContain("/aws/service/canonical/");
+    expect(JSON.stringify(hjson)).not.toContain("/aws/service/canonical/");
   });
 
   it("keeps a stable logical ID (a new ID means a new instance)", () => {
     // userDataCausesReplacement: false, so user-data edits do not alter the
     // logical ID; CloudFormation applies UserData changes with a stop/start.
-    expect(resources("AWS::EC2::Instance").map(([id]) => id)).toEqual(["HostB4E45AD7"]);
+    expect(hostResources("AWS::EC2::Instance").map(([id]) => id)).toEqual(["HostB4E45AD7"]);
   });
 
   it("refuses to synthesise without a pinned AMI", () => {
     for (const bad of [undefined, "", "ami-", "resolve:ssm:/aws/service/canonical/x", "ami-XYZ"]) {
-      expect(() => new CodeJudgeStack(new App(), "Bad", { env: { account: "123456789012", region: "ap-south-1" }, offline: true, hostAmi: bad as string })).toThrow(/pinned AMI/);
+      const app = new App();
+      const p = new CodeJudgeStack(app, "P", { env: ENV });
+      expect(() => new CodeJudgeHostStack(app, "Bad", { env: ENV, offline: true, persistent: p, hostAmi: bad as string })).toThrow(/pinned AMI/);
     }
   });
 });
 
 describe("cdk destroy leaves nothing behind", () => {
   it("creates no custom resources or Lambdas (their log groups would outlive the stack)", () => {
-    const types = Object.values(json.Resources as Record<string, any>).map((r) => r.Type as string);
-    expect(types.filter((x) => x.startsWith("Custom::") || x.startsWith("AWS::Lambda::") || x === "AWS::Logs::LogGroup")).toEqual([]);
+    for (const j of [json, hjson]) {
+      const types = Object.values(j.Resources as Record<string, any>).map((r) => r.Type as string);
+      expect(types.filter((x) => x.startsWith("Custom::") || x.startsWith("AWS::Lambda::") || x === "AWS::Logs::LogGroup")).toEqual([]);
+    }
     t.resourceCountIs("AWS::IAM::OIDCProvider", 1);
   });
 
-  it("retains only the backup bucket; everything else is deleted with the stack", () => {
-    const retained = Object.entries(json.Resources as Record<string, any>)
-      .filter(([, r]) => r.DeletionPolicy === "Retain" || r.DeletionPolicy === "RetainExceptOnCreate" || r.UpdateReplacePolicy === "Retain")
-      .map(([, r]) => r.Type);
-    expect(retained).toEqual(["AWS::S3::Bucket"]);
+  it("retains only the backup bucket; everything else is deleted with its stack", () => {
+    const retained = (j: Record<string, any>) =>
+      Object.entries(j.Resources as Record<string, any>)
+        .filter(([, r]) => r.DeletionPolicy === "Retain" || r.DeletionPolicy === "RetainExceptOnCreate" || r.UpdateReplacePolicy === "Retain")
+        .map(([, r]) => r.Type);
+    expect(retained(json)).toEqual(["AWS::S3::Bucket"]);
+    expect(retained(hjson)).toEqual([]); // codejudge-down.sh destroys the host stack completely
   });
 
   it("empties the image repositories and releases the address and the volume", () => {
-    for (const [, r] of resources("AWS::ECR::Repository")) expect(r.Properties.EmptyOnDelete).toBe(true);
-    const [[, inst]] = resources("AWS::EC2::Instance");
+    for (const [, r] of hostResources("AWS::ECR::Repository")) expect(r.Properties.EmptyOnDelete).toBe(true);
+    const [[, inst]] = hostResources("AWS::EC2::Instance");
     expect(inst.Properties.BlockDeviceMappings[0].Ebs.DeleteOnTermination).toBe(true);
-    t.resourceCountIs("AWS::EC2::EIP", 1); // released when the stack deletes it
+    h.resourceCountIs("AWS::EC2::EIP", 1); // released when the stack deletes it
   });
 });
 
@@ -380,5 +411,20 @@ describe("the deploy document runs under /bin/sh", () => {
 
   it("is updated in place: a new version of the same named document", () => {
     t.hasResourceProperties("AWS::SSM::Document", { Name: "CodeJudge-Deploy", UpdateMethod: "NewVersion" });
+  });
+});
+
+describe("budget", () => {
+  it("alerts (does not cap) at 50/80/100% of about Rs 500 a month, and on the forecast", () => {
+    expect(BUDGET_USD).toBeGreaterThan(5);
+    expect(BUDGET_USD).toBeLessThan(6.5); // Rs 500 at Rs 80-100 to the dollar
+    const [[, b]] = resources("AWS::Budgets::Budget");
+    expect(b.Properties.Budget).toMatchObject({ BudgetType: "COST", TimeUnit: "MONTHLY", BudgetLimit: { Amount: BUDGET_USD, Unit: "USD" } });
+    const n = b.Properties.NotificationsWithSubscribers.map((x: any) => `${x.Notification.NotificationType} ${x.Notification.Threshold}`);
+    expect(n).toEqual(["ACTUAL 50", "ACTUAL 80", "ACTUAL 100", "FORECASTED 100"]);
+    for (const x of b.Properties.NotificationsWithSubscribers) {
+      expect(x.Subscribers).toEqual([{ SubscriptionType: "EMAIL", Address: "budget@example.invalid" }]);
+    }
+    expect(resources("AWS::Budgets::Budget", hjson)).toHaveLength(0); // stays while down
   });
 });
