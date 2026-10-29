@@ -17,8 +17,11 @@
 # secrets are masked in every log line, and the first step also masks the
 # account ID on its own.
 #   AWS_DEPLOY_ROLE_ARN      DeployRoleArn
-#   CODEJUDGE_INSTANCE_ID    InstanceId
 #   ECR_REGISTRY             Registry (<account>.dkr.ecr.ap-south-1.amazonaws.com)
+#
+# The host is found by its tag (codejudge:host=prod): it is rebuilt on every
+# codejudge-up.sh and gone after codejudge-down.sh. While it is down this
+# workflow fails at once with "site is down, run codejudge-up.sh first".
 name: Deploy
 
 on:
@@ -65,7 +68,6 @@ jobs:
     env:
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       REGISTRY: ${{ secrets.ECR_REGISTRY }}
-      INSTANCE_ID: ${{ secrets.CODEJUDGE_INSTANCE_ID }}
     steps:
       # Before anything can print it. The secrets themselves are masked already.
       - name: Mask the AWS account ID
@@ -76,7 +78,7 @@ jobs:
           account=$(cut -d: -f5 <<<"$ROLE_ARN")
           [[ "$account" =~ ^[0-9]{12}$ ]] || { echo "::error::secret AWS_DEPLOY_ROLE_ARN is not an IAM role ARN"; exit 1; }
           echo "::add-mask::$account"
-          [ -n "$REGISTRY" ] && [ -n "$INSTANCE_ID" ] || { echo "::error::set the ECR_REGISTRY and CODEJUDGE_INSTANCE_ID secrets"; exit 1; }
+          [ -n "$REGISTRY" ] || { echo "::error::set the ECR_REGISTRY secret"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.SHA }}
@@ -93,6 +95,19 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           role-session-name: codejudge-deploy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
+      # Before any build: a down site has no host and no registries.
+      - name: Find the host
+        run: |
+          set -euo pipefail
+          id=$(aws ec2 describe-instances --filters Name=tag:codejudge:host,Values=prod Name=instance-state-name,Values=running \
+            --query 'Reservations[].Instances[].InstanceId' --output text)
+          if [ -z "$id" ] || [ "$id" = None ]; then
+            echo "::error::site is down, run codejudge-up.sh first"
+            exit 1
+          fi
+          [ "$(wc -w <<<"$id")" = 1 ] || { echo "::error::more than one running host is tagged codejudge:host=prod"; exit 1; }
+          echo "::add-mask::$id"
+          echo "INSTANCE_ID=$id" >>"$GITHUB_ENV"
       - name: Log in to ECR
         run: aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
       - name: Build sandbox images
