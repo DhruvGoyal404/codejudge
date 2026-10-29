@@ -96,8 +96,8 @@ set -euo pipefail
 url="s3://'"$BUCKET/$NIGHTLY_PREFIX$(basename "$DUMP_KEY")"'"
 marker=/opt/codejudge/state/restored-from
 compose=(docker compose -f /opt/codejudge/current/app/deploy/compose.prod.yaml --env-file /etc/codejudge/prod.env)
-if [ "$(cat "$marker" 2>/dev/null)" = "$url" ]; then
-  echo "already restored from $url"
+if [ -s "$marker" ]; then # this host was restored already: its data is live now, never restore over it
+  echo "already restored from $(cut -f1 "$marker")"
 else
   systemctl stop judge-worker
   "${compose[@]}" stop api
@@ -108,8 +108,9 @@ else
   /opt/codejudge/current/bin/judge-admin import /opt/codejudge/current/app/problems >/dev/null
   "${compose[@]}" up -d --no-build --wait --wait-timeout 300 api
   systemctl start judge-worker
-  echo "$url" >"$marker"
+  printf "%s\t%s\n" "$url" '"'$COUNTS'"' >"$marker"
 fi
+echo "RESULT expected=$(cut -s -f2 "$marker")"
 q() { "${compose[@]}" exec -T postgres sh -c "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -h 127.0.0.1 -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -XAt -c \"select count(*) from $1\"" </dev/null | tr -d "\r"; }
 echo "RESULT counts=users=$(q users) submissions=$(q submissions) submission_tests=$(q submission_tests) problems=$(q problems)"
 start=$(date +%s)
@@ -118,6 +119,7 @@ journalctl -u pg-backup.service --since "@$start" -o cat --no-pager | grep -E "u
 ') || die "database restore failed"
 printf '%s\n' "$out" | grep -E 'pg-restore|already|uploaded|metric' >&2 || true
 LIVE=$(result counts "$out")
+COUNTS=$(result expected "$out") # what the restore was checked against (kept on the host for re-runs)
 echo "restored: $LIVE" >&2
 echo "at final backup: ${COUNTS:-<none: the newest dump is a nightly one, no counts were recorded>}" >&2
 for t in users submissions submission_tests; do
@@ -134,27 +136,29 @@ log "6/6 Checks"
 fail=0
 check() { if "$@"; then printf '  ok    %s\n' "$CHECK" >&2; else printf '  \033[31mFAIL\033[0m  %s\n' "$CHECK" >&2; fail=1; fi; }
 CHECK="health on the IP $IP with the domain's certificate"
-check retry curl -fsS --max-time 15 --resolve "$DOMAIN:443:$IP" "https://$DOMAIN/api/health" -o /dev/null
+check retry curl -fsS --max-time 15 --resolve "$DOMAIN:443:$IP" "https://$DOMAIN/api/health" -o "$(winpath "$WORK/body")"
 CHECK="health on https://$DOMAIN (DNS -> $IP, valid certificate)"
 domain_ok() {
   for _ in $(seq 60); do
-    [ "$(curl -fsS --max-time 10 -o /dev/null -w '%{remote_ip}' "https://$DOMAIN/api/health" 2>/dev/null)" = "$IP" ] && return 0
+    [ "$(curl -fsS --max-time 10 -o "$(winpath "$WORK/body")" -w '%{remote_ip}' "https://$DOMAIN/api/health" 2>/dev/null)" = "$IP" ] && return 0
     sleep 10
   done
   return 1
 }
 check domain_ok
-CHECK="certificate: $(curl -fsS --max-time 10 --resolve "$DOMAIN:443:$IP" -o /dev/null -w '%{ssl_verify_result}' "https://$DOMAIN/" 2>/dev/null | sed 's/^0$/verified/'), $(echo | openssl s_client -connect "$IP:443" -servername "$DOMAIN" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null)"
+CHECK="certificate: $(curl -fsS --max-time 10 --resolve "$DOMAIN:443:$IP" -o "$(winpath "$WORK/body")" -w '%{ssl_verify_result}' "https://$DOMAIN/" 2>/dev/null | sed 's/^0$/verified/'), $(echo | openssl s_client -connect "$IP:443" -servername "$DOMAIN" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null)"
 check true
 CHECK="GitHub OAuth: authorize page for our client"
 oauth_ok() {
   local loc
-  loc=$(curl -fsS --max-time 15 -o /dev/null -w '%{redirect_url}' --resolve "$DOMAIN:443:$IP" "https://$DOMAIN/api/auth/github")
+  loc=$(curl -fsS --max-time 15 -o "$(winpath "$WORK/body")" -w '%{redirect_url}' --resolve "$DOMAIN:443:$IP" "https://$DOMAIN/api/auth/github")
   [[ "$loc" == https://github.com/login/oauth/authorize?* ]] || return 1
   # Logged out, GitHub shows its sign-in page for any client ID, but only a
   # registered OAuth app's page says "to continue to <app>" (checked against
   # a made-up ID).
-  curl -fsS --max-time 15 -L "$loc" | grep -qi 'continue to'
+  local page
+  page=$(curl -fsS --max-time 15 -L "$loc") || return 1
+  grep -qi 'continue to' <<<"$page"
 }
 check oauth_ok
 CHECK="hidden-tests deploy key (git ls-remote codejudge-problems)"
