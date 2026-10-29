@@ -113,7 +113,7 @@ To replace the token, in Git Bash:
 
 | When | What |
 |---|---|
-| When it appears | **Dependabot security PRs:** review, let CI run, merge (merging deploys). |
+| When it appears | **Dependabot security PRs:** review, let CI run, merge (merging deploys while up; while down the Deploy run fails fast). Dependabot's runs get only Dependabot secrets, not `PROBLEMS_DEPLOY_KEY`, so the jobs that need the private tests repo (Problems, API, End-to-end) fail on its PRs with "Not Found"; the three required checks still run. |
 | Monthly | **Reboot if a kernel update is waiting.** In a quiet hour, in a host session: `if [ -f /var/run/reboot-required ]; then sudo reboot; fi`. |
 | Monthly | **Cost check:** Billing → Bills, and Free Tier usage. The "surplus CPU credits charged" alarm emails you if the t3.small bursts on paid credits. |
 | Quarterly | **Test a restore:** `sudo -u codejudge bash -c 'set -a; . /etc/codejudge/backup.env; /opt/codejudge/current/app/deploy/backup/pg-restore.sh latest'` restores into a new `codejudge_restore_<ts>` database and prints its row counts next to the live ones. Then drop that database. |
