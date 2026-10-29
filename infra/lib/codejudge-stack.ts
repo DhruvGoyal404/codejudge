@@ -91,14 +91,15 @@ export interface CodeJudgeHostStackProps extends StackProps {
 
 /**
  * CodeJudge's persistent parts, which stay while the site is down: the backup
- * bucket, the alarm topic and backup alarm, the deploy document, the GitHub
- * OIDC deploy role and the budget. They cost nothing while idle. The host,
- * its address and the registries live in CodeJudgeHostStack, which
- * codejudge-down.sh destroys. See MAINTENANCE.md, "Up and down".
+ * bucket, the image registries (current + previous release), the alarm topic
+ * and backup alarm, the deploy document, the GitHub OIDC deploy role and the
+ * budget. Idle, only the registries cost anything (~$0.25/month). The host and
+ * its address live in CodeJudgeHostStack, which codejudge-down.sh destroys. See MAINTENANCE.md, "Up and down".
  */
 export class CodeJudgeStack extends Stack {
   readonly backups: s3.Bucket;
   readonly topic: sns.Topic;
+  readonly repos: ecr.Repository[];
 
   constructor(scope: Construct, id: string, props: CodeJudgeStackProps) {
     super(scope, id, props);
@@ -173,6 +174,25 @@ export class CodeJudgeStack extends Stack {
         ],
       });
     }
+
+    // --- Image registries ---------------------------------------------------------
+    // Kept while the site is down: codejudge-up.sh redeploys the saved release
+    // from here without rebuilding (MAINTENANCE.md, "Up and down"). Only the
+    // current and the previous release (rollback) are kept: ~2.5 GB, ~$0.25/month.
+    const repos = [...APP_REPOS, ...SANDBOX_REPOS.map((s) => `sandbox-${s}`)].map(
+      (name) =>
+        new ecr.Repository(this, `Repo-${name}`, {
+          repositoryName: `codejudge/${name}`,
+          imageScanOnPush: true,
+          imageTagMutability: ecr.TagMutability.IMMUTABLE,
+          encryption: ecr.RepositoryEncryption.AES_256,
+          lifecycleRules: [{ description: "keep the current and the previous release", maxImageCount: 2 }],
+          // Images are rebuilt from git (codejudge-up.sh --build): nothing is lost when the stack goes.
+          removalPolicy: RemovalPolicy.DESTROY,
+          emptyOnDelete: true,
+        }),
+    );
+    this.repos = repos;
 
     // --- Deploy document -------------------------------------------------------------
     const deployScript = hostScript("deploy.sh");
@@ -289,8 +309,7 @@ export class CodeJudgeStack extends Stack {
 
 /**
  * The parts that bill while idle and are rebuilt on every up: the EC2 host,
- * its EBS volume, the Elastic IP, the image registries and the alarms on the
- * instance. codejudge-down.sh destroys this stack (after a verified backup).
+ * its EBS volume, the Elastic IP and the alarms on the instance. codejudge-down.sh destroys this stack (after a verified backup).
  */
 export class CodeJudgeHostStack extends Stack {
   constructor(scope: Construct, id: string, props: CodeJudgeHostStackProps) {
@@ -307,21 +326,6 @@ export class CodeJudgeHostStack extends Stack {
           publicSubnetRouteTableIds: ["rtb-00000000000000000"],
         })
       : ec2.Vpc.fromLookup(this, "DefaultVpc", { isDefault: true });
-
-    // --- Image registries ---------------------------------------------------------
-    const repos = [...APP_REPOS, ...SANDBOX_REPOS.map((s) => `sandbox-${s}`)].map(
-      (name) =>
-        new ecr.Repository(this, `Repo-${name}`, {
-          repositoryName: `codejudge/${name}`,
-          imageScanOnPush: true,
-          imageTagMutability: ecr.TagMutability.IMMUTABLE,
-          encryption: ecr.RepositoryEncryption.AES_256,
-          lifecycleRules: [{ description: "keep the last 10 images", maxImageCount: 10 }],
-          // Images are rebuilt from git: nothing is lost when the stack goes.
-          removalPolicy: RemovalPolicy.DESTROY,
-          emptyOnDelete: true,
-        }),
-    );
 
     const backups = props.persistent.backups;
 
@@ -371,7 +375,7 @@ export class CodeJudgeHostStack extends Stack {
       new iam.PolicyStatement({
         sid: "PullOwnImages",
         actions: ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"],
-        resources: repos.map((r) => r.repositoryArn),
+        resources: props.persistent.repos.map((r) => r.repositoryArn),
       }),
     );
     // GetAuthorizationToken has no resource-level permissions.

@@ -153,15 +153,15 @@ describe("storage and registries", () => {
     expect(bucket.Properties.LifecycleConfiguration.Rules).toEqual([expect.objectContaining({ Prefix: BACKUP_PREFIX, ExpirationInDays: 14 })]);
   });
 
-  it("one ECR repo per image, each keeping the last 10 images", () => {
-    const repos = hostResources("AWS::ECR::Repository");
-    expect(resources("AWS::ECR::Repository")).toHaveLength(0); // registries go with the host
+  it("one ECR repo per image, kept while down, each keeping the current and previous release", () => {
+    const repos = resources("AWS::ECR::Repository");
+    expect(hostResources("AWS::ECR::Repository")).toHaveLength(0); // they outlive the host
     expect(repos.map(([, r]) => r.Properties.RepositoryName).sort()).toEqual(
       [...APP_REPOS, ...SANDBOX_REPOS.map((s) => `sandbox-${s}`)].map((n) => `codejudge/${n}`).sort(),
     );
     for (const [, r] of repos) {
       const policy = JSON.parse(r.Properties.LifecyclePolicy.LifecyclePolicyText);
-      expect(policy.rules).toEqual([expect.objectContaining({ selection: expect.objectContaining({ countType: "imageCountMoreThan", countNumber: 10 }) })]);
+      expect(policy.rules).toEqual([expect.objectContaining({ selection: expect.objectContaining({ countType: "imageCountMoreThan", countNumber: 2 }) })]);
       expect(r.Properties.ImageTagMutability).toBe("IMMUTABLE");
     }
   });
@@ -308,7 +308,7 @@ describe("cdk destroy leaves nothing behind", () => {
   });
 
   it("empties the image repositories and releases the address and the volume", () => {
-    for (const [, r] of hostResources("AWS::ECR::Repository")) expect(r.Properties.EmptyOnDelete).toBe(true);
+    for (const [, r] of resources("AWS::ECR::Repository")) expect(r.Properties.EmptyOnDelete).toBe(true);
     const [[, inst]] = hostResources("AWS::EC2::Instance");
     expect(inst.Properties.BlockDeviceMappings[0].Ebs.DeleteOnTermination).toBe(true);
     h.resourceCountIs("AWS::EC2::EIP", 1); // released when the stack deletes it
