@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Restore a CodeJudge database dump made by pg-backup.sh.
 #
-#   pg-restore.sh <s3://bucket/prefix/codejudge-….dump | file:///dir/codejudge-….dump | latest> [--into-live]
+#   pg-restore.sh <s3://bucket/prefix/codejudge-….dump | file:///dir/codejudge-….dump | latest> [--into-live | --check]
 #
 # Default: restores into a NEW database codejudge_restore_<timestamp> and
 # prints row counts next to the live database's, so a backup can be checked
 # without touching production. --into-live replaces the live database: stop
 # the API and the worker first (docker compose stop api; systemctl stop
 # judge-worker); you are asked to type the database name to confirm.
+# --check is the restore drill (codejudge-down.sh): restore into a new
+# database, require every table's row count to equal the live database's,
+# print "drill-counts: table=n ...", and always drop the restored copy.
 #
 #   BACKUP_DEST, CODEJUDGE_COMPOSE as in pg-backup.sh ("latest" needs BACKUP_DEST).
 set -euo pipefail
@@ -60,6 +63,9 @@ if [ "$mode" = --into-live ]; then
 else
   target="codejudge_restore_$(date -u +%Y%m%d%H%M%S)"
 fi
+if [ "$mode" = --check ]; then # the drill's copy goes whatever happens next
+  trap 'psql_c "-d postgres -c '"'"'DROP DATABASE IF EXISTS \"$target\"'"'"'" >/dev/null || true; rm -rf "$tmp"' EXIT
+fi
 psql_c "-d postgres -c 'CREATE DATABASE \"$target\"'" >/dev/null
 log "restoring into $target"
 "${compose[@]}" exec -T postgres sh -c \
@@ -69,6 +75,18 @@ log "restoring into $target"
 counts() {
   psql_c "-d \"$1\" -c \"SELECT 'schema_migrations', count(*) FROM schema_migrations UNION ALL SELECT 'problems', count(*) FROM problems UNION ALL SELECT 'problem_samples', count(*) FROM problem_samples UNION ALL SELECT 'users', count(*) FROM users UNION ALL SELECT 'sessions', count(*) FROM sessions UNION ALL SELECT 'submissions', count(*) FROM submissions UNION ALL SELECT 'submission_tests', count(*) FROM submission_tests\""
 }
+if [ "$mode" = --check ]; then
+  restored=$(counts "$target" | tr -d '\r')
+  live_counts=$(counts "$live" | tr -d '\r')
+  if [ "$restored" != "$live_counts" ]; then
+    log "DRILL FAILED: restored and live row counts differ (restored | live):"
+    paste -d'|' <(echo "$restored") <(echo "$live_counts" | cut -d'|' -f2) >&2
+    exit 1
+  fi
+  log "drill ok: every table's row count matches the live database ($target is dropped on exit)"
+  echo "drill-counts: $(tr '|\n' '= ' <<<"$restored" | sed 's/ $//')"
+  exit 0
+fi
 log "row counts (restored | live):"
 paste -d'|' <(counts "$target") <(counts "$live" | cut -d'|' -f2) | tr -d '\r' | column -t -s'|' >&2 || true
 echo "$target"
