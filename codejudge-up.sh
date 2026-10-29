@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Brings CodeJudge up from fully down (MAINTENANCE.md, "Up and down"):
-#   1. the host stack (EC2 + EBS + Elastic IP + ECR), DNS pointed at it;
+#   1. the host stack (EC2 + EBS + Elastic IP + ECR);
 #   2. Caddy's certificates restored BEFORE Caddy first starts (no new
 #      Let's Encrypt certificate: the duplicate limit is 5 a week);
 #   3. the current release built in the cloud (GitHub Actions "Deploy") and
 #      deployed by digest; the newest database backup restored into it;
-#   4. a fresh backup, the backup alarm re-enabled;
+#   4. only then DNS pointed at the host (until the database is restored and
+#      migrated, the name stays parked at 192.0.2.1: no traffic reaches an
+#      empty app); a fresh backup, the backup alarm re-enabled;
 #   5. checks: health on the IP and on the domain (valid certificate), GitHub
 #      OAuth, the hidden-tests deploy key, S3, ECR, a real AC submission, and
 #      the users/submissions from the backup all present.
@@ -33,7 +35,9 @@ cdk_ deploy "$PERSISTENT" "$HOST_STACK"
 ID=$(stack_output "$HOST_STACK" InstanceId)
 IP=$(stack_output "$HOST_STACK" PublicIp)
 echo "host ${ID:0:5}..., IP $IP" >&2
-cf_set_a "$IP" # early: resolvers pick it up while the host boots
+# Without a Caddy backup a new certificate is needed, and Let's Encrypt must
+# reach the host by name: only then does DNS move before the restore.
+[ -n "$CADDY_KEY" ] || cf_set_a "$IP"
 
 log "2/6 Wait for the host to finish bootstrapping"
 for _ in $(seq 120); do
@@ -86,7 +90,7 @@ else
   gh run watch "$run" -R "$REPO" --exit-status --interval 20 >/dev/null || die "Deploy failed: https://github.com/$REPO/actions/runs/$run"
 fi
 
-log "5/6 Restore the database, then a fresh backup; alarm back on"
+log "5/6 Restore the database (then migrate), only then DNS; fresh backup; alarm back on"
 out=$(ssm_run "$ID" '
 set -euo pipefail
 url="s3://'"$BUCKET/$NIGHTLY_PREFIX$(basename "$DUMP_KEY")"'"
@@ -114,13 +118,14 @@ journalctl -u pg-backup.service --since "@$start" -o cat --no-pager | grep -E "u
 ') || die "database restore failed"
 printf '%s\n' "$out" | grep -E 'pg-restore|already|uploaded|metric' >&2 || true
 LIVE=$(result counts "$out")
-echo "live:   $LIVE" >&2
-echo "backup: ${COUNTS:-<no counts file>}" >&2
+echo "restored: $LIVE" >&2
+echo "at final backup: ${COUNTS:-<none: the newest dump is a nightly one, no counts were recorded>}" >&2
 for t in users submissions submission_tests; do
   want=$(grep -oE "(^| )$t=[0-9]+" <<<"$COUNTS" | cut -d= -f2 || true)
   got=$(grep -oE "(^| )$t=[0-9]+" <<<"$LIVE" | cut -d= -f2)
-  [ -z "$want" ] || [ "$got" -ge "$want" ] || die "$t: $got rows after restore, the backup had $want"
+  [ -z "$want" ] || [ "$got" = "$want" ] || die "$t: $got rows after restore, the final backup recorded $want (DNS still parked)"
 done
+cf_set_a "$IP"
 alarm=$(backup_alarm)
 aws_ cloudwatch enable-alarm-actions --alarm-names "$alarm"
 echo "actions enabled: $alarm" >&2
@@ -168,8 +173,8 @@ ecr_ok() {
 check ecr_ok
 CHECK="a real submission is Accepted"
 check ssm_run "$ID" 'set -a; . /etc/codejudge/worker.env; set +a; /opt/codejudge/current/bin/judge-admin smoke --problem ledger-total --lang cpp --timeout 5m --src /opt/codejudge/problems-private/ledger-total/solutions/ref.cpp | grep -E "verdict AC|submit to verdict"'
-CHECK="users and submissions from the backup are present ($LIVE)"
-check true
+CHECK="users and submissions equal the counts recorded at the final backup ($LIVE)"
+check test -n "$COUNTS"
 [ "$fail" = 0 ] || die "some checks failed (above); the site is up: fix, or run ./codejudge-down.sh"
 
 secs=$(($(date +%s) - T0))
