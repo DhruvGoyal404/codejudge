@@ -4,7 +4,9 @@
 #      of Caddy's certificates; any failure aborts before anything is removed;
 #   2. the final backups go to s3://<bucket>/codejudge/final/ (never expires);
 #   3. the backup alarm's actions are disabled, DNS is parked at 192.0.2.1;
-#   4. the host stack (EC2, EBS, Elastic IP, ECR) is destroyed;
+#   4. the host stack (EC2, EBS, Elastic IP) is destroyed; the registries stay
+#      with the current and previous release, and the live release's manifest
+#      is saved so codejudge-up.sh can redeploy it without a build;
 #   5. an audit of everything that can still bill (exit 1: "STILL BILLING").
 # Safe to run again after a half-failed run.
 #
@@ -55,8 +57,9 @@ rm -f "$tgz"
 echo "RESULT caddy=${BACKUP_DEST%/}/$name"
 echo "RESULT caddy_sha=$sha"
 echo "RESULT caddy_certs=$certs"
+echo "RESULT release=$(base64 -w0 /opt/codejudge/state/current.json)"
 ') || die "backup or restore drill failed on the host: nothing was removed"
-  printf '%s\n' "$out" | grep -E 'pg-backup|pg-restore|drill|RESULT' >&2 || true
+  printf '%s\n' "$out" | grep -E 'pg-backup|pg-restore|drill|RESULT' | grep -v '^RESULT release=' >&2 || true
   dump=$(result dump "$out")
   caddy=$(result caddy "$out")
   counts=$(sed -n 's/^drill-counts: //p' <<<"$out" | tail -n 1 | tr -d '\r')
@@ -74,6 +77,12 @@ echo "RESULT caddy_certs=$certs"
   done
   [ "$(result caddy_sha "$out")" = "$(aws_ s3api head-object --bucket "$BUCKET" --key "$FINAL_PREFIX$(basename "$caddy")" --query 'Metadata.sha256' --output text)" ] ||
     die "Caddy backup checksum differs from what the host computed"
+  # The live release: up redeploys exactly these images (by digest).
+  result release "$out" | base64 -d >"$WORK/release.json"
+  jq -e '.release and .images.api and (.images.sandbox | length == 7)' "$WORK/release.json" >/dev/null ||
+    die "the host's release manifest is incomplete: nothing was removed"
+  aws_ s3 cp "$(winpath "$WORK/release.json")" "s3://$BUCKET/$RELEASE_KEY" --only-show-errors
+  echo "saved release $(jq -r .release "$WORK/release.json" | cut -c1-12) -> $RELEASE_KEY" >&2
   printf '%s\n' "$counts" >"$WORK/counts"
   aws_ s3 cp "$(winpath "$WORK/counts")" "s3://$BUCKET/$FINAL_PREFIX$(basename "$dump").counts" --only-show-errors
   echo "row counts at backup time: $counts" >&2
@@ -97,17 +106,13 @@ if [ -n "$alarm" ] && [ "$alarm" != None ]; then
 fi
 cf_set_a "$PARKED_IP"
 
-log "4/5 Remove the host (EC2, EBS, Elastic IP, registries)"
+log "4/5 Remove the host (EC2, EBS, Elastic IP)"
 if stack_exists "$HOST_STACK"; then
   cdk_ destroy "$HOST_STACK" --force
 fi
 # Keeps the persistent stack current; on the first run after the split this
 # also removes the host that still lived in it.
 cdk_ deploy "$PERSISTENT" --exclusively
-# Registries left behind by a half-failed run.
-for r in $(aws_ ecr describe-repositories --query 'repositories[].repositoryName' --output text | tr '\t' '\n' | tr -d '\r' | grep '^codejudge/' || true); do
-  aws_ ecr delete-repository --repository-name "$r" --force >/dev/null && echo "deleted leftover registry $r" >&2
-done
 
 log "5/5 Audit"
 if audit; then

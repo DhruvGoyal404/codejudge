@@ -3,8 +3,11 @@
 #   1. the host stack (EC2 + EBS + Elastic IP + ECR);
 #   2. Caddy's certificates restored BEFORE Caddy first starts (no new
 #      Let's Encrypt certificate: the duplicate limit is 5 a week);
-#   3. the current release built in the cloud (GitHub Actions "Deploy") and
-#      deployed by digest; the newest database backup restored into it;
+#   3. the release saved at the last down redeployed from ECR by digest (no
+#      build: "main is N commits ahead" tells you if it is behind); with
+#      --build, or when nothing is saved, main is built in the cloud by the
+#      GitHub Actions "Deploy" workflow instead; the newest database backup is
+#      restored into it;
 #   4. only then DNS pointed at the host (until the database is restored and
 #      migrated, the name stays parked at 192.0.2.1: no traffic reaches an
 #      empty app); a fresh backup, the backup alarm re-enabled;
@@ -13,8 +16,14 @@
 #      the users/submissions from the backup all present.
 # Safe to run again after a half-failed run.
 #
-#   ./codejudge-up.sh
+#   ./codejudge-up.sh [--build]
 set -euo pipefail
+BUILD=0
+case "${1:-}" in
+  "") ;;
+  --build) BUILD=1 ;;
+  *) echo "usage: $0 [--build]" >&2; exit 2 ;;
+esac
 # shellcheck source=scripts/codejudge-lib.sh
 . "$(dirname "$0")/scripts/codejudge-lib.sh"
 
@@ -30,7 +39,7 @@ CADDY_KEY=$( (newest "$FINAL_PREFIX" '/caddy-.*\.tar\.gz$'; newest "$NIGHTLY_PRE
 echo "restoring database $DUMP_KEY, Caddy data ${CADDY_KEY:-<none: Caddy will request a new certificate>}" >&2
 COUNTS=$(aws s3 cp "s3://$BUCKET/$FINAL_PREFIX$(basename "$DUMP_KEY").counts" - 2>/dev/null | tr -d '\r' || true)
 
-log "1/6 Host stack (EC2, EBS, Elastic IP, registries)"
+log "1/6 Host stack (EC2, EBS, Elastic IP)"
 cdk_ deploy "$PERSISTENT" "$HOST_STACK"
 ID=$(stack_output "$HOST_STACK" InstanceId)
 IP=$(stack_output "$HOST_STACK" PublicIp)
@@ -71,12 +80,42 @@ echo "caddy_data restored: $(find "$(docker volume inspect -f "{{.Mountpoint}}" 
 ' || die "Caddy data restore failed"
 fi
 
-log "4/6 Build and deploy the current release (GitHub Actions: Deploy)"
 current=$(ssm_run "$ID" 'jq -r .release /opt/codejudge/state/current.json 2>/dev/null || true' 2>/dev/null || true)
 main_sha=$(git -C "$ROOT" ls-remote origin refs/heads/main | cut -f1)
-if [ "$current" = "$main_sha" ]; then
+# The saved release, if every one of its images is still in ECR.
+saved=""
+if [ "$BUILD" = 0 ] && aws s3 cp "s3://$BUCKET/$RELEASE_KEY" "$(winpath "$WORK/release.json")" --only-show-errors 2>/dev/null; then
+  saved=$(jq -r .release "$WORK/release.json")
+  for ref in $(jq -r '.images | (.api, .web, .worker), .sandbox[]' "$WORK/release.json" | tr -d '\r'); do
+    repo=${ref#*/}
+    repo=${repo%@*}
+    aws ecr describe-images --repository-name "$repo" --image-ids "imageDigest=${ref#*@}" >/dev/null 2>&1 ||
+      { echo "image $repo@${ref#*@} is no longer in ECR: building instead" >&2; saved=""; break; }
+  done
+fi
+if [ -n "$saved" ]; then
+  log "4/6 Deploy the saved release ${saved:0:12} from ECR (no build)"
+  git -C "$ROOT" fetch -q origin main 2>/dev/null || true
+  ahead=$(git -C "$ROOT" rev-list --count "$saved..origin/main" 2>/dev/null || echo "?")
+  if [ "$ahead" = 0 ]; then
+    echo "the saved release is main" >&2
+  else
+    printf '\033[33mmain is %s commits ahead of the saved release; run with --build to rebuild\033[0m\n' "$ahead" >&2
+  fi
+  if [ "$current" = "$saved" ]; then
+    echo "release ${saved:0:12} already live" >&2
+  else
+    # The same document and manifest the Deploy workflow uses: pull by digest,
+    # migrate, smoke test, roll back on failure (deploy/host/deploy.sh).
+    jq -n --arg m "$(base64 -w0 "$WORK/release.json")" '{Manifest: [$m]}' >"$WORK/deploy-params.json"
+    ssm_send "$ID" CodeJudge-Deploy "$WORK/deploy-params.json" '$LATEST' | grep -E "deploy: |smoke: verdict" >&2 ||
+      die "deploy of the saved release failed (the host rolled back by itself; see above)"
+  fi
+elif [ "$current" = "$main_sha" ]; then
+  log "4/6 Build and deploy main (GitHub Actions: Deploy)"
   echo "release ${main_sha:0:12} already live" >&2
 else
+  log "4/6 Build and deploy main (GitHub Actions: Deploy)"
   since=$(date -u +%FT%TZ)
   gh workflow run Deploy --ref main -R "$REPO" >/dev/null
   run=""

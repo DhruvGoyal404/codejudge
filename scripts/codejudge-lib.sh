@@ -18,6 +18,8 @@ CF_TOKEN_PARAM=/codejudge/ops/cloudflare-token
 REPO=DhruvGoyal404/codejudge
 COMPOSE_PROJECT=codejudge-prod # deploy/compose.prod.yaml "name:"
 FINAL_PREFIX=codejudge/final/  # never expires (infra/: only codejudge/pg/ does)
+RELEASE_KEY=codejudge/final/release.json # the release live at the last down: up redeploys it
+ECR_MAX_BYTES=$((3 * 1073741824)) # the registries keep 2 releases (~2.5 GB); more means something piles up
 NIGHTLY_PREFIX=codejudge/pg/   # the only prefix the host may read and write
 KEEP_FINAL=5
 # On-demand prices, ap-south-1, from the AWS Pricing API (2026-10-30).
@@ -101,14 +103,11 @@ host_id() {
   echo "$id"
 }
 
-# ssm_run ID SCRIPT [TIMEOUT_S]: runs SCRIPT with bash as root on the host
-# (AWS-RunShellScript), prints its output, fails if it fails.
-ssm_run() {
-  local id=$1 script=$2 timeout=${3:-1800} f cid st out err
-  f="$WORK/ssm-params.json"
-  jq -n --arg s "$script" --arg t "$timeout" \
-    '{commands: ["cat > /root/codejudge-op.sh <<'"'"'CODEJUDGE_OP'"'"'\n" + $s + "\nCODEJUDGE_OP", "exec bash /root/codejudge-op.sh"], executionTimeout: [$t]}' >"$f"
-  cid=$(aws_ ssm send-command --instance-ids "$id" --document-name AWS-RunShellScript --timeout-seconds 120 \
+# ssm_send ID DOCUMENT PARAMS_FILE [VERSION]: runs a command document on the
+# host, prints its output, fails if it fails.
+ssm_send() {
+  local id=$1 doc=$2 f=$3 cid st out err
+  cid=$(aws_ ssm send-command --instance-ids "$id" --document-name "$doc" ${4:+--document-version "$4"} --timeout-seconds 120 \
     --parameters "file://$(winpath "$f")" --query Command.CommandId --output text) || return 1
   st=Pending
   while :; do
@@ -121,6 +120,14 @@ ssm_run() {
   [ -z "$out" ] || printf '%s\n' "$out"
   [ -z "$err" ] || printf '%s\n' "$err" >&2
   [ "$st" = Success ] || { echo "host command $st" >&2; return 1; }
+}
+# ssm_run ID SCRIPT [TIMEOUT_S]: runs SCRIPT with bash as root on the host
+# (AWS-RunShellScript), prints its output, fails if it fails.
+ssm_run() {
+  local f="$WORK/ssm-params.json"
+  jq -n --arg s "$2" --arg t "${3:-1800}" \
+    '{commands: ["cat > /root/codejudge-op.sh <<'"'"'CODEJUDGE_OP'"'"'\n" + $s + "\nCODEJUDGE_OP", "exec bash /root/codejudge-op.sh"], executionTimeout: [$t]}' >"$f"
+  ssm_send "$1" AWS-RunShellScript "$f"
 }
 # result KEY OUTPUT: the value of a "RESULT KEY=value" line the host printed.
 result() { sed -n "s/^RESULT $1=//p" <<<"$2" | tail -n 1 | tr -d '\r'; }
@@ -201,7 +208,8 @@ audit() {
     v=$((v + n))
     [ "$n" = 0 ] || echo "         ECR $line: $((n / 1048576)) MiB" >&2
   done < <(aws_ ecr describe-repositories --query 'repositories[].repositoryName' --output text | tr '\t' '\n' | tr -d '\r')
-  report "$([ "$v" = 0 ] && echo no || echo yes)" "ECR image storage: $((v / 1048576)) MiB (\$0.10/GB-month)"
+  # Expected: the current and previous release, kept so up needs no rebuild.
+  report "$([ "$v" -le "$ECR_MAX_BYTES" ] && echo no || echo yes)" "ECR image storage: $((v / 1048576)) MiB, expected (current + previous release): ~\$$(awk "BEGIN{printf \"%.2f\", $v/1073741824*0.10}")/month (\$0.10/GB-month; flagged above 3 GB)"
   # S3: a few MB of backups are expected and cost ~nothing.
   v=0
   for n in $(aws_ s3api list-buckets --query 'Buckets[].Name' --output text | tr -d '\r'); do
