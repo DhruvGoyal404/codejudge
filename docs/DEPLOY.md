@@ -104,9 +104,10 @@ session tokens are random and stored only as SHA-256 hashes.
 
 **7. GitHub repository secrets** (`DhruvGoyal404/codejudge` → Settings →
 Secrets and variables → Actions → Secrets): `AWS_DEPLOY_ROLE_ARN` =
-`DeployRoleArn`, `CODEJUDGE_INSTANCE_ID` = `InstanceId`, `ECR_REGISTRY` =
-`Registry`. None is a credential, but together they identify the AWS account
-and the host; as secrets they are masked in every log line (run logs are public
+`DeployRoleArn`, `ECR_REGISTRY` = `Registry`. (The host is found by its tag
+`codejudge:host=prod`: since the split into a persistent and a host stack it
+is rebuilt on every `codejudge-up.sh`, see MAINTENANCE.md, "Up and down".)
+Neither is a credential, but together they identify the AWS account; as secrets they are masked in every log line (run logs are public
 once the repository is), and the Deploy job masks the account ID first. The `PROBLEMS_DEPLOY_KEY` secret CI already uses is reused to pin
 the hidden tests' commit. No AWS keys are stored anywhere.
 
