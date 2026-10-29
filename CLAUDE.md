@@ -21,8 +21,17 @@ Compose (project `codejudge`, credentials in gitignored `.env`):
 | 3 | API + Postgres schema + Valkey Streams + worker ✅ |
 | 4 | frontend ✅ |
 | 5 | auth/rate-limit/history ✅ |
-| 6 | deploy EC2 + gVisor (runsc) + CI |
+| 6 | deploy EC2 + gVisor (runsc) + CI ✅ (live only on demand: see Production) |
 | 7 | stretch: collab mode (Yjs) |
+
+## Production (normally DOWN)
+
+https://codejudge.dhruvgoyal.tech runs only on demand; between uses it is **down** and costs ~$0.13/month (ECR). Runbook: MAINTENANCE.md, "Up and down".
+- `./codejudge-up.sh`: 12 min 50 s from down (redeploys the release saved at the last down, from ECR; "main is N commits ahead" means run `--build`). `./codejudge-up.sh --build`: 21 min (builds main via the Deploy workflow).
+- `./codejudge-down.sh`: 7 to 9 min. Backup + restore drill + Caddy certs first (aborts on any failure), DNS parked at 192.0.2.1, host stack destroyed, audit (exit 1 = STILL BILLING). Always leave the site down after testing.
+- Two CDK stacks: `CodeJudgeProd` (persistent: backups bucket, ECR keeping current+previous release, alarm topic, BackupMissing, deploy document, OIDC deploy role, budget alert $5.70) and `CodeJudgeHost` (EC2, EBS, EIP: destroyed on down). The host is found by tag `codejudge:host=prod`; the Deploy workflow fails fast while down.
+- The scripts run native Windows tools from Git Bash with `MSYS_NO_PATHCONV=1`: pass them Windows-form paths (`E:/...`, `C:/...`), never `/tmp`, `/e/...` or `/dev/null`; keep `PYTHONUTF8=1` for aws.exe; don't put `grep -q` at the end of a `curl |` pipe under `pipefail`.
+- deploy/host/deploy.sh ships inside the SSM document: changing it needs `cdk deploy` (with `-c alarmEmail`); the scripts read the emails from SSM `/codejudge/ops/*`.
 
 ## Dev environment
 
@@ -62,4 +71,4 @@ Go: system 1.22.5; runner/ pins toolchain go1.27.2 via go.mod (auto-downloaded).
 - Submission source is returned only to its owner (`GET /submissions/:id` with the owner's session); never in lists, SSE events or to anyone else.
 - POST /submissions requires a session; rate limits (6/min, 200/day per user; 20/min per IP on /auth/*; 429 + Retry-After) and the 2-active cap (atomic, row lock) stay in place.
 - The test auth shortcut (`TEST_AUTH_SHORTCUT=1`, `POST /test/login`) exists only with `NODE_ENV=test`; the server refuses to start otherwise. Never enable it in production or dev, never weaken that check.
-- Dev machine: Docker capped at 6 GB. Run integration suites with `go test -p 1`, and each E2E suite (`api: npm run e2e`, `web: npm run e2e` / Playwright) alone; never concurrently with the benchmark or each other. Problem time limits are provisional until recalibrated on Linux (Phase 6).
+- Dev machine: Docker capped at 6 GB. Run integration suites with `go test -p 1`, and each E2E suite (`api: npm run e2e`, `web: npm run e2e` / Playwright) alone; never concurrently with the benchmark or each other. Problem time limits were recalibrated on the production host (docs/PHASE6.md 6c).

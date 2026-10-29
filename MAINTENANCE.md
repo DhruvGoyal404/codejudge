@@ -11,8 +11,16 @@ The site runs only when needed (before an interview, a demo). Normally it is
 
 | | Command | Measured (2026-10-30) |
 |---|---|---|
-| Bring it up | `./codejudge-up.sh` | 19 min 3 s from fully down (10 min 48 s of it is the Deploy workflow rebuilding the images) |
-| Take it down | `./codejudge-down.sh` | 7 min (about 3.5 min of it is the audit) |
+| Bring it up | `./codejudge-up.sh` | **12 min 50 s** from fully down: redeploys the release saved at the last down, from ECR, no build |
+| Bring it up with a fresh build of `main` | `./codejudge-up.sh --build` | 21 min 2 s (about 10 min of it is the Deploy workflow building the images) |
+| Take it down | `./codejudge-down.sh` | 7 to 9 min (about 2.5 min of it is the audit) |
+
+Where the fast up's 12 min 50 s go: stack 3 min 52 s, host bootstrap 2 min,
+Caddy restore 46 s, deploy of the saved release 3 min 28 s (mostly image
+pulls), database restore and DNS 1 min 4 s, checks 1 min 20 s.
+
+If `main` has moved past the saved release, up still deploys the saved one
+(fast) and says `main is N commits ahead; run with --build to rebuild`.
 
 Both are for Git Bash on Windows (or Linux), with the AWS CLI (profile
 `codejudge`; an expired SSO session opens the browser), `gh` (logged in),
@@ -30,12 +38,15 @@ failed run: every step checks first.
 3. Disables the `BackupMissing` alarm's actions (the budget alert stays) and
    points `codejudge.dhruvgoyal.tech` at 192.0.2.1 (never routable), so the
    name never follows a released IP.
-4. Destroys the `CodeJudgeHost` stack: EC2, its EBS volume, the Elastic IP,
-   the security group, the instance role and all ECR registries.
+4. Saves the live release's manifest (every image by digest) to
+   `codejudge/final/release.json`, then destroys the `CodeJudgeHost` stack:
+   EC2, its EBS volume, the Elastic IP, the security group and the instance
+   role. The ECR registries stay (see below).
 5. Audits everything that can bill (EC2, EBS volumes and snapshots, Elastic
    IPs, public IPv4, NAT, load balancers, ECR, S3, Secrets Manager, KMS,
    CloudWatch alarms and logs, and instances/IPs/volumes in every other
-   region). Anything left prints **STILL BILLING** and exits 1.
+   region). ECR is listed as expected with its size and monthly cost.
+   Anything else left, or ECR above 3 GB, prints **STILL BILLING** and exits 1.
 
 **What `codejudge-up.sh` does**
 1. Deploys `CodeJudgeHost` (and keeps `CodeJudgeProd` current).
@@ -43,10 +54,13 @@ failed run: every step checks first.
 3. Restores Caddy's data **before Caddy first starts**: the existing
    certificate is reused (Let's Encrypt allows only 5 duplicate certificates
    a week).
-4. Runs the GitHub **Deploy** workflow: it builds every image in GitHub
-   Actions, pushes them to the new registries, and deploys by digest through
-   the `CodeJudge-Deploy` document. The deploy role reaches the new host by
-   its tag (`codejudge:host=prod`).
+4. Deploys the saved release: after checking every image digest is still in
+   ECR, it sends the saved manifest to the `CodeJudge-Deploy` document (pull
+   by digest, migrate, smoke test, roll back on failure). With `--build`, with
+   no saved manifest, or with an image missing, it runs the GitHub **Deploy**
+   workflow instead: every image built in GitHub Actions, pushed, deployed by
+   digest. The deploy role reaches the new host by its tag
+   (`codejudge:host=prod`).
 5. Restores the newest backup into the live database, then migrates and
    re-imports the problems. The users, submissions and test-result counts
    must equal the counts recorded at the final backup. Only then does DNS
@@ -66,8 +80,13 @@ with "site is down, run codejudge-up.sh first".
 | State | Cost |
 |---|---|
 | Up, per hour | ~$0.030 (~Rs 2.6): t3.small $0.0224 + 20 GB gp3 $0.0025 + public IPv4 $0.005 |
-| Up for a month (down forgotten) | ~$22 (~Rs 1,950), plus ECR storage as images pile up |
-| Down, per month | ~$0: about 1.5 MB of S3 backups (<$0.001), SSM parameters (free), one alarm and one budget (free) |
+| Up for a month (down forgotten) | ~$22 (~Rs 1,950) |
+| Down, per month | **~$0.13 (~Rs 11)**: ECR, the current and previous release (1.36 GB measured; at most ~2.7 GB, ~$0.27). S3 backups (2 MB), SSM parameters, one alarm and one budget cost ~$0 |
+
+**ECR decision (2026-10-30)**: the registries live in the persistent stack and
+keep two images each (lifecycle), the current and the previous release (for
+rollback), so up needs no rebuild: 12 min 50 s instead of 21 min, for about
+Rs 11 to Rs 23 a month.
 
 The `codejudge-monthly` budget emails you at 50/80/100% of $5.70 (about
 Rs 500) and when the forecast passes it. **It is an alert, not a cap.**
@@ -122,6 +141,26 @@ To replace the token, in Git Bash:
 - The full cycle then passed: down (7 min 20 s), up (19 min 3 s, every check
   ok, counts equal to the final backup: users 4, submissions 11,
   submission_tests 395), down (7 min, audit clean). The site was left down.
+- Script bugs the real cycles found, all from running native Windows tools
+  (git, curl, jq, aws.exe) from Git Bash with `MSYS_NO_PATHCONV=1`, plus one
+  logic bug:
+  1. Paths: native tools cannot open Git Bash paths (`/e/...`, `/tmp/...`,
+     `/dev/null`). Up stopped at the deploy step (git), its checks failed
+     (curl `-o /dev/null`, exit 23), and later down refused to proceed (jq
+     could not read the saved manifest, so the completeness check failed and
+     nothing was removed). Fixed: the repo root and the scratch directory are
+     kept in Windows form (`E:/...`, `C:/...`), and no tool writes to `/dev/null`.
+  2. `curl ... | grep -q` under `pipefail`: grep stops reading, curl fails on
+     the closed pipe, and the check reports a failure. Fixed: read the body,
+     then grep it.
+  3. Re-restoring: a re-run of up restored the newest dump (one taken by that
+     same up) over the live data. Fixed: a restored host is never restored
+     again, and it keeps the counts it was checked against.
+  4. aws.exe printed host output in the Windows code page and died on "→".
+     Fixed: `PYTHONUTF8=1`.
+- With ECR kept (2026-10-30): up --build 21 min 2 s, down 8 min 45 s, up from
+  the saved release 12 min 50 s, down 7 min 1 s; every check ok; the audit
+  lists ECR (1.36 GB, ~$0.13/month) as expected. The site was left down.
 
 ## Incident: no backups until 2026-10-22
 
