@@ -113,7 +113,7 @@ To replace the token, in Git Bash:
 
 | When | What |
 |---|---|
-| When it appears | **Dependabot security PRs:** review, let CI run, merge (merging deploys while up; while down the Deploy run fails fast). Dependabot's runs get only Dependabot secrets, not `PROBLEMS_DEPLOY_KEY`, so the jobs that need the private tests repo (Problems, API, End-to-end) fail on its PRs with "Not Found"; the three required checks still run. |
+| When it appears | **Dependabot PRs:** replace each with our own PR; see "Dependabot PRs" below. |
 | Monthly | **Reboot if a kernel update is waiting.** In a quiet hour, in a host session: `if [ -f /var/run/reboot-required ]; then sudo reboot; fi`. |
 | Monthly | **Cost check:** Billing → Bills, and Free Tier usage. The "surplus CPU credits charged" alarm emails you if the t3.small bursts on paid credits. |
 | Quarterly | **Test a restore:** `sudo -u codejudge bash -c 'set -a; . /etc/codejudge/backup.env; /opt/codejudge/current/app/deploy/backup/pg-restore.sh latest'` restores into a new `codejudge_restore_<ts>` database and prints its row counts next to the live ones. Then drop that database. |
@@ -123,6 +123,36 @@ To replace the token, in Git Bash:
 | After 19 Dec 2026 | **One-time check that the certificate renewed** (the first one expires 19 Jan 2027): `curl -vI https://codejudge.dhruvgoyal.tech 2>&1 \| grep "expire date"` should show a date in 2027-03 or later. |
 | Within 3 days of a `cdk deploy` that creates or recreates the alarm subscription | **Confirm the alarm email.** Click the link in the message from no-reply@sns.amazonaws.com; AWS deletes subscriptions left unconfirmed for 3 days, and until then no alarm reaches you. Then check that the subscription shows an ARN, not `PendingConfirmation`: `aws sns list-subscriptions --profile codejudge --region ap-south-1 --query "Subscriptions[?Protocol=='email'].[Endpoint,SubscriptionArn]" --output table` |
 | After changing `deploy/host/deploy.sh` | Run `npx cdk deploy` with `-c alarmEmail` (the script ships inside the SSM document). The Deploy workflow warns if the host's copy is stale. |
+
+## Dependabot PRs
+
+Dependabot's own runs get only Dependabot secrets, not `PROBLEMS_DEPLOY_KEY`,
+so the jobs that need the private tests repo (Problems, API, End-to-end) fail
+on its PRs with "Not Found". We don't give the deploy key to Dependabot (a
+dependency's install script would see it). Instead each Dependabot PR is
+replaced by our own:
+
+1. **Review** the Dependabot PR: the diff must be only the version and lockfile
+   change (`gh pr diff N`). Read the package's changelog for the versions in
+   between, and check the publish date (`npm view <pkg> time --json`).
+2. **14-day rule:** don't take a version published less than 14 days ago,
+   unless it fixes a security advisory (`gh api repos/DhruvGoyal404/codejudge/dependabot/alerts`).
+3. **Recreate** the change on `deps/<package>-<version>` from `origin/main`.
+   For a transitive dependency:
+   `cd api && npm update <pkg> --package-lock-only --ignore-scripts` (or `web`).
+   Check the lockfile is byte-identical to the Dependabot PR's:
+   `git rev-parse deps/<pkg>-<ver>:api/package-lock.json` against the same for
+   `pull/N/head`.
+4. **Open** a PR as yourself: title `deps(<dir>): <pkg> <old> -> <new>`, body
+   "Replaces #N" plus the review notes (advisories, publish date, changelog).
+   CI then runs the full suite with secrets.
+5. **Merge** when CI is all green (squash). While the site is down, the Deploy
+   run fails fast; while it's up, the merge deploys.
+6. **Close** the Dependabot PR with a comment linking the replacement.
+
+Two PRs that touch the same lockfile entry go one after the other: rebase the
+second on `main` after the first merges. First used 2026-10-30 for qs, undici
+and body-parser (#4, #5, #6 replaced #3, #1, #2).
 
 ## Incident notes: going to up/down (2026-10-30)
 
