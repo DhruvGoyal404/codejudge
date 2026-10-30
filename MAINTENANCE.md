@@ -150,6 +150,12 @@ replaced by our own:
    run fails fast; while it's up, the merge deploys.
 6. **Close** the Dependabot PR with a comment linking the replacement.
 
+If the vulnerable package is bundled inside another one (`"inBundle": true` in
+the lockfile), Dependabot opens no PR and npm `overrides` can't reach it: bump
+the parent to a release that bundles the fixed version (2026-10-30:
+aws-cdk-lib 2.273.0 for brace-expansion 5.0.12; check with
+`tar -xOzf $(npm pack <parent>@<ver>) package/node_modules/<pkg>/package.json`).
+
 Two PRs that touch the same lockfile entry go one after the other: rebase the
 second on `main` after the first merges. First used 2026-10-30 for qs, undici
 and body-parser (#4, #5, #6 replaced #3, #1, #2).

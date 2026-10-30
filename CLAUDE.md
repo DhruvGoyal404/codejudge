@@ -27,11 +27,13 @@ Compose (project `codejudge`, credentials in gitignored `.env`):
 ## Production (normally DOWN)
 
 https://codejudge.dhruvgoyal.tech runs only on demand; between uses it is **down** and costs ~$0.13/month (ECR). Runbook: MAINTENANCE.md, "Up and down".
-- `./codejudge-up.sh`: 12 min 50 s from down (redeploys the release saved at the last down, from ECR; "main is N commits ahead" means run `--build`). `./codejudge-up.sh --build`: 21 min (builds main via the Deploy workflow).
-- `./codejudge-down.sh`: 7 to 9 min. Backup + restore drill + Caddy certs first (aborts on any failure), DNS parked at 192.0.2.1, host stack destroyed, audit (exit 1 = STILL BILLING). Always leave the site down after testing.
+- First `aws sso login --profile codejudge`. Then `bash codejudge-up.sh`: ~13 min (12 min 50 s measured) from down (redeploys the release saved at the last down, from ECR; "main is N commits ahead" means run `--build`). `bash codejudge-up.sh --build`: 21 min (builds main via the Deploy workflow).
+- `bash codejudge-down.sh`: 5 to 9 min, ends with the audit. Backup + restore drill + Caddy certs first (aborts on any failure), DNS parked at 192.0.2.1, host stack destroyed, audit (exit 1 = STILL BILLING). Always leave the site down after testing.
 - Two CDK stacks: `CodeJudgeProd` (persistent: backups bucket, ECR keeping current+previous release, alarm topic, BackupMissing, deploy document, OIDC deploy role, budget alert $5.70) and `CodeJudgeHost` (EC2, EBS, EIP: destroyed on down). The host is found by tag `codejudge:host=prod`; the Deploy workflow fails fast while down.
 - The scripts run native Windows tools from Git Bash with `MSYS_NO_PATHCONV=1`: pass them Windows-form paths (`E:/...`, `C:/...`), never `/tmp`, `/e/...` or `/dev/null`; keep `PYTHONUTF8=1` for aws.exe; don't put `grep -q` at the end of a `curl |` pipe under `pipefail`.
 - deploy/host/deploy.sh ships inside the SSM document: changing it needs `cdk deploy` (with `-c alarmEmail`); the scripts read the emails from SSM `/codejudge/ops/*`.
+- Dependabot PRs: never merge them directly; recreate each on `deps/<package>-<version>` as our own PR so CI runs with secrets, merge when green, close the original (MAINTENANCE.md, "Dependabot PRs"; 14-day rule except security fixes).
+- A vulnerable package bundled inside another (`inBundle: true` in the lockfile) can't be fixed with npm `overrides`; bump the parent instead (2026-10-30: brace-expansion 5.0.12 via aws-cdk-lib 2.272.0 -> 2.273.0).
 
 ## Dev environment
 
