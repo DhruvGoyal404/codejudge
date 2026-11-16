@@ -72,6 +72,7 @@ func (w *Worker) handleInsight(ctx context.Context, id int64) {
 		return
 	}
 	start := time.Now()
+	log.Info("insight started", "problem", job.Slug, "lang", job.Language)
 	rep, err := w.analyze(ctx, job)
 	if err != nil {
 		log.Warn("insight failed", "err", err)
@@ -109,18 +110,27 @@ func (w *Worker) analyze(ctx context.Context, job store.InsightJob) (*insights.R
 }
 
 // yieldToJudging blocks while judging has work (in flight here, or waiting in
-// the submissions stream), up to the analysis deadline.
-func (w *Worker) yieldToJudging(ctx context.Context) (bool, error) {
-	paused := false
+// the submissions stream), up to the analysis deadline. On the first busy
+// check it calls release, so the paused analysis holds no container.
+func (w *Worker) yieldToJudging(ctx context.Context, release func()) error {
+	var start time.Time
 	for w.judgingBusy(ctx) {
-		paused = true
+		if start.IsZero() {
+			start = time.Now()
+			if release != nil {
+				release()
+			}
+		}
 		select {
 		case <-ctx.Done():
-			return paused, errBusy
+			return errBusy
 		case <-time.After(yieldPoll):
 		}
 	}
-	return paused, nil
+	if !start.IsZero() {
+		w.log.Info("insight resumed after judging", "paused_ms", time.Since(start).Milliseconds())
+	}
+	return nil
 }
 
 func (w *Worker) judgingBusy(ctx context.Context) bool {

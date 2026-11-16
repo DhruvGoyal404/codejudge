@@ -63,11 +63,12 @@ func LoadLadder(p *problem.Problem) (*Ladder, error) {
 type Options struct {
 	Reps   int           // runs per size (median); default 3
 	Budget time.Duration // total program CPU; default 20 s
-	// Yield is called before every run; it may block (the worker waits while
-	// judging is busy) and returns an error to abandon the analysis. paused
-	// reports that it waited: the run then gets a fresh batch container, as a
-	// long pause may outlast the old one's deadline.
-	Yield func(context.Context) (paused bool, err error)
+	// Yield is called before every step that needs a container (baseline,
+	// compile, each run). It may block while judging is busy, and returns an
+	// error to abandon the analysis. Before blocking it calls release (if not
+	// nil), which closes the analysis's open container: a paused analysis
+	// must hold no sandbox slot that judging could need.
+	Yield func(ctx context.Context, release func()) error
 }
 
 // Measured is one ladder size as the user sees it: medians only.
@@ -124,12 +125,24 @@ func Analyze(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, lad *
 	lim := sandbox.Limits{TimeLimit: p.EffectiveTimeLimit(l.Name), MemoryMB: p.MemoryMB, LowPriority: true}
 	rep := &Report{Status: "ok", Label: lad.Label, TimeLimitMs: lim.TimeLimit.Milliseconds(), MaxN: lad.MaxN, Reference: lad.Reference}
 
+	yield := func(release func()) error {
+		if opt.Yield == nil {
+			return nil
+		}
+		return opt.Yield(ctx, release)
+	}
+	if err := yield(nil); err != nil {
+		return nil, err
+	}
 	base, err := baseline(ctx, sb, l, lim)
 	if err != nil {
 		return nil, err
 	}
 	rep.BaselineCPUMs, rep.BaselineRSSKB = base.cpu, base.rss
 
+	if err := yield(nil); err != nil {
+		return nil, err
+	}
 	compiled, cres, err := sb.Compile(ctx, l, src)
 	if err != nil {
 		return nil, err
@@ -179,15 +192,13 @@ func Analyze(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, lad *
 	// once runs one size; ok is false when the program failed there (the
 	// failed run is the ladder's last step) or the analysis must stop.
 	once := func(i int) (res *sandbox.Result, err error) {
-		if opt.Yield != nil {
-			paused, err := opt.Yield(ctx)
-			if err != nil {
-				return nil, err
-			}
-			if paused && b != nil {
+		if err := yield(func() {
+			if b != nil {
 				b.Close()
 				b = nil
 			}
+		}); err != nil {
+			return nil, err
 		}
 		if res, err = run(inputs[i]); err != nil {
 			return nil, err
