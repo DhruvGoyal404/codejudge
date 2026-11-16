@@ -202,8 +202,16 @@ func Analyze(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, lad *
 	cpus := make([][]int64, len(lad.Steps))
 	rsss := make([][]int64, len(lad.Steps))
 	var failed *Measured
-	done := 0
+	done, prev := 0, -1
 	for i, st := range lad.Steps {
+		// While the curve is still flat, every other size is skipped: the
+		// flat part needs few points, so a dense ladder costs little until
+		// the cost starts to rise (where the density matters).
+		if prev == i-1 && prev >= 0 && cpus[prev][0]-base.cpu < floor && i < len(lad.Steps)-1 {
+			done = i + 1
+			continue
+		}
+		prev = i
 		res, err := once(i)
 		if err != nil {
 			return nil, err
@@ -223,7 +231,7 @@ func Analyze(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, lad *
 passes:
 	for r := 1; r < opt.Reps && rep.StoppedBy != "budget"; r++ {
 		for i := 0; i < done; i++ {
-			if cpus[i][0]-base.cpu < floor || len(cpus[i]) < r {
+			if cpus[i] == nil || cpus[i][0]-base.cpu < floor || len(cpus[i]) < r {
 				continue // under the floor: one run says all there is
 			}
 			res, err := once(i)
@@ -239,6 +247,9 @@ passes:
 		}
 	}
 	for i := 0; i < done; i++ {
+		if cpus[i] == nil {
+			continue // skipped while flat
+		}
 		rep.Steps = append(rep.Steps, Measured{N: lad.Steps[i].N, CPUMs: median(cpus[i]), RSSKB: median(rsss[i]), Status: sandbox.StatusOK})
 	}
 	if failed != nil {
