@@ -39,6 +39,8 @@ export interface Stack {
   created: string[];
   users: number[];
   workers: Map<string, ChildProcess>;
+  /** Session cookie of each submission's owner (submit creates one user per submission). */
+  cookies: Map<string, string>;
   startWorker(id: string, extra?: Record<string, string>): ChildProcess;
   killWorker(id: string): void; // hard kill (TerminateProcess / SIGKILL)
   submit(slug: string, file: string): Promise<string>;
@@ -65,6 +67,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
   const sweeper = setInterval(() => void sweepOnce(d).catch(() => {}), 500);
   const created: string[] = [];
   const workers = new Map<string, ChildProcess>();
+  const cookies = new Map<string, string>();
 
   const workerEnv = (id: string, extra: Record<string, string>) => ({
     ...process.env,
@@ -75,6 +78,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
     JUDGE_EVENTS_STREAM: d.config.EVENTS_STREAM,
     JUDGE_RUNS_STREAM: d.config.RUNS_STREAM,
     JUDGE_RUN_KEY_PREFIX: d.config.RUN_KEY_PREFIX,
+    JUDGE_INSIGHTS_STREAM: d.config.INSIGHTS_STREAM,
     JUDGE_WORKER_ID: id,
     ...extra,
   });
@@ -91,6 +95,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
     created,
     users,
     workers,
+    cookies,
     startWorker(id, extra = {}) {
       mkdirSync(EVIDENCE_DIR, { recursive: true });
       const log = createWriteStream(join(EVIDENCE_DIR, `worker-${run}-${id}.log`));
@@ -116,6 +121,7 @@ export async function startStack(opts: { sweepAfterMs?: number; runningAfterMs?:
       if (r.status !== 202) throw new Error(`POST /submissions -> ${r.status} ${await r.text()}`);
       const { id } = (await r.json()) as { id: string };
       created.push(id);
+      cookies.set(id, user.cookie);
       return id;
     },
     async sse(id, timeoutMs = 300_000) {

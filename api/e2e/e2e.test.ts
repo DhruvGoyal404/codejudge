@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { createTestUser, devEnv } from "../test/helpers.ts";
+import { createTestUser, devEnv, ORIGIN } from "../test/helpers.ts";
 import { containersOf, prepare, startStack, waitFor, type Stack } from "./harness.ts";
 
 const SLUGS = ["ledger-total", "range-ledger", "courier-grid", "rising-towers", "farthest-beacons"];
@@ -142,6 +142,60 @@ describe("load: 30 concurrent submissions, 2 workers", () => {
     const by = await s.d.db.pool.query(`SELECT count(DISTINCT worker_id)::int AS n FROM submissions WHERE id = ANY($1::uuid[])`, [ids]);
     expect(by.rows[0].n).toBe(2);
   }, 900_000);
+});
+
+describe("Insights yields to judging (one worker, as in production)", () => {
+  let s: Stack;
+  beforeAll(async () => {
+    s = await startStack();
+    s.startWorker(`e2e-${s.run}-w`);
+  });
+  afterAll(async () => s.close({ keep: failed }));
+
+  const mix = Array.from({ length: 12 }, (_, i) =>
+    i % 3 === 0 ? { slug: "ledger-total", file: "ref.py" } :
+    i % 3 === 1 ? { slug: "rising-towers", file: "ref.cpp" } :
+                  { slug: "range-ledger", file: "wrong.cpp" },
+  );
+  // Submit-to-verdict latency (ms) of the mix, all submitted at once.
+  async function judge(): Promise<number[]> {
+    const ids = await Promise.all(mix.map((p) => s.submit(p.slug, p.file)));
+    await Promise.all(ids.map((id) => s.sse(id, 900_000)));
+    const r = await s.d.db.pool.query(
+      `SELECT (extract(epoch FROM finished_at - created_at) * 1000)::int AS ms FROM submissions WHERE id = ANY($1::uuid[])`,
+      [ids],
+    );
+    return r.rows.map((x) => x.ms as number);
+  }
+  const p95 = (v: number[]) => [...v].sort((a, b) => a - b)[Math.ceil(0.95 * v.length) - 1]!;
+  const insight = (id: string, method = "GET") =>
+    fetch(`${s.base}/submissions/${id}/insights`, { method, headers: { Origin: ORIGIN, Cookie: s.cookies.get(id)! } });
+
+  it("judging p95 holds while analyses are queued, and every analysis then finishes", async () => {
+    const quiet = await judge();
+
+    // Four analyses of slow solutions: each climbs its ladder until TLE.
+    const slow = await Promise.all(["ledger-total", "range-ledger", "rising-towers", "farthest-beacons"].map((slug) => s.submit(slug, "slow.cpp")));
+    await Promise.all(slow.map((id) => s.sse(id, 900_000)));
+    for (const id of slow) expect((await insight(id, "POST")).status).toBe(202);
+    await waitFor(async () => (await s.d.db.pool.query(`SELECT 1 FROM insights WHERE status = 'running'`)).rowCount, 120_000);
+
+    const busy = await judge();
+    process.stdout.write(`judging p95: ${p95(quiet)} ms quiet, ${p95(busy)} ms with analyses queued\n`);
+    // A running ladder step (at most one time limit, at low CPU weight) may
+    // overlap the first submissions; anything beyond that is a regression.
+    expect(p95(busy)).toBeLessThanOrEqual(p95(quiet) * 1.1 + 1500);
+
+    const reports = await waitFor(async () => {
+      const r = await Promise.all(slow.map(async (id) => (await insight(id)).json()));
+      return r.every((x) => x.status === "done" || x.status === "failed") && r;
+    }, 900_000, 2000);
+    for (const r of reports) {
+      expect(r.status).toBe("done");
+      expect(r.report.time.class).not.toBe("fast"); // they are quadratic and hit the limit
+      expect(JSON.stringify(r.report)).not.toMatch(/stdout|stderr|input/); // sizes and measurements only
+    }
+  }, 1_800_000);
 });
 
 describe("crash recovery", () => {
