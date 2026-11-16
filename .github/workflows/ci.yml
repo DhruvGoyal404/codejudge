@@ -315,7 +315,8 @@ jobs:
       - name: API e2e (load, Insights yields to judging)
         if: success() || failure()
         working-directory: api
-        run: npx vitest run --config vitest.e2e.config.ts -t "load: 30 concurrent|Insights yields"
+        run: |
+          npx vitest run --config vitest.e2e.config.ts -t "load: 30 concurrent|Insights yields"
       - name: Upload failure evidence
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
