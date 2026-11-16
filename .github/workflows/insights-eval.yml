@@ -1,0 +1,76 @@
+# Insights evals (docs/INSIGHTS.md), on demand: the complexity classifier on
+# the labelled corpus in the private problems repo, under gVisor like
+# production. load=true adds two busy-loop processes on the runner for the
+# whole run (the noise-robustness test). Results: the run summary and the
+# raw per-program reports as an artifact.
+name: Insights eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      load:
+        description: "Run under background CPU load (noise-robustness test)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  eval:
+    name: Complexity eval (runsc${{ inputs.load && ', under load' || '' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CODEJUDGE_PROBLEMS_TESTS_DIR: ${{ github.workspace }}/problems-private
+      JUDGE_RUNTIME: runsc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: DhruvGoyal404/codejudge-problems
+          ssh-key: ${{ secrets.PROBLEMS_DEPLOY_KEY }}
+          path: problems-private
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: runner/go.mod
+          cache-dependency-path: runner/go.sum
+      - name: Bootstrap the host (pinned Docker + gVisor, as in production)
+        run: scripts/ci-bootstrap-check.sh
+      - name: Build sandbox images
+        run: pwsh -NoProfile -File scripts/build-images.ps1
+      - name: Ladders reproduce from their seeded generators
+        run: python3 scripts/make-ladders.py --check
+      - name: Background load
+        if: inputs.load
+        run: |
+          for i in 1 2; do nohup sh -c 'while :; do :; done' >/dev/null 2>&1 & done
+          echo "busy loops: $(pgrep -fc 'while :; do :; done')"
+      - name: Eval
+        run: |
+          set -o pipefail
+          python3 scripts/insights-eval.py --out "$RUNNER_TEMP/insights-eval.jsonl" 2>&1 | tee "$RUNNER_TEMP/insights-eval.log"
+      - name: Summary
+        if: always()
+        run: |
+          [ -f "$RUNNER_TEMP/insights-eval.log" ] || exit 0
+          {
+            echo "### Insights eval (runsc${{ inputs.load && ', under background load' || '' }})"
+            echo '```'
+            sed -n '/^programs:/,$p' "$RUNNER_TEMP/insights-eval.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: insights-eval${{ inputs.load && '-load' || '' }}
+          path: |
+            ${{ runner.temp }}/insights-eval.jsonl
+            ${{ runner.temp }}/insights-eval.log
+          if-no-files-found: warn
+          retention-days: 14
