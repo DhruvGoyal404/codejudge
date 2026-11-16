@@ -128,6 +128,47 @@ export interface RunState {
 
 export const MAX_RUN_INPUT_BYTES = 64 * 1024;
 
+/** One ladder size as measured (medians): never program output or input. */
+export interface InsightStep {
+  n: number;
+  cpu_ms: number;
+  rss_kb: number;
+  status: string; // OK, or the run status that ended the ladder (TLE, MLE, RE)
+}
+
+export interface InsightFit {
+  class: string; // "n^2", "n or n log n", "fast", "unclear", ...
+  confidence: number;
+  reason?: string;
+  offset: number;
+  scale: number;
+}
+
+export interface InsightReport {
+  status: "ok" | "CE" | "IE";
+  reason?: string;
+  label: string;
+  steps: InsightStep[] | null;
+  baseline_cpu_ms: number;
+  time: InsightFit;
+  memory: InsightFit;
+  time_limit_ms: number;
+  max_n: number;
+  predicted_ms?: number;
+  stopped_by?: string;
+  cpu_spent_ms: number;
+}
+
+export interface Insight {
+  eligible: boolean;
+  reason: string | null;
+  label: string | null;
+  reference: string | null;
+  status: "none" | "queued" | "running" | "done" | "failed";
+  error: string | null;
+  report: InsightReport | null;
+}
+
 export const VERDICTS: Verdict[] = ["AC", "WA", "CE", "RE", "TLE", "MLE", "OLE", "IE"];
 
 /** HTTP error from the API (has a status code and the server's message). */
@@ -198,6 +239,8 @@ export const api = {
       body: JSON.stringify({ problemSlug, language, source, input }),
     }),
   getRun: (id: string) => request<RunState>(`/runs/${encodeURIComponent(id)}`),
+  insight: (id: string) => request<Insight>(`/submissions/${encodeURIComponent(id)}/insights`),
+  analyze: (id: string) => request<Insight>(`/submissions/${encodeURIComponent(id)}/insights`, { method: "POST" }),
   submit: (problemSlug: string, language: Language, source: string) =>
     request<{ id: string }>("/submissions", {
       method: "POST",

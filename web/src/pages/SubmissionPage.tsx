@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router";
 
 import { api, ApiError, LANGUAGES, NetworkError } from "../api.ts";
 import { ErrorBanner } from "../components/Layout.tsx";
+import { InsightsPanel } from "../components/InsightsPanel.tsx";
 import { ResultPanel } from "../components/ResultPanel.tsx";
 import { useTitle } from "../lib/useTitle.ts";
 
@@ -53,6 +54,8 @@ export function SubmissionPage({ dark }: { dark: boolean }) {
           {s.status === "queued" ? "Queued…" : "Judging…"}
         </p>
       )}
+
+      {s.mine && s.status === "done" && <InsightsPanel id={s.id} />}
 
       <section aria-label="Submitted code">
         <h2 className="mb-2 font-semibold">Code</h2>
