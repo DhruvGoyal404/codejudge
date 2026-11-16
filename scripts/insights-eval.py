@@ -86,7 +86,10 @@ def main():
     fast = [r for r in rows if r["got"] == "fast"]
     clear = [r for r in rows if r["kind"] == "clear" and grew(r)]
     every = [r for r in rows if r["kind"] == "clear"]
-    strict = sum(r["got"] == r["true"] for r in clear)
+    # n and n log n are never told apart (by design, see fit.go): the pair is
+    # the exact answer for both. Any other pair is a hedge.
+    exact = lambda r: r["got"] == r["true"] or (r["true"] in ("n", "n log n") and r["got"] == "n or n log n")
+    strict = sum(exact(r) for r in clear)
     lenient = sum(r["true"] in claim(r["got"]) for r in clear)
     claims = [r for r in rows if claim(r["got"])]
     right = sum(r["true"] in claim(r["got"]) for r in claims)
@@ -96,7 +99,7 @@ def main():
     print()
     print(f"programs: {len(rows)}")
     print(f"measurable clear cases (>= {MEASURABLE_MS} ms growth): {len(clear)} of {len(every)}")
-    print(f"clear cases, exact class:            {pct(strict, len(clear))}")
+    print(f"clear cases, exact class (n/n log n as one): {pct(strict, len(clear))}")
     print(f"clear cases, exact or hedged pair:   {pct(lenient, len(clear))}")
     print(f"precision of every claim made:       {pct(right, len(claims))}")
     print(f"ambiguous cases answered honestly:   {pct(amb_ok, len(amb))}")
