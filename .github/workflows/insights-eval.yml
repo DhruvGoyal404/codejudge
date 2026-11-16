@@ -12,6 +12,10 @@ on:
         description: "Run under background CPU load (noise-robustness test)"
         type: boolean
         default: false
+      references:
+        description: "Instead: measure each ladder's reference (ref.cpp) and upload the ladder.json files"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,12 +50,22 @@ jobs:
         run: pwsh -NoProfile -File scripts/build-images.ps1
       - name: Ladders reproduce from their seeded generators
         run: python3 scripts/make-ladders.py --check
+      - name: Measure references
+        if: inputs.references
+        run: python3 scripts/make-ladders.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: inputs.references
+        with:
+          name: ladder-references
+          path: problems-private/*/ladder/ladder.json
+          retention-days: 7
       - name: Background load
-        if: inputs.load
+        if: inputs.load && !inputs.references
         run: |
           for i in 1 2; do nohup sh -c 'while :; do :; done' >/dev/null 2>&1 & done
           echo "busy loops: $(pgrep -fc 'while :; do :; done')"
       - name: Eval
+        if: ${{ !inputs.references }}
         run: |
           set -o pipefail
           python3 scripts/insights-eval.py --out "$RUNNER_TEMP/insights-eval.jsonl" 2>&1 | tee "$RUNNER_TEMP/insights-eval.log"
