@@ -5,12 +5,15 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/DhruvGoyal404/codejudge/runner/internal/insights"
 	"github.com/DhruvGoyal404/codejudge/runner/internal/problem"
 )
 
@@ -80,6 +83,25 @@ func UpsertProblem(ctx context.Context, pool *pgxpool.Pool, p *problem.Problem) 
 			RETURNING id`,
 			p.ID, p.Title, p.Statement, p.TimeLimit.Milliseconds(), p.MemoryMB, checker, hash, p.Difficulty, p.Tags).Scan(&id)
 		if err != nil {
+			return err
+		}
+		// Insights ladder (private data, like the tests): record its hash, label
+		// and reference class, or clear them if the problem has none.
+		var ladHash, ladLabel, ladRef *string
+		if lad, err := insights.LoadLadder(p); err == nil {
+			h, err := lad.Hash()
+			if err != nil {
+				return err
+			}
+			ladHash, ladLabel = &h, &lad.Label
+			if lad.Reference != nil {
+				ladRef = &lad.Reference.Class
+			}
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE problems SET ladder_hash = $2, ladder_label = $3, ladder_reference = $4 WHERE id = $1`,
+			id, ladHash, ladLabel, ladRef); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM problem_samples WHERE problem_id = $1`, id); err != nil {

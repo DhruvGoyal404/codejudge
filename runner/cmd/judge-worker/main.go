@@ -54,6 +54,7 @@ func run(log *slog.Logger) error {
 	cfg.EventsStream = envOr("JUDGE_EVENTS_STREAM", cfg.EventsStream)
 	cfg.RunsStream = envOr("JUDGE_RUNS_STREAM", cfg.RunsStream)
 	cfg.RunKeyPrefix = envOr("JUDGE_RUN_KEY_PREFIX", cfg.RunKeyPrefix)
+	cfg.InsightsStream = envOr("JUDGE_INSIGHTS_STREAM", cfg.InsightsStream)
 	var err error
 	if cfg.Concurrency, err = envInt("JUDGE_CONCURRENCY", cfg.Concurrency); err != nil {
 		return err
@@ -121,7 +122,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	sandbox.SetInstanceID(cfg.WorkerID) // containers carry judge.instance = worker id
-	sb, err := sandbox.New(context.Background(), sandbox.Options{SeccompPath: seccomp, ImagesLockPath: lock, Concurrency: cfg.Concurrency + cfg.RunConcurrency, Runtime: os.Getenv("JUDGE_RUNTIME")})
+	sb, err := sandbox.New(context.Background(), sandbox.Options{SeccompPath: seccomp, ImagesLockPath: lock, Concurrency: cfg.Concurrency + cfg.RunConcurrency + 1 /* + one Insights analysis */, Runtime: os.Getenv("JUDGE_RUNTIME")})
 	if err != nil {
 		return err
 	}

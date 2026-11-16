@@ -54,6 +54,9 @@ type Config struct {
 	RunGroup          string
 	RunKeyPrefix      string // Valkey hash per run: RunKeyPrefix + id (written by the API)
 	RunConcurrency    int
+	InsightsStream    string // Insights analyses (insights.go); always one at a time
+	InsightsGroup     string
+	InsightsMaxWait   time.Duration // an analysis, including waiting for judging, gives up after this
 }
 
 // DefaultConfig returns the defaults used by judge-worker.
@@ -71,6 +74,9 @@ func DefaultConfig() Config {
 		RunGroup:          "runners",
 		RunKeyPrefix:      "judge:run:",
 		RunConcurrency:    1,
+		InsightsStream:    "judge:insights",
+		InsightsGroup:     "analysts",
+		InsightsMaxWait:   10 * time.Minute,
 	}
 }
 
@@ -132,6 +138,8 @@ func (w *Worker) Run(ctx context.Context) error {
 
 	runsDone := make(chan struct{})
 	go func() { w.runLoop(ctx); close(runsDone) }()
+	insightsDone := make(chan struct{})
+	go func() { w.insightsLoop(ctx); close(insightsDone) }()
 
 	var lastClaim time.Time
 	for ctx.Err() == nil {
@@ -166,6 +174,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	w.log.Info("shutting down: waiting for in-flight submissions")
 	<-runsDone // no new run can be added to wg after this
+	<-insightsDone
 	w.wg.Wait()
 	w.log.Info("worker stopped")
 	return nil
