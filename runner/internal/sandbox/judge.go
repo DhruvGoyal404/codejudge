@@ -18,6 +18,9 @@ type Limits struct {
 	TimeLimit   time.Duration // CPU time
 	MemoryMB    int64         // peak RSS of the program
 	OutputBytes int64         // max stdout size (RLIMIT_FSIZE); also the returned stdout cap
+	// LowPriority gives batch containers a quarter of the default CPU weight
+	// (Insights): under contention, judging containers get the CPU first.
+	LowPriority bool
 }
 
 // Fixed sizing. See docs/PHASE1.md "Memory accounting".
@@ -47,6 +50,7 @@ const (
 	runcNproc  = 48
 	runscNproc = 32
 	runCPUs    = 1_000_000_000 // 1 CPU
+	lowShares  = 256           // CPU weight of LowPriority containers (Docker's default is 1024)
 	hostGrace  = 20 * time.Second
 
 	compileMemoryMB  = 1024

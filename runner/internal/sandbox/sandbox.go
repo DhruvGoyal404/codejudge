@@ -184,6 +184,7 @@ type containerSpec struct {
 	Cmd           []string
 	MemoryBytes   int64 // memory == memory-swap (no swap)
 	NanoCPUs      int64
+	CPUShares     int64 // 0: Docker's default weight
 	PidsLimit     int64
 	BoxMB         int64 // /box tmpfs (exec)
 	TmpMB         int64 // /tmp tmpfs (noexec)
@@ -276,6 +277,7 @@ func (s *Sandbox) containerConfigs(image string, sp containerSpec, uid uint32) (
 			Memory:     sp.MemoryBytes,
 			MemorySwap: sp.MemoryBytes,
 			NanoCPUs:   sp.NanoCPUs,
+			CPUShares:  sp.CPUShares,
 			PidsLimit:  &pids,
 			Ulimits:    []*container.Ulimit{{Name: "nofile", Soft: 256, Hard: 256}},
 		},

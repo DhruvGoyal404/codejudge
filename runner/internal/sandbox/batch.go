@@ -110,8 +110,12 @@ func (s *Sandbox) StartBatch(ctx context.Context, c *Compiled, lim Limits, nTest
 	outMB := (lim.OutputBytes + (1<<20 - 1)) >> 20
 	progMB := (int64(len(program)) + (1<<20 - 1)) >> 20
 	boxMB := progMB + int64(maxInput)>>20 + 2*outMB + 8 // program + input + stdout + stderr + slack
+	var shares int64
+	if lim.LowPriority {
+		shares = lowShares
+	}
 	sp := containerSpec{
-		Role: "batch", ImageKey: c.Lang.RunImage, KeepStdinOpen: true,
+		Role: "batch", ImageKey: c.Lang.RunImage, KeepStdinOpen: true, CPUShares: shares,
 		// judge-exec keeps a copy of the program tar in memory: add progMB to headroom.
 		MemoryBytes: memBytes + (c.Lang.MemOverheadMB+helperHeadroomMB+progMB+boxMB+runTmpMB)<<20,
 		NanoCPUs:    runCPUs, PidsLimit: s.pidsLimit() + int64(c.Lang.ExtraTasks), BoxMB: boxMB, TmpMB: runTmpMB,
