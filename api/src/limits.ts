@@ -19,6 +19,8 @@ export class Limits {
   private readonly authMinute: RateLimiterRedis;
   private readonly runMinute: RateLimiterRedis;
   private readonly runDay: RateLimiterRedis;
+  private readonly insightMinute: RateLimiterRedis;
+  private readonly insightDay: RateLimiterRedis;
 
   constructor(
     redis: Redis,
@@ -32,6 +34,14 @@ export class Limits {
     this.authMinute = mk("auth-ip-min", config.AUTH_LIMIT_PER_MIN, config.RATE_LIMIT_MINUTE_S);
     this.runMinute = mk("run-min", config.RUN_LIMIT_PER_MIN, config.RATE_LIMIT_MINUTE_S);
     this.runDay = mk("run-day", config.RUN_LIMIT_PER_DAY, DAY_S);
+    this.insightMinute = mk("insight-min", config.INSIGHT_LIMIT_PER_MIN, config.RATE_LIMIT_MINUTE_S);
+    this.insightDay = mk("insight-day", config.INSIGHT_LIMIT_PER_DAY, DAY_S);
+  }
+
+  /** Counts one Insights analysis that will actually run (cache hits are free). */
+  async consumeInsight(userId: number): Promise<void> {
+    await this.consume(this.insightMinute, String(userId));
+    await this.consume(this.insightDay, String(userId));
   }
 
   /** Counts one custom-run attempt for userId (separate budget from submissions). */

@@ -245,6 +245,73 @@ export class Db {
     return r.rowCount ?? 0;
   }
 
+  /**
+   * What an Insights request needs about a submission, only if userId owns
+   * it (else null): its problem's ladder, verdict and source.
+   */
+  async insightTarget(id: string, userId: number) {
+    const r = await this.pool.query(
+      `SELECT s.problem_id, s.language, s.source, s.status, s.verdict, p.ladder_hash, p.ladder_label, p.ladder_reference
+         FROM submissions s JOIN problems p ON p.id = s.problem_id
+        WHERE s.id = $1 AND s.user_id = $2`,
+      [id, userId],
+    );
+    return (r.rows[0] ?? null) as {
+      problem_id: string;
+      language: string;
+      source: string;
+      status: string;
+      verdict: string | null;
+      ladder_hash: string | null;
+      ladder_label: string | null;
+      ladder_reference: string | null;
+    } | null;
+  }
+
+  /** The cached analysis for (problem, language, code, ladder), if any. */
+  async getInsight(problemId: string, language: string, sha: Buffer, ladderHash: string, staleMs: number) {
+    const r = await this.pool.query(
+      `SELECT id, status, report, error, created_at, started_at, finished_at,
+              (status IN ('queued', 'running') AND now() - created_at > make_interval(secs => $5 / 1000.0)) AS stale
+         FROM insights WHERE problem_id = $1 AND language = $2 AND code_sha256 = $3 AND ladder_hash = $4`,
+      [problemId, language, sha, ladderHash, staleMs],
+    );
+    return (r.rows[0] ?? null) as {
+      id: string;
+      status: string;
+      report: unknown;
+      error: string | null;
+      stale: boolean;
+    } | null;
+  }
+
+  /**
+   * Queues an analysis: inserts it, or re-queues a failed or stale one (with
+   * this submission as the source). Returns the id to enqueue, or null if
+   * another request won the race and the existing row stands.
+   */
+  async queueInsight(
+    problemId: string,
+    language: string,
+    sha: Buffer,
+    ladderHash: string,
+    submissionId: string,
+    staleMs: number,
+  ): Promise<string | null> {
+    const r = await this.pool.query(
+      `INSERT INTO insights (problem_id, language, code_sha256, ladder_hash, submission_id)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (problem_id, language, code_sha256, ladder_hash) DO UPDATE
+          SET status = 'queued', submission_id = EXCLUDED.submission_id, report = NULL, error = NULL,
+              created_at = now(), started_at = NULL, finished_at = NULL
+        WHERE insights.status = 'failed'
+           OR (insights.status IN ('queued', 'running') AND now() - insights.created_at > make_interval(secs => $6 / 1000.0))
+       RETURNING id`,
+      [problemId, language, sha, ladderHash, submissionId, staleMs],
+    );
+    return r.rows[0]?.id ?? null;
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }

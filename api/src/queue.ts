@@ -6,11 +6,17 @@ export class Queue {
     readonly redis: Redis,
     readonly submissionsStream: string,
     readonly runsStream = "judge:runs",
+    readonly insightsStream = "judge:insights",
   ) {}
 
-  static connect(url: string, submissionsStream: string, runsStream?: string): Queue {
+  static connect(url: string, submissionsStream: string, runsStream?: string, insightsStream?: string): Queue {
     const redis = new Redis(url, { maxRetriesPerRequest: 2, enableOfflineQueue: false, lazyConnect: false });
-    return new Queue(redis, submissionsStream, runsStream);
+    return new Queue(redis, submissionsStream, runsStream, insightsStream);
+  }
+
+  /** XADD {id} to the Insights stream (runner/internal/worker/insights.go). */
+  async enqueueInsight(id: string): Promise<void> {
+    await this.redis.xadd(this.insightsStream, "MAXLEN", "~", "10000", "*", "id", id);
   }
 
   /** XADD {id} to the custom-run stream. */

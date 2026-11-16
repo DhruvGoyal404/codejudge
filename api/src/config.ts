@@ -14,6 +14,10 @@ const Env = z
     RUNS_STREAM: z.string().min(1).default("judge:runs"),
     RUN_KEY_PREFIX: z.string().min(1).default("judge:run:"),
     RUN_TTL_S: z.coerce.number().int().min(60).default(3600),
+    // Insights (docs/INSIGHTS.md): analyses are queued on INSIGHTS_STREAM; one
+    // queued or running longer than INSIGHT_STALE_MS (worker lost) may be retried.
+    INSIGHTS_STREAM: z.string().min(1).default("judge:insights"),
+    INSIGHT_STALE_MS: z.coerce.number().int().min(1_000).default(15 * 60_000),
     // Simplified transactional outbox: re-enqueue submissions that are still
     // queued and were not (re)enqueued within SWEEP_AFTER_MS.
     SWEEP_INTERVAL_MS: z.coerce.number().int().min(100).default(10_000),
@@ -48,6 +52,8 @@ const Env = z
     SUBMIT_LIMIT_PER_DAY: z.coerce.number().int().min(1).default(200), // per user
     RUN_LIMIT_PER_MIN: z.coerce.number().int().min(1).default(10), // per user, separate from submissions
     RUN_LIMIT_PER_DAY: z.coerce.number().int().min(1).default(300), // per user
+    INSIGHT_LIMIT_PER_MIN: z.coerce.number().int().min(1).default(3), // per user; cached results are free
+    INSIGHT_LIMIT_PER_DAY: z.coerce.number().int().min(1).default(20),
     AUTH_LIMIT_PER_MIN: z.coerce.number().int().min(1).default(20), // per IP, /auth/*
     // Length of the "per minute" windows; overridden only by tests.
     RATE_LIMIT_MINUTE_S: z.coerce.number().int().min(1).default(60),
