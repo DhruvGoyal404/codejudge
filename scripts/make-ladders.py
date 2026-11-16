@@ -12,7 +12,10 @@ For each <root>/<slug> that has gen/ladder.py (lib/cjladder.py):
 committed ladder/ inputs and steps to match (the reference class is a
 measurement, so it is not compared).
 
-Usage:  python scripts/make-ladders.py [--tests-root DIR] [--check] [slug ...]
+--skip-reference generates and validates without Docker; the reference is
+recorded later (a run without the flag, e.g. in CI).
+
+Usage:  python scripts/make-ladders.py [--tests-root DIR] [--check | --skip-reference] [slug ...]
 """
 import argparse
 import filecmp
@@ -65,6 +68,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tests-root", default=os.environ.get("CODEJUDGE_PROBLEMS_TESTS_DIR"))
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--skip-reference", action="store_true")
     ap.add_argument("slugs", nargs="*")
     a = ap.parse_args()
     if not a.tests_root:
@@ -73,7 +77,7 @@ def main():
     slugs = a.slugs or sorted(os.path.basename(os.path.dirname(os.path.dirname(p)))
                               for p in glob.glob(os.path.join(root, "*", "gen", "ladder.py")))
     with tempfile.TemporaryDirectory() as tmp:
-        judge_run = None if a.check else build_judge_run(tmp)
+        judge_run = None if a.check or a.skip_reference else build_judge_run(tmp)
         for slug in slugs:
             pdir = os.path.join(root, slug)
             work = os.path.join(tmp, slug)
@@ -93,6 +97,9 @@ def main():
                 continue
             shutil.rmtree(dest, ignore_errors=True)
             shutil.copytree(work, dest)
+            if a.skip_reference:
+                print(f"{slug}: {len(ins)} sizes (reference not measured)")
+                continue
             ref = reference(slug, judge_run, root)
             path = os.path.join(dest, "ladder.json")
             with open(path) as f:
