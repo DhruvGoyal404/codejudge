@@ -105,8 +105,8 @@ const (
 	relCPU        = 0.03
 	minJitterKB   = 512
 	relRSS        = 0.03
-	repeatOverMs  = 5 // repeat a size only once it costs this much over the startup
-	jitWarmFactor = 3 // Java/JavaScript: fit only sizes costing at least this many startups
+	repeatOverMs  = 5   // repeat a size only once it costs this much over the startup
+	jitWarmMs     = 100 // Java/JavaScript: fit only sizes with this much CPU over the startup
 	baselineRuns  = 5
 	defaultReps   = 3
 	defaultBudget = 20 * time.Second
@@ -252,9 +252,10 @@ passes:
 			continue
 		}
 		c, r := float64(m.CPUMs), float64(m.RSSKB)
-		// JIT runtimes run small inputs in the interpreter and large ones as
-		// compiled code, which flattens the curve: fit only warmed-up sizes.
-		if !jitLangs[l.Name] || m.CPUMs >= jitWarmFactor*base.cpu {
+		// JIT runtimes run a hot loop in the interpreter until it has done
+		// enough iterations to be compiled, which flattens the curve at small
+		// sizes: fit only sizes with enough of the program's own work.
+		if !jitLangs[l.Name] || m.CPUMs-base.cpu >= jitWarmMs {
 			tp = append(tp, Point{m.N, c, math.Hypot(jitter, relCPU*c)})
 		}
 		mp = append(mp, Point{m.N, r, math.Hypot(minJitterKB, relRSS*r)})
