@@ -3,6 +3,10 @@
 //	judge-run [run] --lang cpp|python --src FILE [--stdin FILE] --time-limit 2s --memory-limit 256
 //	judge-run judge --problem problems/<slug> --lang cpp|python --src FILE [--run-all] [--mode batch|per-test]
 //	judge-run outputs --lang L --src FILE --inputs DIR --out DIR [--time-limit 10s --memory-limit 1024]
+//	judge-run insights --problem problems/<slug> --src FILE [--src FILE ...] [--reps 3]
+//
+// insights runs each source (language from its extension) on the problem's
+// size ladder and prints one JSON report per line (docs/INSIGHTS.md).
 //
 // outputs is a problem-authoring tool: it runs a reference solution on every
 // DIR/NN.in in one batch container and writes its exact stdout to OUT/NN.out
@@ -22,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DhruvGoyal404/codejudge/runner/internal/insights"
 	"github.com/DhruvGoyal404/codejudge/runner/internal/judge"
 	"github.com/DhruvGoyal404/codejudge/runner/internal/lang"
 	"github.com/DhruvGoyal404/codejudge/runner/internal/problem"
@@ -33,6 +38,13 @@ func main() {
 	if len(args) > 0 && args[0] == "judge" {
 		if err := judgeCmd(args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "judge-run judge:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "insights" {
+		if err := insightsCmd(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "judge-run insights:", err)
 			os.Exit(1)
 		}
 		return
@@ -260,5 +272,81 @@ func outputsCmd(args []string) error {
 		maxCPU = max(maxCPU, res.CPUMs)
 	}
 	fmt.Printf("%d outputs, max cpu %dms\n", len(inputs), maxCPU)
+	return nil
+}
+
+// srcList collects repeated --src flags.
+type srcList []string
+
+func (s *srcList) String() string     { return strings.Join(*s, ",") }
+func (s *srcList) Set(v string) error { *s = append(*s, v); return nil }
+
+var langByExt = map[string]string{".c": "c", ".cpp": "cpp", ".go": "go", ".py": "python", ".java": "java", ".js": "javascript"}
+
+func insightsCmd(args []string) error {
+	fs := flag.NewFlagSet("insights", flag.ContinueOnError)
+	probDir := fs.String("problem", "", "problem package directory (problems/<slug>)")
+	var srcs srcList
+	fs.Var(&srcs, "src", "source file (repeatable; language from the extension)")
+	reps := fs.Int("reps", 0, "runs per ladder size (default 3)")
+	seccompPath := fs.String("seccomp", "", "seccomp profile (default: find sandbox/seccomp/default.json)")
+	lockPath := fs.String("images", "", "image lock (default: find sandbox/images/images.lock.json)")
+	runtime := fs.String("runtime", os.Getenv("JUDGE_RUNTIME"), "OCI runtime, e.g. runsc (default: $JUDGE_RUNTIME, else the engine default)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *probDir == "" || len(srcs) == 0 {
+		return fmt.Errorf("--problem and --src are required")
+	}
+	p, err := problem.Load(*probDir)
+	if err != nil {
+		return err
+	}
+	lad, err := insights.LoadLadder(p)
+	if err != nil {
+		return err
+	}
+	if *seccompPath == "" {
+		if *seccompPath, err = sandbox.FindRepoFile("sandbox/seccomp/default.json"); err != nil {
+			return err
+		}
+	}
+	if *lockPath == "" {
+		if *lockPath, err = sandbox.FindRepoFile("sandbox/images/images.lock.json"); err != nil {
+			return err
+		}
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	sb, err := sandbox.New(ctx, sandbox.Options{SeccompPath: *seccompPath, ImagesLockPath: *lockPath, Runtime: *runtime})
+	if err != nil {
+		return err
+	}
+	defer sb.Close()
+	enc := json.NewEncoder(os.Stdout)
+	for _, path := range srcs {
+		name, ok := langByExt[filepath.Ext(path)]
+		if !ok {
+			return fmt.Errorf("%s: unknown extension", path)
+		}
+		l, err := lang.Get(name)
+		if err != nil {
+			return err
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rep, err := insights.Analyze(ctx, sb, p, lad, l, src, insights.Options{Reps: *reps})
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		if err := enc.Encode(struct {
+			Src string `json:"src"`
+			*insights.Report
+		}{filepath.Base(path), rep}); err != nil {
+			return err
+		}
+	}
 	return nil
 }

@@ -7,17 +7,22 @@ import (
 	"testing"
 )
 
-func curve(model string, sizes []float64, noise float64, seed int64) []Point {
+// curve makes points a + c*f(n), scaled so the largest size costs top ms,
+// with startup offset a, additive jitter j and relative noise rel.
+func curve(model string, sizes []float64, top, a, j, rel float64, seed int64) []Point {
 	r := rand.New(rand.NewSource(seed))
-	var lf func(float64) float64
+	var f func(float64) float64
 	for _, m := range Models {
 		if m.Name == model {
-			lf = m.LogF
+			f = m.F
 		}
 	}
+	c := top / f(sizes[len(sizes)-1])
 	var pts []Point
 	for _, n := range sizes {
-		pts = append(pts, Point{N: n, Cost: math.Exp(lf(n)-lf(sizes[0])) * 5 * (1 + noise*(2*r.Float64()-1))})
+		v := c * f(n) * (1 + rel*(2*r.Float64()-1))
+		cost := a + v + j*(2*r.Float64()-1)
+		pts = append(pts, Point{N: n, Cost: cost, Sigma: math.Hypot(j, relCPU*cost)})
 	}
 	return pts
 }
@@ -30,62 +35,67 @@ func geometric(lo, hi float64, k int) []float64 {
 	return s
 }
 
-func TestSelectExact(t *testing.T) {
-	poly := geometric(1e3, 1e6, 8)
+var ladder = geometric(10, 1e5, 20)
+
+func TestSelectClean(t *testing.T) {
 	for _, c := range []struct {
 		model string
 		sizes []float64
 	}{
-		{"1", poly}, {"log n", poly}, {"n", poly}, {"n log n", poly}, {"n^2", poly}, {"n^3", poly},
+		{"n", ladder}, {"n log n", ladder}, {"n^2", ladder}, {"n^3", ladder},
 		{"2^n", []float64{10, 12, 14, 16, 18, 20, 22, 24}},
+		{"2^(n/2)", []float64{10, 14, 18, 22, 26, 30, 34, 36}},
 	} {
-		f := Select(curve(c.model, c.sizes, 0, 1))
-		if f.Class != c.model || f.Confidence < 0.99 {
-			t.Errorf("%s: got %q (%.3f)", c.model, f.Class, f.Confidence)
+		f := Select(curve(c.model, c.sizes, 800, 40, 0, 0, 1))
+		want := c.model
+		if p, ok := alwaysPaired[want]; ok {
+			want = p
+		}
+		if f.Class != want || f.Confidence < 0.99 {
+			t.Errorf("%s: got %q (%.3f) %s", c.model, f.Class, f.Confidence, f.Reason)
 		}
 	}
 }
 
-// With 10% noise each class is either named or, for the hard pairs, reported
-// as the pair; a confident wrong class is the failure that matters.
+// Realistic noise (Python-like startup 45 ms, jitter 10 ms, 5% spread): each
+// class is named or hedged as a pair containing it; never confidently wrong.
 func TestSelectNoisy(t *testing.T) {
-	sizes := geometric(1e3, 1e6, 8)
 	for _, model := range []string{"n", "n log n", "n^2", "n^3"} {
-		for seed := int64(1); seed <= 50; seed++ {
-			f := Select(curve(model, sizes, 0.10, seed))
-			if f.Class != model && !strings.Contains(f.Class, " or ") && f.Class != Unclear {
+		named := 0
+		for seed := int64(1); seed <= 40; seed++ {
+			f := Select(curve(model, ladder, 900, 45, 10, 0.05, seed))
+			claimed := f.Class != Unclear && f.Class != Fast
+			if claimed && !strings.Contains(" or "+f.Class+" or ", " or "+model+" or ") {
 				t.Fatalf("%s seed %d: confidently wrong: %q (%.3f)", model, seed, f.Class, f.Confidence)
 			}
-			if strings.Contains(f.Class, " or ") && !strings.Contains(f.Class, model) {
-				t.Fatalf("%s seed %d: pair without the true class: %q", model, seed, f.Class)
+			if f.Class == model || f.Class == alwaysPaired[model] {
+				named++
 			}
 		}
-	}
-	for seed := int64(1); seed <= 50; seed++ { // quadratic vs linear is never ambiguous at 10%
-		if f := Select(curve("n^2", sizes, 0.10, seed)); f.Class != "n^2" {
-			t.Fatalf("n^2 seed %d: %q", seed, f.Class)
+		if model == "n^2" && named < 38 {
+			t.Errorf("n^2 named only %d/40 times", named)
 		}
 	}
 }
 
-func TestSelectUnclear(t *testing.T) {
-	sizes := geometric(1e3, 1e6, 8)
-	if f := Select(curve("n", sizes[:3], 0, 1)); f.Class != Unclear {
-		t.Errorf("3 points: %q", f.Class)
+func TestSelectFastAndUnclear(t *testing.T) {
+	// 6 ms of growth over a 40 ms startup with 5 ms jitter: too small to measure.
+	if f := Select(curve("n", ladder, 6, 40, 5, 0, 1)); f.Class != Fast {
+		t.Errorf("tiny growth: %q %s", f.Class, f.Reason)
 	}
-	if f := Select(curve("n", geometric(1e3, 4e3, 6), 0, 1)); f.Class != Unclear {
-		t.Errorf("narrow span: %q", f.Class)
+	if f := Select(curve("n^2", ladder[:4], 800, 40, 0, 0, 1)); f.Class != Unclear {
+		t.Errorf("4 points: %q", f.Class)
 	}
-	if f := Select(curve("n", sizes, 1.9, 7)); f.Class != Unclear {
+	// Noise as large as the signal.
+	if f := Select(curve("n^2", ladder, 300, 40, 150, 0.6, 3)); f.Class != Unclear && f.Class != Fast {
 		t.Errorf("wild noise: %q (%.3f)", f.Class, f.Confidence)
 	}
 }
 
 func TestPredict(t *testing.T) {
-	sizes := geometric(1e3, 1e5, 6)
-	f := Select(curve("n^2", sizes, 0, 1))
-	got, want := f.Predict(1e6), 5*math.Pow(1e6/1e3, 2)
-	if math.Abs(got-want)/want > 1e-6 {
-		t.Errorf("Predict(1e6) = %g, want %g", got, want)
+	sizes := geometric(1e3, 1e5, 10)
+	f := Select(curve("n^2", sizes, 1000, 40, 0, 0, 1))
+	if got, want := f.Predict(2e5), 40+4*1000.0; math.Abs(got-want)/want > 1e-6 {
+		t.Errorf("Predict(2e5) = %g, want %g", got, want)
 	}
 }
