@@ -62,7 +62,7 @@ export function testDeps(overrides: Record<string, string> = {}): TestDeps {
     ...overrides,
   });
   const db = Db.connect(config.CODEJUDGE_DATABASE_URL, 3);
-  const queue = Queue.connect(config.CODEJUDGE_VALKEY_URL, config.SUBMISSIONS_STREAM, config.RUNS_STREAM);
+  const queue = Queue.connect(config.CODEJUDGE_VALKEY_URL, config.SUBMISSIONS_STREAM, config.RUNS_STREAM, config.INSIGHTS_STREAM);
   const hub = new Hub();
   const log: Logger = pino({ level: "silent" });
   return {
