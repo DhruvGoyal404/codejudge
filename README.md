@@ -121,7 +121,7 @@ Design, threat model and evals: [docs/INSIGHTS.md](docs/INSIGHTS.md).
 **Java and JavaScript** are measured inside one process: a harness calls the
 program once per size after warm-up calls and times each call with the
 thread's or process's CPU time. One process per size mostly timed the JIT
-warming up; that method named 6 of 41 correctly. The harness clocks tick in
+warming up; that method named 6 of 18 measurable programs correctly. The harness clocks tick in
 10 ms steps inside the sandbox, so only sizes of at least 30 ms are fitted.
 
 **Two lessons:**

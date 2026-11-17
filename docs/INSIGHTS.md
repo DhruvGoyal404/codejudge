@@ -201,5 +201,5 @@ Methods:
 | Precision | 84/85 | 91/91 |
 | Measurable, all languages | 75/83 (90%) | 80/87 (92%) |
 | C, C++, Go, Python | 65/69 | 69/73 |
-| Java, JavaScript | 10/14 | 11/14 (were 6/41 with one process per size) |
+| Java, JavaScript | 10/14 | 11/14 (were 6/18 with one process per size) |
 
