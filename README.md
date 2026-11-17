@@ -27,6 +27,10 @@ each test's progress stream to the browser live.
   test k of n → verdict, with CPU time and memory for each test.
 - **Accounts:** log in with GitHub. Your profile shows solved problems and
   submission history.
+- **Insights:** after a verdict, see *why* a solution is slow. CodeJudge
+  re-runs it on inputs of growing size in the sandbox, fits a complexity
+  class to the measured CPU times, and compares it with the reference
+  solution. Python solutions can also be stepped through line by line.
 - **Accessibility:** light and dark themes, and an axe-checked WCAG 2.1 AA UI
   that works on a phone.
 
@@ -86,6 +90,72 @@ flowchart LR
 Time limits are per problem, multiplied per language: ×1 for C and C++, ×2
 for Go, Python, Java and JavaScript. They are calibrated so that the
 reference solutions use at most half the limit.
+
+## Insights: measured, not guessed
+
+Design, threat model and evals: [docs/INSIGHTS.md](docs/INSIGHTS.md).
+
+**Complexity, from measurements.**
+- *Ladders:* each problem has a private size ladder: up to 36 worst-case
+  inputs from n = 10 to the statement's limit, seeded and validated.
+- *Measuring:* "Analyze my solution" runs the program on every size in the
+  same gVisor sandbox and under the same limits as judging. CPU time comes
+  from the program's own rusage, with 3 repetitions in interleaved passes so
+  a burst of background load can't skew one size.
+- *Fitting:* every candidate class (1, log n, n, n log n, n², n³, 2^(n/2),
+  2ⁿ) is fitted as `startup + c·f(n)` by weighted least squares and chosen
+  by AIC. The answer is a class, two classes it can't separate, "fast" or
+  "unclear". It never claims more than the data supports: n and n log n are
+  always reported together, because over a ladder a log factor is as large
+  as measurement noise.
+- *TLEs:* the fit extrapolates to the largest allowed n, e.g. "at n = 10⁵
+  the fit predicts about 9 s against a 1 s limit".
+
+| Eval: 129 labelled programs, 15 problems, all 6 languages, CI runner under gVisor | Quiet | Under CPU load |
+|---|---|---|
+| Precision: claims that were right | **57/57 (100%)** | **72/72 (100%)** |
+| C, C++, Go, Python: measurable programs named correctly | **46/51 (90%)** | **60/65 (92%)** |
+| Java, JavaScript: measurable programs named correctly | 6/18 | 6/23 |
+
+Java and JavaScript mostly abstain: their JIT warm-up leaves too few clean
+sizes before the time limit, and the analyzer says "unclear" rather than
+guessing. It also caught a real quadratic I had mislabelled: a Python
+`s += x` loop at module level (a global string can't be resized in place).
+
+**It never slows judging.**
+- *Priority:* analyses run one at a time, at a quarter of the CPU weight,
+  and pause, holding no container, whenever a submission is queued or
+  running.
+- *Proof:* the CI load test judges 12 submissions quiet and again with 4
+  analyses queued. Judging p95 was 4.6 s and 4.9 s. Before the
+  pause-without-containers fix it was 34.5 s, which is how the test earned
+  its place.
+- *Cost:* results are cached by (problem, language, code hash). Each user
+  gets 3 analyses a minute and 20 a day, and each analysis at most 20 s of
+  CPU.
+
+**Similarity (admin only).**
+- *How:* MOSS-style winnowed fingerprints of a normalized token stream.
+  Identifiers, literals, comments and whitespace are factored out, and the
+  starter code and idioms most users share are ignored.
+- *Eval:* 337 programs, 2,104 pairs. At the threshold the eval chose
+  (0.66), precision is 99.9% and recall 99.0%:
+  - renaming, reformatting, comments, reordering and dead code are each
+    caught 99–100% of the time, and all of them combined 96%;
+  - 3 of 77 independently written pairs score above it. All are grid
+    solutions by the same author.
+  - C ↔ C++ ports are not caught: their I/O differs completely.
+- *Who sees it:* results are leads for a person to review. Nobody but an
+  admin sees them.
+
+**Step tracer and hints.**
+- *Tracer:* Python submissions can be replayed line by line on a sample,
+  with the variables, lists drawn as boxes, and index pointers. It runs in
+  the same sandbox and is capped at 1000 steps; the browser treats the trace
+  as untrusted text.
+- *Hints:* pattern hints flag likely causes under "worth checking", never as
+  the verdict: nested full scans, sort / `pop(0)` / `in list` / `+=` inside
+  loops, and recursion without memoization.
 
 ## Security model
 

@@ -133,3 +133,47 @@ says so, and fuzzed programs can't break the UI.
 7. **tree-sitter (M2, M4):** the Go bindings need cgo, which the static runner
    build doesn't use. The likely choice is tree-sitter's WebAssembly build in
    the API, decided in M2.
+
+## Results (2026-11-17)
+
+**Complexity.** 129 labelled programs on 15 problems, measured on a GitHub
+runner under gVisor:
+
+| | Quiet | Under background load |
+|---|---|---|
+| Precision of every claim | 57/57 | 72/72 |
+| C, C++, Go, Python (measurable programs) | 46/51 (90%) | 60/65 (92%) |
+| Java, JavaScript (measurable programs) | 6/18 | 6/23 |
+
+"Measurable" means the program's cost grew at least 100 ms across the ladder;
+the others are too fast at the statement's limits and the analyzer says
+"fast".
+
+Predictions from the list above, against the data:
+- **(3) n vs n log n:** confirmed. The fit swapped them at 80–98% confidence,
+  so they are always reported together.
+- **(5) JIT runtimes:** worse than expected. The JIT flattens the curve
+  until about 100 ms of work, so Java and JavaScript mostly abstain.
+
+Changes the eval forced:
+- **Fitting:** the cost is fitted with a startup offset instead of
+  subtracting an empty program's time.
+- **Measuring:** the passes are interleaved, the ladders are denser
+  (36 sizes, skipping every other one while the curve is flat), and the
+  reference is measured with `ref.py`.
+
+**Judging latency.** The e2e test judges 12 submissions quiet, then again with 4
+analyses queued. The first version failed it: p95 went from 7.3 s to 34.5 s,
+because a paused analysis kept its container and its sandbox slot. After the
+fix (release before waiting, yield before every container step), p95 is
+4.6 s quiet and 4.9 s with analyses queued.
+
+**Similarity.** 337 programs and 2,104 pairs. The threshold chosen by F0.5 is
+0.66, with 99.9% precision and 99.0% recall:
+- each single obfuscation is caught 99–100% of the time, and all of them
+  combined 96%;
+- 3 of 77 independent pairs score above it, all same-author grid solutions;
+- C ↔ C++ ports score 0 of 5.
+
+**gVisor.** release-20261102.0 honors `errnoRet`. The clone3 variant is gone,
+and clone3 with any namespace flag is now ENOSYS under runsc as well as runc.

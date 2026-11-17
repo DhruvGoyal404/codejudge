@@ -124,6 +124,44 @@ To replace the token, in Git Bash:
 | Within 3 days of a `cdk deploy` that creates or recreates the alarm subscription | **Confirm the alarm email.** Click the link in the message from no-reply@sns.amazonaws.com; AWS deletes subscriptions left unconfirmed for 3 days, and until then no alarm reaches you. Then check that the subscription shows an ARN, not `PendingConfirmation`: `aws sns list-subscriptions --profile codejudge --region ap-south-1 --query "Subscriptions[?Protocol=='email'].[Endpoint,SubscriptionArn]" --output table` |
 | After changing `deploy/host/deploy.sh` | Run `npx cdk deploy` with `-c alarmEmail` (the script ships inside the SSM document). The Deploy workflow warns if the host's copy is stale. |
 
+## Insights
+
+Design and evals: docs/INSIGHTS.md. The parts that need a person:
+
+- **Limits:** 3 analyses per user per minute, 20 per day (`INSIGHT_LIMIT_*`).
+  Cache hits are free. Each analysis gets at most 20 s of program CPU, and
+  gives up after 10 minutes, including time spent waiting for judging.
+- **Cost:** 20 CPU-seconds at most. On the t3.small ($0.0224/hour for 2
+  vCPUs), that is about $0.0001 per analysis, under a cent for a hundred.
+  Analyses don't run while the site is down.
+- **Adding a ladder** for a problem, in the private repo:
+  1. Write `gen/ladder.py` (see `lib/cjladder.py`), feeding the worst case of
+     the problem's slow solution.
+  2. Run `python scripts/make-ladders.py --tests-root <private repo>
+     --skip-reference <slug>`, which validates every input, and commit the
+     result.
+  3. Measure the reference on a CI runner: run the **Insights eval** workflow
+     with `references=true`, then copy the `ladder.json` files from its
+     artifact into the private repo.
+  4. Before the next up, `judge-admin import` records the ladder's hash,
+     label and reference.
+- **Evals:**
+  - Run the **Insights eval** workflow by hand: once quiet, once with
+    `load=true`.
+  - The similarity eval runs anywhere:
+    `CODEJUDGE_PROBLEMS_TESTS_DIR=<private repo> npx tsx api/scripts/similarity-eval.ts`
+    in `api/`.
+  - Update the numbers in README.md when they change.
+- **Admins** (see the similarity page `/admin/similarity`): set by SQL only,
+  in a host session:
+  `UPDATE users SET is_admin = true WHERE login = '<github login>';`
+- **Known gaps:**
+  - Java and JavaScript mostly abstain ("unclear").
+  - 74 problems have slow solutions; 24 have ladders so far. The others
+    show "not available yet".
+  - Occasional IE instead of MLE for `mle.py` under runsc: the OOM kill can
+    beat judge-exec's report. Seen once in CI; not yet reproduced.
+
 ## Dependabot PRs
 
 Dependabot's own runs get only Dependabot secrets, not `PROBLEMS_DEPLOY_KEY`,
