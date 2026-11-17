@@ -99,3 +99,22 @@ func TestPredict(t *testing.T) {
 		t.Errorf("Predict(2e5) = %g, want %g", got, want)
 	}
 }
+
+// A quadratic whose top sizes steepen (data outgrowing the cache) is hedged,
+// not called cubic; a true cubic is still named.
+func TestCacheSteepenedQuadraticIsHedged(t *testing.T) {
+	var pts []Point
+	for _, n := range ladder[8:] {
+		c := 5 + 1e-7*n*n
+		if n > 5e4 {
+			c *= math.Pow(n/5e4, 0.6) // the last sizes slow down per operation (as measured: +0.5 to +1 slope)
+		}
+		pts = append(pts, Point{N: n, Cost: c, Sigma: math.Hypot(2, relCPU*c)})
+	}
+	if f := Select(pts); f.Class != "n^2" && f.Class != "n^2 or n^3" {
+		t.Fatalf("steepened quadratic: %q (%.2f)", f.Class, f.Confidence)
+	}
+	if f := Select(curve("n^3", ladder, 900, 40, 0, 0.02, 1)); f.Class != "n^3" {
+		t.Fatalf("cubic: %q", f.Class)
+	}
+}

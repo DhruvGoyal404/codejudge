@@ -187,6 +187,12 @@ func Select(pts []Point) Fit {
 		return out
 	}
 	if out.Confidence >= minConfidence {
+		// Memory-hierarchy effects steepen the top of a curve (a quadratic's
+		// largest sizes can look cubic once the data outgrows the cache), so
+		// n^2 vs n^3 also has to agree with the median local slope.
+		if s, ok := medianSlope(pts, out.Offset); ok && ((out.Class == "n^3" && s < 2.5) || (out.Class == "n^2" && s > 2.5)) {
+			out.Class, out.Confidence = "n^2 or n^3", w["n^2"]+w["n^3"]
+		}
 		return out
 	}
 	for _, a := range adjacent {
@@ -205,4 +211,27 @@ func (f Fit) Predict(n float64) float64 {
 		return 0
 	}
 	return f.Offset + f.Scale*f.best.F(n)
+}
+
+// medianSlope is the median log-log slope between consecutive points of the
+// cost net of the startup offset, over points where that net cost is
+// clearly positive; ok is false with fewer than 3 such slopes.
+func medianSlope(pts []Point, offset float64) (float64, bool) {
+	var net []Point
+	for _, p := range pts {
+		if c := p.Cost - offset; c > 3*p.Sigma {
+			net = append(net, Point{N: p.N, Cost: c})
+		}
+	}
+	var slopes []float64
+	for i := 1; i < len(net); i++ {
+		if net[i].N > net[i-1].N {
+			slopes = append(slopes, math.Log(net[i].Cost/net[i-1].Cost)/math.Log(net[i].N/net[i-1].N))
+		}
+	}
+	if len(slopes) < 3 {
+		return 0, false
+	}
+	sort.Float64s(slopes)
+	return slopes[len(slopes)/2], true
 }
