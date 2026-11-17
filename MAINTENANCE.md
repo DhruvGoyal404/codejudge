@@ -156,9 +156,10 @@ Design and evals: docs/INSIGHTS.md. The parts that need a person:
   in a host session:
   `UPDATE users SET is_admin = true WHERE login = '<github login>';`
 - **Known gaps:**
-  - Java and JavaScript mostly abstain ("unclear").
-  - 74 problems have slow solutions; 24 have ladders so far. The others
-    show "not available yet".
+  - Java and JavaScript are measured in one process (10 ms clock ticks), and
+    are right on about 3 in 4 measurable programs. The rest are "unclear".
+  - All 72 problems with slow solutions have ladders; the 28 without one show
+    "not available yet".
   - Occasional IE instead of MLE for `mle.py` under runsc: the OOM kill can
     beat judge-exec's report. Seen once in CI; not yet reproduced.
 

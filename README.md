@@ -111,16 +111,28 @@ Design, threat model and evals: [docs/INSIGHTS.md](docs/INSIGHTS.md).
 - *TLEs:* the fit extrapolates to the largest allowed n, e.g. "at n = 10⁵
   the fit predicts about 9 s against a 1 s limit".
 
-| Eval: 129 labelled programs, 15 problems, all 6 languages, CI runner under gVisor | Quiet | Under CPU load |
+| Eval: 156 labelled programs, 6 languages, ladders for all 72 problems with slow solutions; GitHub runner under gVisor | Quiet | Under CPU load |
 |---|---|---|
-| Precision: claims that were right | **57/57 (100%)** | **72/72 (100%)** |
-| C, C++, Go, Python: measurable programs named correctly | **46/51 (90%)** | **60/65 (92%)** |
-| Java, JavaScript: measurable programs named correctly | 6/18 | 6/23 |
+| Precision: claims that were right | **84/85 (98.8%)** | **91/91 (100%)** |
+| Measurable programs named correctly, all languages | **75/83 (90%)** | **80/87 (92%)** |
+| C, C++, Go, Python | 65/69 (94%) | 69/73 (95%) |
+| Java, JavaScript | 10/14 (71%) | 11/14 (79%) |
 
-Java and JavaScript mostly abstain: their JIT warm-up leaves too few clean
-sizes before the time limit, and the analyzer says "unclear" rather than
-guessing. It also caught a real quadratic I had mislabelled: a Python
-`s += x` loop at module level (a global string can't be resized in place).
+**Java and JavaScript** are measured inside one process: a harness calls the
+program once per size after warm-up calls and times each call with the
+thread's or process's CPU time. One process per size mostly timed the JIT
+warming up; that method named 6 of 41 correctly. The harness clocks tick in
+10 ms steps inside the sandbox, so only sizes of at least 30 ms are fitted.
+
+**Two lessons:**
+- *Cache effects:* a quadratic's largest sizes can look cubic once its data
+  outgrows the cache, so n² against n³ must also agree with the median local
+  slope.
+- *A caught mislabel:* the analyzer found a real quadratic I had mislabelled,
+  a Python `s += x` loop at module level (a global string can't be resized
+  in place).
+
+The one wrong claim in the quiet run: a linear C++ reference called n².
 
 **It never slows judging.**
 - *Priority:* analyses run one at a time, at a quarter of the CPU weight,

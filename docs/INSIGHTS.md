@@ -177,3 +177,29 @@ fix (release before waiting, yield before every container step), p95 is
 
 **gVisor.** release-20261102.0 honors `errnoRet`. The clone3 variant is gone,
 and clone3 with any namespace flag is now ENOSYS under runsc as well as runc.
+
+## Results update (2026-11-18): every ladder, and Java/JavaScript in one process
+
+Coverage:
+- **Ladders:** 72/72 problems with slow solutions have a ladder.
+- **References:** each was measured on the CI runner, with `ref.py` first and
+  `ref.cpp` as the fallback (canal-routes' `ref.py` runs out of memory on a
+  deep path).
+
+Methods:
+- **Java and JavaScript:** a harness runs every size inside one process after
+  5 warm-up rounds, timing each call with thread or process CPU time.
+  - **Clock resolution:** those clocks tick in 10 ms inside gVisor, so only
+    sizes of 3 or more ticks are fitted.
+  - **Fallback:** when the harness can't run a program (`System.exit`, async
+    stdin, or an error), it falls back to one process per size.
+- **n² vs n³:** must agree with the median local slope. Cache effects made
+  two quadratics look cubic at their largest sizes.
+
+| 156 programs | Quiet | Under load |
+|---|---|---|
+| Precision | 84/85 | 91/91 |
+| Measurable, all languages | 75/83 (90%) | 80/87 (92%) |
+| C, C++, Go, Python | 65/69 | 69/73 |
+| Java, JavaScript | 10/14 | 11/14 (were 6/41 with one process per size) |
+
