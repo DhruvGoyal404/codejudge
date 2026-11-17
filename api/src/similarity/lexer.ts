@@ -11,6 +11,7 @@
 export interface Token {
   k: string; // normalized kind
   line: number; // 1-based source line
+  t: string; // the original text (hints read names; similarity uses k only)
 }
 
 export type Lang = "c" | "cpp" | "go" | "python" | "java" | "javascript";
@@ -56,11 +57,11 @@ export function tokenize(lang: Lang, src: string): Token[] {
       const ind = line.length - line.trimStart().length;
       if (ind > indents.at(-1)!) {
         indents.push(ind);
-        out.push({ k: "INDENT", line: ln });
+        out.push({ k: "INDENT", line: ln, t: "" });
       }
       while (ind < indents.at(-1)!) {
         indents.pop();
-        out.push({ k: "DEDENT", line: ln });
+        out.push({ k: "DEDENT", line: ln, t: "" });
       }
     }
     while (i < line.length) {
@@ -85,7 +86,7 @@ export function tokenize(lang: Lang, src: string): Token[] {
         i += 2;
       } else if (py && /^[rbfuRBFU]{0,2}("""|''')/.test(rest)) {
         const q = rest.match(/^[rbfuRBFU]{0,2}("""|''')/)!;
-        out.push({ k: "S", line: ln });
+        out.push({ k: "S", line: ln, t: q[0] });
         block = q[1]!;
         i += q[0].length;
       } else if (c === '"' || c === "'" || c === "`" || (py && /^[rbfuRBFU]{1,2}["']/.test(rest))) {
@@ -96,25 +97,24 @@ export function tokenize(lang: Lang, src: string): Token[] {
         while (i < line.length && line[i] !== q) i += line[i] === "\\" ? 2 : 1;
         if (i >= line.length && q === "`") block = "`"; // JS/Go raw string spanning lines
         i++;
-        out.push({ k: "S", line: ln });
-        void start;
+        out.push({ k: "S", line: ln, t: line.slice(start, i) });
       } else if (/[0-9]/.test(c) || (c === "." && /[0-9]/.test(line[i + 1] ?? ""))) {
         const m = rest.match(/^(0[xXbBoO][0-9a-fA-F_]+|[0-9_]*\.?[0-9_]+([eE][+-]?[0-9]+)?)[a-zA-Z]*/)!;
         i += m[0].length || 1;
-        out.push({ k: "N", line: ln });
+        out.push({ k: "N", line: ln, t: m[0] });
       } else if (/[A-Za-z_$]/.test(c)) {
         const m = rest.match(/^[A-Za-z_$][A-Za-z0-9_$]*/)!;
         i += m[0].length;
-        out.push({ k: kw.has(m[0]) ? m[0] : "V", line: ln });
+        out.push({ k: kw.has(m[0]) ? m[0] : "V", line: ln, t: m[0] });
       } else {
         const op = OPS.find((o) => rest.startsWith(o)) ?? c;
         i += op.length;
         if ("([{".includes(op)) depth++;
         if (")]}".includes(op)) depth = Math.max(0, depth - 1);
-        if (op !== ";" || !py) out.push({ k: op, line: ln });
+        if (op !== ";" || !py) out.push({ k: op, line: ln, t: op });
       }
     }
-    if (py && block === null && depth === 0 && out.length && out.at(-1)!.k !== "NL") out.push({ k: "NL", line: ln });
+    if (py && block === null && depth === 0 && out.length && out.at(-1)!.k !== "NL") out.push({ k: "NL", line: ln, t: "" });
   }
   return out;
 }

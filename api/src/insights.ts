@@ -8,6 +8,8 @@ import type { Db } from "./db.ts";
 import { HttpError } from "./http.ts";
 import type { Limits } from "./limits.ts";
 import type { Queue } from "./queue.ts";
+import { hints } from "./similarity/hints.ts";
+import type { Lang } from "./similarity/lexer.ts";
 import { requireUser } from "./sessions.ts";
 
 /** Verdicts Insights analyzes: the program ran to completion or was stopped by a limit. */
@@ -51,6 +53,8 @@ export function insightsRouter({ db, queue, limits, config }: { db: Db; queue: Q
       status: row ? (row.stale ? "failed" : row.status) : "none",
       error: row?.stale ? "The analysis was interrupted; try again." : (row?.error ?? null),
       report: row?.status === "done" ? row.report : null,
+      // Pattern hints from the source: suggestions, never the verdict.
+      hints: hints(t.language as Lang, t.source),
     };
   }
 

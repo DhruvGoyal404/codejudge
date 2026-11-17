@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { TEMPLATES as WEB_TEMPLATES } from "../../web/src/lib/templates.ts";
 import { createApp } from "../src/app.ts";
 import { compare, fingerprints } from "../src/similarity/fingerprint.ts";
+import { hints } from "../src/similarity/hints.ts";
 import { tokenize } from "../src/similarity/lexer.ts";
 import { THRESHOLD } from "../src/similarity/routes.ts";
 import { TEMPLATES } from "../src/similarity/templates.ts";
@@ -120,5 +121,28 @@ describe("admin similarity page", () => {
     expect(pair.body.a.regions.length).toBeGreaterThan(0);
     expect([pair.body.a.id, pair.body.b.id]).toEqual([a, b]);
     expect(pair.body.a.login).toBeTruthy();
+  });
+});
+
+describe("pattern hints", () => {
+  it("find the common slow patterns, with their lines", () => {
+    const py = "import sys\na = list(map(int, sys.stdin.read().split()))\nq = [1]\ns = ''\nfor x in a:\n    for y in a:\n        pass\n    q.sort()\n    q.pop(0)\n    if x in q:\n        s += str(x)\ndef f(n):\n    return n if n < 2 else f(n - 1) + f(n - 2)\n";
+    expect(hints("python", py).map((h) => [h.line, h.kind])).toEqual([
+      [6, "nested-loops"],
+      [8, "sort-in-loop"],
+      [9, "pop-front"],
+      [10, "list-membership"],
+      [11, "string-concat"],
+      [12, "unmemoized-recursion"],
+    ]);
+  });
+
+  it("stay quiet on efficient code: two pointers, memoized recursion, different bounds", () => {
+    const cpp = `int main(){ int n, m; vector<int> a(n);
+int j = 0; for (int i = 0; i < n; i++) { while (j < n && a[j] < a[i]) j++; }
+for (int i = 0; i < n; i++) for (int k = 0; k < m; k++) {}
+}
+map<int,long long> memo; long long f(int n) { if (memo.count(n)) return memo[n]; return memo[n] = f(n-1) + f(n-2); }`;
+    expect(hints("cpp", cpp)).toEqual([]);
   });
 });
