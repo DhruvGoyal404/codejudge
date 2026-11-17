@@ -377,9 +377,8 @@ func TestReaperInstances(t *testing.T) {
 	}
 }
 
-// Multithreaded programs work under both runtimes (glibc pthread_create uses
-// clone3; under runc it falls back to clone on ENOSYS, under runsc clone3 is
-// allowed by the gVisor profile variant).
+// Multithreaded programs work under both runtimes (glibc pthread_create tries
+// clone3, gets ENOSYS from the profile, and falls back to clone).
 func TestThreads(t *testing.T) {
 	for _, f := range []string{"threads.cpp", "threads.py", "threads.java", "threads.c", "threads.go"} {
 		t.Run(f, func(t *testing.T) {
@@ -392,8 +391,9 @@ func TestThreads(t *testing.T) {
 	}
 }
 
-// clone3 per runtime: ENOSYS under runc (the base profile), allowed under
-// runsc (gVisor variant), and namespace creation fails under both.
+// clone3 is ENOSYS under both runtimes (the profile's errnoRet, which runsc
+// honors since release-20261026.0), so no flag combination gets through,
+// namespace creation included.
 func TestClone3(t *testing.T) {
 	res := execute(t, "clone3.cpp", "", std)
 	wantStatus(t, res, StatusOK)
@@ -403,32 +403,12 @@ func TestClone3(t *testing.T) {
 			got[k] = v
 		}
 	}
-	runtime := os.Getenv("JUDGE_TEST_RUNTIME")
-	t.Logf("runtime %q: %v", runtime, got)
-	if IsGVisor(runtime) {
-		if got["plain"] != "ok" {
-			t.Errorf("plain clone3 under runsc: %q, want ok", got["plain"])
+	t.Logf("runtime %q: %v", os.Getenv("JUDGE_TEST_RUNTIME"), got)
+	for _, k := range []string{"plain", "newpid", "newuser", "newns"} {
+		if !strings.HasPrefix(got[k], "errno=38") {
+			t.Errorf("clone3 %s: %q, want ENOSYS (errno=38)", k, got[k])
 		}
-	} else if !strings.HasPrefix(got["plain"], "errno=38") {
-		t.Errorf("plain clone3 under runc: %q, want ENOSYS (errno=38)", got["plain"])
 	}
-	// CLONE_NEWPID needs CAP_SYS_ADMIN: it must fail under both runtimes.
-	if !strings.HasPrefix(got["newpid"], "errno=") {
-		t.Errorf("clone3 with newpid: %q, want failure", got["newpid"])
-	}
-	if !IsGVisor(runtime) {
-		// runc: every clone3 is ENOSYS (glibc falls back to the filtered clone).
-		for _, ns := range []string{"newuser", "newns"} {
-			if !strings.HasPrefix(got[ns], "errno=") {
-				t.Errorf("clone3 with %s under runc: %q, want failure", ns, got[ns])
-			}
-		}
-		return
-	}
-	// runsc: user/mount namespace results are recorded, not asserted (they
-	// would exist only inside the Sentry; accepted risk, docs/PHASE6.md 6a.7),
-	// so a change in gVisor's behaviour shows up in the log.
-	t.Logf("ACCEPTED RISK under runsc: clone3 newuser=%q newns=%q", got["newuser"], got["newns"])
 }
 
 // A multithreaded program that crashes is RE at once, not a slow core dump

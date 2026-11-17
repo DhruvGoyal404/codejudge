@@ -311,6 +311,8 @@ The scratch databases were dropped afterwards. CI runs `shellcheck --severity=wa
 
 ### 2. Seccomp under gVisor: a runtime-specific profile (`clone3`)
 
+> **Superseded (2026-11-17):** gVisor release-20261026.0 includes the upstream fix (google/gvisor commit a676ebdd, from PR #14721: runsc honors `errnoRet` in OCI seccomp profiles). The host now runs release-20261102.0, the variant described below is removed, and both runtimes use the same profile: clone3 is ENOSYS under runsc too, so glibc falls back to the filtered `clone`. `TestClone3` now requires ENOSYS for every flag combination under both runtimes, which also closes the accepted risk of clone3 namespace flags inside the Sentry.
+
 **What CI showed (diagnosed with strace and syscall probes, `release-20260921.0`):**
 
 | | runc + profile | runsc `--oci-seccomp` + profile |

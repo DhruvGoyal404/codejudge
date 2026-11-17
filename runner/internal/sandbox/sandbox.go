@@ -42,7 +42,7 @@ type Options struct {
 // the concurrency semaphore.
 type Sandbox struct {
 	cli     *client.Client
-	seccomp string            // compacted JSON, inlined into SecurityOpt as the CLI does (runsc: gVisorProfile variant)
+	seccomp string            // compacted JSON, inlined into SecurityOpt as the CLI does
 	images  map[string]string // lock key -> image ID (sha256:...)
 	uids    *uidAllocator
 	sem     chan struct{}
@@ -91,13 +91,9 @@ func New(ctx context.Context, o Options) (*Sandbox, error) {
 			return nil, fmt.Errorf("container runtime %q is not registered with the Docker engine (install it, e.g. runsc install, and restart dockerd)", o.Runtime)
 		}
 	}
+	// One profile for both runtimes: since gVisor release-20261026.0 runsc
+	// honors errnoRet, so clone3 is ENOSYS under it too (docs/PHASE6.md 6a.7).
 	profile := compact.String()
-	if IsGVisor(o.Runtime) {
-		if profile, err = gVisorProfile(raw); err != nil {
-			cli.Close()
-			return nil, err
-		}
-	}
 	if err := checkUIDRange("/etc/passwd", "/etc/group", "/etc/subuid", "/etc/subgid"); err != nil {
 		cli.Close()
 		return nil, fmt.Errorf("sandbox uid range: %w", err)
