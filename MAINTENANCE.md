@@ -162,6 +162,17 @@ Design and evals: docs/INSIGHTS.md. The parts that need a person:
   - Occasional IE instead of MLE for `mle.py` under runsc: the OOM kill can
     beat judge-exec's report. Seen once in CI; not yet reproduced.
 
+## Accepted advisories
+
+`security/audit-exceptions.json` lists the advisories accepted on purpose,
+each with a reason and an expiry date. CI's **Dependency audit** job
+(`node scripts/audit-check.mjs`) fails on any npm advisory not in that file,
+and on any expired entry. It also says when an entry is no longer needed.
+
+Currently: minimatch GHSA-g3hv-75wg-m249, bundled in aws-cdk-lib. It is
+used at synth time only, and the entry expires 2026-12-31, or earlier once an
+aws-cdk-lib release that bundles minimatch >= 11.0.1 passes the 14-day rule.
+
 ## Dependabot PRs
 
 Dependabot's own runs get only Dependabot secrets, not `PROBLEMS_DEPLOY_KEY`,

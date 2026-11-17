@@ -102,6 +102,15 @@ jobs:
         working-directory: .
         run: shellcheck --severity=warning deploy/backup/*.sh deploy/host/*.sh scripts/*.sh ./*.sh
 
+  # npm audit in every package: nothing beyond security/audit-exceptions.json,
+  # and no expired exception (the weekly scheduled run catches expiry dates).
+  audit:
+    name: Dependency audit (npm, with dated exceptions)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: node scripts/audit-check.mjs
+
   # Secrets in any commit of the history, not only the newest.
   gitleaks:
     name: Secrets scan (gitleaks)

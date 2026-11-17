@@ -1,0 +1,14 @@
+{
+  "comment": "Known advisories accepted on purpose, each with a reason and an expiry. scripts/audit-check.mjs (CI) fails on any advisory not listed here and on any expired entry.",
+  "exceptions": [
+    {
+      "advisory": "GHSA-g3hv-75wg-m249",
+      "package": "minimatch",
+      "dir": "infra",
+      "path": "node_modules/aws-cdk-lib/node_modules/minimatch",
+      "reason": "Bundled inside aws-cdk-lib (inBundle), so overrides can't reach it, and no aws-cdk-lib release ships minimatch >= 11.0.1 yet. Used only at synth time on our own globs (CI and the developer machine), never on the production host.",
+      "until": "2026-12-31",
+      "remove_when": "an aws-cdk-lib release that bundles minimatch >= 11.0.1 passes the 14-day rule"
+    }
+  ]
+}
