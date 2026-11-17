@@ -312,6 +312,101 @@ export class Db {
     return r.rows[0]?.id ?? null;
   }
 
+  async isAdmin(userId: number): Promise<boolean> {
+    const r = await this.pool.query(`SELECT is_admin FROM users WHERE id = $1`, [userId]);
+    return r.rows[0]?.is_admin === true;
+  }
+
+  /** Finished submissions of a problem whose fingerprints are missing or from an older tokenizer. */
+  async unfingerprinted(problemId: string, version: number, limit: number) {
+    const r = await this.pool.query(
+      `SELECT id, language, source FROM submissions
+        WHERE problem_id = $1 AND status = 'done' AND fp_version IS DISTINCT FROM $2
+        ORDER BY created_at LIMIT $3`,
+      [problemId, version, limit],
+    );
+    return r.rows as { id: string; language: string; source: string }[];
+  }
+
+  async storeFingerprints(submissionId: string, problemId: string, version: number, fps: { hash: number; from: number; to: number }[]) {
+    const c = await this.pool.connect(); // one connection: the statements form one transaction
+    try {
+      await c.query("BEGIN");
+      await c.query(`DELETE FROM submission_fingerprints WHERE submission_id = $1`, [submissionId]);
+      if (fps.length) {
+        await c.query(
+          `INSERT INTO submission_fingerprints (submission_id, problem_id, hash, line_from, line_to)
+           SELECT $1, $2, h, f, t FROM unnest($3::int[], $4::int[], $5::int[]) AS x(h, f, t)
+           ON CONFLICT DO NOTHING`,
+          [submissionId, problemId, fps.map((f) => f.hash), fps.map((f) => f.from), fps.map((f) => f.to)],
+        );
+      }
+      await c.query(`UPDATE submissions SET fp_version = $2 WHERE id = $1`, [submissionId, version]);
+      await c.query("COMMIT");
+    } catch (err) {
+      await c.query("ROLLBACK");
+      throw err;
+    } finally {
+      c.release();
+    }
+  }
+
+  /**
+   * Pairs of submissions by different users, in the same language family,
+   * ranked by shared fingerprints / fingerprints of the smaller one. Hashes
+   * in base (starter code) and hashes that at least commonMin distinct users
+   * share (common idioms) are ignored.
+   */
+  async similarPairs(problemId: string, base: number[], commonMin: number, threshold: number, limit: number) {
+    const r = await this.pool.query(
+      `WITH fp AS (
+         SELECT DISTINCT f.submission_id, f.hash, s.user_id,
+                CASE WHEN s.language IN ('c', 'cpp') THEN 'c' ELSE s.language END AS fam
+           FROM submission_fingerprints f JOIN submissions s ON s.id = f.submission_id
+          WHERE f.problem_id = $1 AND NOT (f.hash = ANY($2::int[]))),
+       common AS (SELECT hash FROM fp GROUP BY hash HAVING count(DISTINCT user_id) >= $3),
+       f AS (SELECT * FROM fp WHERE hash NOT IN (SELECT hash FROM common)),
+       sizes AS (SELECT submission_id, count(*) AS n FROM f GROUP BY 1),
+       shared AS (
+         SELECT a.submission_id AS a, b.submission_id AS b, count(*) AS k
+           FROM f a JOIN f b ON a.hash = b.hash AND a.submission_id < b.submission_id
+                              AND a.user_id <> b.user_id AND a.fam = b.fam
+          GROUP BY 1, 2)
+       SELECT sh.a, sh.b, sh.k::int AS shared, (sh.k::float / least(sa.n, sb.n)) AS similarity
+         FROM shared sh JOIN sizes sa ON sa.submission_id = sh.a JOIN sizes sb ON sb.submission_id = sh.b
+        WHERE sh.k::float / least(sa.n, sb.n) >= $4
+        ORDER BY similarity DESC, shared DESC LIMIT $5`,
+      [problemId, base, commonMin, threshold, limit],
+    );
+    return r.rows as { a: string; b: string; shared: number; similarity: number }[];
+  }
+
+  /** Hashes shared by at least commonMin distinct users on a problem. */
+  async commonHashes(problemId: string, commonMin: number): Promise<number[]> {
+    const r = await this.pool.query(
+      `SELECT f.hash FROM submission_fingerprints f JOIN submissions s ON s.id = f.submission_id
+        WHERE f.problem_id = $1 GROUP BY f.hash HAVING count(DISTINCT s.user_id) >= $2`,
+      [problemId, commonMin],
+    );
+    return r.rows.map((x) => x.hash as number);
+  }
+
+  async distinctSubmitters(problemId: string): Promise<number> {
+    const r = await this.pool.query(`SELECT count(DISTINCT user_id)::int AS n FROM submissions WHERE problem_id = $1`, [problemId]);
+    return r.rows[0].n as number;
+  }
+
+  /** Two submissions with their authors, for the admin pair view. */
+  async submissionsForAdmin(ids: string[]) {
+    const r = await this.pool.query(
+      `SELECT s.id, s.language, s.source, s.verdict, s.created_at, u.login, p.slug AS problem_slug, s.problem_id
+         FROM submissions s JOIN users u ON u.id = s.user_id JOIN problems p ON p.id = s.problem_id
+        WHERE s.id = ANY($1::uuid[])`,
+      [ids],
+    );
+    return r.rows as { id: string; language: string; source: string; verdict: string; created_at: string; login: string; problem_slug: string; problem_id: string }[];
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }

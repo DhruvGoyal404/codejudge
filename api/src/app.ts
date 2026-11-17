@@ -11,6 +11,7 @@ import type { Hub } from "./hub.ts";
 import { Limits } from "./limits.ts";
 import type { Queue } from "./queue.ts";
 import { insightsRouter } from "./insights.ts";
+import { similarityRouter } from "./similarity/routes.ts";
 import { runsRouter } from "./runs.ts";
 import { requireUser, Sessions } from "./sessions.ts";
 import { testAuthRouter } from "./testAuth.ts";
@@ -179,6 +180,7 @@ export function createApp({ db, queue, hub, config, log }: Deps) {
 
   app.use(runsRouter({ db, queue, limits, config, languages: LANGUAGES, maxSourceBytes: MAX_SOURCE_BYTES }));
   app.use(insightsRouter({ db, queue, limits, config }));
+  app.use(similarityRouter({ db }));
 
   app.get("/submissions/:id", async (req, res) => {
     const id = SubmissionId.safeParse(req.params.id);
