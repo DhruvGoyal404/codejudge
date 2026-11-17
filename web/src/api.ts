@@ -167,6 +167,7 @@ export interface Insight {
   status: "none" | "queued" | "running" | "done" | "failed";
   error: string | null;
   report: InsightReport | null;
+  hints: { line: number; kind: string; message: string }[];
 }
 
 export const VERDICTS: Verdict[] = ["AC", "WA", "CE", "RE", "TLE", "MLE", "OLE", "IE"];

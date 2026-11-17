@@ -12,6 +12,7 @@ const quadTLE: Insight = {
   reference: "n or n log n",
   status: "done",
   error: null,
+  hints: [{ line: 7, kind: "nested-loops", message: "This loop and the one on line 6 both scan all of `a`: together about n² steps." }],
   report: {
     status: "ok",
     label: "n = number of items",
@@ -72,6 +73,8 @@ describe("InsightsPanel", () => {
     expect(screen.getByTestId("insights-limit")).toHaveTextContent("exceeded the 1.0 s limit at n = 40,000");
     expect(screen.getByTestId("insights-limit")).toHaveTextContent("about 8.9 s");
     expect(screen.getByRole("img", { name: /CPU time by input size/ })).toBeInTheDocument();
+    expect(screen.getByTestId("insights-hints")).toHaveTextContent("line 7");
+    expect(screen.getByTestId("insights-hints")).toHaveTextContent("not the verdict");
   });
 
   it("never claims a class when the program was too fast to measure", async () => {

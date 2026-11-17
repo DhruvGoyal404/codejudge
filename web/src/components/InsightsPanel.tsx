@@ -165,6 +165,24 @@ function Result({ r, reference, label }: { r: InsightReport; reference: string |
   );
 }
 
+function Hints({ hints }: { hints: Insight["hints"] }) {
+  if (!hints.length) return null;
+  return (
+    <div className="mt-4 border-t border-line pt-3" data-testid="insights-hints">
+      <h3 className="text-sm font-semibold">Worth checking</h3>
+      <p className="mb-2 text-xs text-muted">Patterns in your code that are often slow. Hints, not the verdict: the measurement above is.</p>
+      <ul className="space-y-1 text-sm">
+        {hints.map((h) => (
+          <li key={`${h.kind}-${h.line}`}>
+            <span className="mr-2 font-mono text-xs text-muted">line {h.line}</span>
+            {h.message}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** Insights on the submission page: only for the submission's owner (the API enforces it). */
 export function InsightsPanel({ id }: { id: string }) {
   const qc = useQueryClient();
@@ -207,6 +225,7 @@ export function InsightsPanel({ id }: { id: string }) {
           {startError && <p role="alert" className="text-sm text-hard-fg">{startError}</p>}
         </div>
       )}
+      {i && <Hints hints={i.hints ?? []} />}
     </section>
   );
 }
