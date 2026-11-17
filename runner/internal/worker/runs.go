@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -24,8 +25,26 @@ import (
 // the browser reports a timeout. Nothing is stored in Postgres and no hidden
 // test is involved.
 
-// RunOutputBytes caps a run's stdout (more is OLE).
-const RunOutputBytes = 64 << 10
+// RunOutputBytes caps a run's stdout (more is OLE); TraceOutputBytes caps a
+// traced run's, which carries the whole step trace (tracer.py's own caps keep
+// it well under this).
+const (
+	RunOutputBytes   = 64 << 10
+	TraceOutputBytes = 1 << 20
+)
+
+// tracerPy wraps a Python program for the step tracer (docs/INSIGHTS.md, M3).
+//
+//go:embed tracer.py
+var tracerPy string
+
+// traced returns the program wrapped in the tracer: the source becomes a
+// string literal (JSON string escapes are valid Python escapes), compiled and
+// run under sys.settrace in the same sandbox as any run.
+func traced(src string) []byte {
+	lit, _ := json.Marshal(src)
+	return []byte("USER_SOURCE = " + string(lit) + "\n" + tracerPy)
+}
 
 // RunResult is what the API returns for a finished run.
 type RunResult struct {
@@ -115,7 +134,14 @@ func (w *Worker) execRun(ctx context.Context, job map[string]string, log interfa
 		return ie("load problem: " + err.Error())
 	}
 	lim := sandbox.Limits{TimeLimit: p.EffectiveTimeLimit(l.Name), MemoryMB: p.MemoryMB, OutputBytes: RunOutputBytes}
-	res, err := w.sb.Execute(ctx, l, []byte(job["source"]), []byte(job["input"]), lim)
+	src := []byte(job["source"])
+	if job["trace"] == "1" {
+		if l.Name != "python" {
+			return ie("the step tracer is for Python only")
+		}
+		src, lim.OutputBytes = traced(job["source"]), TraceOutputBytes
+	}
+	res, err := w.sb.Execute(ctx, l, src, []byte(job["input"]), lim)
 	if err != nil {
 		return ie("execute: " + err.Error())
 	}
