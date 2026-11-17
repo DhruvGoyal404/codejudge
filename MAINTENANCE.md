@@ -146,8 +146,12 @@ replaced by our own:
 4. **Open** a PR as yourself: title `deps(<dir>): <pkg> <old> -> <new>`, body
    "Replaces #N" plus the review notes (advisories, publish date, changelog).
    CI then runs the full suite with secrets.
-5. **Merge** when CI is all green (squash). While the site is down, the Deploy
-   run fails fast; while it's up, the merge deploys.
+5. **Merge** when CI is all green, locally, so every commit on main stays
+   authored and committed by you (a merge button sets the committer to
+   GitHub): `git fetch && git rebase origin/main deps/<pkg>-<ver>`, push the
+   branch, then `git push origin deps/<pkg>-<ver>:main`. GitHub marks the PR
+   merged because its head is now on main. While the site is down, the
+   Deploy run fails fast; while it's up, the push deploys.
 6. **Close** the Dependabot PR with a comment linking the replacement.
 
 If the vulnerable package is bundled inside another one (`"inBundle": true` in
