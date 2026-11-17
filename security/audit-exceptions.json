@@ -9,6 +9,33 @@
       "reason": "Bundled inside aws-cdk-lib (inBundle), so overrides can't reach it, and no aws-cdk-lib release ships minimatch >= 11.0.1 yet. Used only at synth time on our own globs (CI and the developer machine), never on the production host.",
       "until": "2026-12-31",
       "remove_when": "an aws-cdk-lib release that bundles minimatch >= 11.0.1 passes the 14-day rule"
+    },
+    {
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "dir": "api",
+      "path": "node_modules/picomatch",
+      "reason": "Dev/build tooling only (vite, vitest): not in any production tree (npm ls --omit=dev is clean in api, web and infra), and its globs come only from our own config. No fixed picomatch exists yet (the advisory covers <= 4.0.7, the newest release). Accepted by the owner on 2026-11-18.",
+      "until": "2026-12-31",
+      "remove_when": "a fixed picomatch passes the 14-day rule"
+    },
+    {
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "dir": "web",
+      "path": "node_modules/picomatch",
+      "reason": "Dev/build tooling only (vite, vitest): not in any production tree (npm ls --omit=dev is clean in api, web and infra), and its globs come only from our own config. No fixed picomatch exists yet (the advisory covers <= 4.0.7, the newest release). Accepted by the owner on 2026-11-18.",
+      "until": "2026-12-31",
+      "remove_when": "a fixed picomatch passes the 14-day rule"
+    },
+    {
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "dir": "infra",
+      "path": "node_modules/picomatch",
+      "reason": "Dev/build tooling only (vite, vitest): not in any production tree (npm ls --omit=dev is clean in api, web and infra), and its globs come only from our own config. No fixed picomatch exists yet (the advisory covers <= 4.0.7, the newest release). Accepted by the owner on 2026-11-18.",
+      "until": "2026-12-31",
+      "remove_when": "a fixed picomatch passes the 14-day rule"
     }
   ]
 }

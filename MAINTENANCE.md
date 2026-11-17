@@ -174,6 +174,12 @@ Currently: minimatch GHSA-g3hv-75wg-m249, bundled in aws-cdk-lib. It is
 used at synth time only, and the entry expires 2026-12-31, or earlier once an
 aws-cdk-lib release that bundles minimatch >= 11.0.1 passes the 14-day rule.
 
+Also: picomatch GHSA-fc5q-39xc-vjpf (high, ReDoS) in api, web and infra. It
+is dev and build tooling only (vite, vitest), in no production tree, and its
+globs come only from our own config. No fix existed when it was accepted
+(2026-11-18). The entry expires 2026-12-31, or earlier once a fixed picomatch
+passes the 14-day rule.
+
 ## Dependabot PRs
 
 Dependabot's own runs get only Dependabot secrets, not `PROBLEMS_DEPLOY_KEY`,
