@@ -1,13 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { Trace } from "../lib/trace.ts";
 import { StepTracer } from "./StepTracer.tsx";
 
 const source = "a = [3, 1, 2]\ni = 0\ni = 2\nprint(a[i])\n";
-const trace = {
+const trace: Trace = {
   steps: [
     { l: 1, f: "<module>", d: {} },
-    { l: 2, f: "<module>", d: { a: { t: "list" as const, v: [3, 1, 2], n: 3 } } },
+    { l: 2, f: "<module>", d: { a: { t: "list", v: [3, 1, 2], n: 3 } } },
     { l: 3, f: "<module>", d: { i: 0 } },
     { l: 4, f: "<module>", d: { i: 2 } },
   ],
