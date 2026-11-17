@@ -1,0 +1,64 @@
+
+// --- Insights in-process harness (runner/internal/insights/inprocess.go) ---
+// Runs UserMain.main once per input, in this one JVM: warm-up calls first,
+// then each size timed with this thread's CPU time (JIT and GC threads are
+// not the program's work). Prints "STEP <index> <cpu_ns>" per timed call, as
+// it goes, so the steps before a kill survive.
+class InsightsHarnessMain {
+    public static void main(String[] args) throws Exception {
+        byte[] all = System.in.readAllBytes();
+        java.util.List<byte[]> inputs = new java.util.ArrayList<>();
+        int pos = 0;
+        int count = Integer.parseInt(readLine(all, pos));
+        pos = next(all, pos);
+        long limitNs = Long.parseLong(readLine(all, pos));
+        pos = next(all, pos);
+        int reps = Integer.parseInt(readLine(all, pos));
+        pos = next(all, pos);
+        for (int i = 0; i < count; i++) {
+            int len = Integer.parseInt(readLine(all, pos));
+            pos = next(all, pos);
+            inputs.add(java.util.Arrays.copyOfRange(all, pos, pos + len));
+            pos += len;
+        }
+        java.io.PrintStream real = System.out;
+        java.io.PrintStream sink = new java.io.PrintStream(java.io.OutputStream.nullOutputStream());
+        java.lang.management.ThreadMXBean mx = java.lang.management.ManagementFactory.getThreadMXBean();
+        for (int w = 0; w < 5; w++) for (int i = 0; i < Math.min(4, count); i++) call(inputs.get(i), sink, real);
+        for (int i = 0; i < count; i++) {
+            for (int r = 0; r < reps; r++) {
+                long t0 = mx.getCurrentThreadCpuTime();
+                call(inputs.get(i), sink, real);
+                long dt = mx.getCurrentThreadCpuTime() - t0;
+                real.println("STEP " + i + " " + dt);
+                real.flush();
+                if (dt > limitNs) {
+                    real.println("LIMIT " + i);
+                    return;
+                }
+            }
+        }
+        real.println("DONE");
+    }
+
+    static void call(byte[] in, java.io.PrintStream sink, java.io.PrintStream real) throws Exception {
+        System.setIn(new java.io.ByteArrayInputStream(in));
+        System.setOut(sink);
+        try {
+            UserMain.main(new String[0]);
+        } finally {
+            System.setOut(real);
+        }
+    }
+
+    static String readLine(byte[] b, int from) {
+        int end = from;
+        while (b[end] != '\n') end++;
+        return new String(b, from, end - from, java.nio.charset.StandardCharsets.US_ASCII);
+    }
+
+    static int next(byte[] b, int from) {
+        while (b[from] != '\n') from++;
+        return from + 1;
+    }
+}

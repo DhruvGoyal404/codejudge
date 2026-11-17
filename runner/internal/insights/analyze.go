@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -83,6 +84,7 @@ type Measured struct {
 // input, only sizes and measurements.
 type Report struct {
 	Status        string     `json:"status"` // ok, CE, or IE
+	Method        string     `json:"method"` // per-run (one process per size) or in-process (JIT languages)
 	Reason        string     `json:"reason,omitempty"`
 	Label         string     `json:"label"`
 	Steps         []Measured `json:"steps"`
@@ -122,8 +124,17 @@ func Analyze(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, lad *
 	if opt.Budget <= 0 {
 		opt.Budget = defaultBudget
 	}
+	if jitLangs[l.Name] {
+		r, err := analyzeInProcess(ctx, sb, p, lad, l, src, opt)
+		if err == nil {
+			return r, nil
+		}
+		if !errors.Is(err, errNoHarness) {
+			return nil, err
+		}
+	}
 	lim := sandbox.Limits{TimeLimit: p.EffectiveTimeLimit(l.Name), MemoryMB: p.MemoryMB, LowPriority: true}
-	rep := &Report{Status: "ok", Label: lad.Label, TimeLimitMs: lim.TimeLimit.Milliseconds(), MaxN: lad.MaxN, Reference: lad.Reference}
+	rep := &Report{Status: "ok", Method: "per-run", Label: lad.Label, TimeLimitMs: lim.TimeLimit.Milliseconds(), MaxN: lad.MaxN, Reference: lad.Reference}
 
 	yield := func(release func()) error {
 		if opt.Yield == nil {

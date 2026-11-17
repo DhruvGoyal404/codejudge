@@ -1,0 +1,53 @@
+"use strict";
+// Insights in-process harness (runner/internal/insights/inprocess.go). The
+// user's program is compiled once into a function and called once per input
+// in this one process: warm-up calls first, then each size timed with
+// process.cpuUsage(). stdin reads (readFileSync(0) or "/dev/stdin") return the
+// current input; output goes nowhere. Prints "STEP <index> <cpu_ns>" per timed
+// call as it goes, so the steps before a kill survive.
+const fs = require("fs");
+const all = fs.readFileSync(0);
+let pos = 0;
+const line = () => { const e = all.indexOf(10, pos); const s = all.toString("ascii", pos, e); pos = e + 1; return s; };
+const count = +line(), limitNs = +line(), reps = +line();
+const inputs = [];
+for (let i = 0; i < count; i++) { const len = +line(); inputs.push(all.subarray(pos, pos + len)); pos += len; }
+
+let cur = Buffer.alloc(0);
+const realRead = fs.readFileSync;
+fs.readFileSync = function (p, opts) {
+  if (p === 0 || p === "/dev/stdin") {
+    const enc = typeof opts === "string" ? opts : opts && opts.encoding;
+    return enc ? cur.toString(enc) : Buffer.from(cur);
+  }
+  return realRead.apply(fs, arguments);
+};
+const realWrite = process.stdout.write.bind(process.stdout);
+const realLog = console.log;
+const program = new Function("require", "module", "exports", "__filename", "__dirname", USER_SOURCE); // eslint-disable-line no-undef
+
+function call(input) {
+  cur = input;
+  process.stdout.write = () => true;
+  console.log = () => {};
+  try {
+    const module = { exports: {} };
+    program(require, module, module.exports, "/box/main.js", "/box");
+  } finally {
+    process.stdout.write = realWrite;
+    console.log = realLog;
+  }
+}
+
+for (let w = 0; w < 5; w++) for (let i = 0; i < Math.min(4, count); i++) call(inputs[i]);
+for (let i = 0; i < count; i++) {
+  for (let r = 0; r < reps; r++) {
+    const t0 = process.cpuUsage();
+    call(inputs[i]);
+    const d = process.cpuUsage(t0);
+    const ns = (d.user + d.system) * 1000;
+    realWrite(`STEP ${i} ${ns}\n`);
+    if (ns > limitNs) { realWrite(`LIMIT ${i}\n`); process.exit(0); }
+  }
+}
+realWrite("DONE\n");
