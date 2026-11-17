@@ -70,11 +70,15 @@ def reference(slug, judge_run, root):
             raise LadderError(f"{slug}: {name} on the ladder: {r.stderr.strip()}")
         rep = json.loads(r.stdout.splitlines()[0])
         if rep["status"] != "ok" or rep.get("stopped_by"):
-            raise LadderError(f"{slug}: {name} did not finish the ladder: {rep['status']} {rep.get('stopped_by', '')}")
+            # e.g. ref.py out of memory on a deep path: try the next reference
+            print(f"{slug}: {name} did not finish the ladder ({rep['status']} {rep.get('stopped_by', '')})", flush=True)
+            continue
         ref = {"lang": lang, "class": rep["time"]["class"]}
         if ref["class"] not in ("fast", "unclear"):
             return ref
         first = first or ref
+    if first is None:
+        raise LadderError(f"{slug}: no reference finished the ladder")
     return first
 
 
