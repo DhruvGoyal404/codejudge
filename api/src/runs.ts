@@ -39,6 +39,8 @@ export function runsRouter({ db, queue, limits, config, languages, maxSourceByte
       language: z.enum(languages),
       source: z.string().min(1),
       input: z.string(),
+      // Step tracer (docs/INSIGHTS.md, M3): Python only; the run's stdout is then the trace JSON.
+      trace: z.boolean().optional(),
     })
     .strict();
 
@@ -47,7 +49,8 @@ export function runsRouter({ db, queue, limits, config, languages, maxSourceByte
     await limits.consumeRun(user.id); // counts every attempt, valid or not
     const body = NewRun.safeParse(req.body);
     if (!body.success) throw new HttpError(400, "invalid run", z.flattenError(body.error));
-    const { problemSlug, language, source, input } = body.data;
+    const { problemSlug, language, source, input, trace } = body.data;
+    if (trace && language !== "python") throw new HttpError(400, "the step tracer is for Python only");
     if (Buffer.byteLength(source, "utf8") > maxSourceBytes) throw new HttpError(413, `source exceeds ${maxSourceBytes} bytes`);
     if (Buffer.byteLength(input, "utf8") > MAX_RUN_INPUT_BYTES) throw new HttpError(413, `input exceeds ${MAX_RUN_INPUT_BYTES} bytes`);
     if ((await db.problemIdBySlug(problemSlug)) === null) throw new HttpError(404, "problem not found");
@@ -61,7 +64,7 @@ export function runsRouter({ db, queue, limits, config, languages, maxSourceByte
     const id = randomUUID();
     await redis
       .multi()
-      .hset(key(id), { user: String(user.id), slug: problemSlug, language, source, input, status: "queued", created: new Date().toISOString() })
+      .hset(key(id), { user: String(user.id), slug: problemSlug, language, source, input, trace: trace ? "1" : "0", status: "queued", created: new Date().toISOString() })
       .expire(key(id), config.RUN_TTL_S)
       .set(activeKey(user.id), id, "EX", config.RUN_TTL_S)
       .exec();

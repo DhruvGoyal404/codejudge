@@ -57,6 +57,15 @@ describe("POST /runs (custom input)", () => {
     expect((await post(alice, ok)).status).toBe(202); // finished: a new run is fine
   });
 
+  it("traces Python runs only", async () => {
+    const u = await createTestUser(d.db);
+    expect((await post(u, { ...ok, trace: true })).status).toBe(400); // cpp
+    const r = await post(u, { ...ok, language: "python", source: "print(1)", trace: true });
+    expect(r.status).toBe(202);
+    expect(await d.queue.redis.hget(key(r.body.id), "trace")).toBe("1");
+    await deleteTestUsers(d.db, [u.userId]);
+  });
+
   it("GET /runs/:id returns the result to its owner only", async () => {
     // Bob's run from the previous test (still queued).
     const id = (await d.queue.redis.get(`${d.config.RUN_KEY_PREFIX}active:${bob.userId}`))!;
