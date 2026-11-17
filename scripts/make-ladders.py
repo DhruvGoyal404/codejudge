@@ -90,6 +90,8 @@ def main():
     root = os.path.abspath(a.tests_root)
     slugs = a.slugs or sorted(os.path.basename(os.path.dirname(os.path.dirname(p)))
                               for p in glob.glob(os.path.join(root, "*", "gen", "ladder.py")))
+    if a.check and not a.slugs:  # check what is committed; a new generator has nothing to compare yet
+        slugs = [s for s in slugs if os.path.exists(os.path.join(root, s, "ladder", "ladder.json"))]
     failed = []
     with tempfile.TemporaryDirectory() as tmp:
         judge_run = None if a.check or a.skip_reference else build_judge_run(tmp)
