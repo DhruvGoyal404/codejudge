@@ -31,6 +31,15 @@ USD_INR=88
 # Windows form too (C:/...): native jq, curl and aws.exe must open these files.
 WORK=$(cd "$(mktemp -d)" && { pwd -W 2>/dev/null || pwd; })
 trap 'rm -rf "$WORK"' EXIT
+# No silent exits: a command that fails outside a condition (set -e) prints
+# where and what, once, from the top level (set -E: functions inherit it).
+set -E
+on_err() {
+  local rc=$?
+  [ "$BASH_SUBSHELL" -eq 0 ] || return 0
+  printf '\n\033[31mERROR: %s, line %s: `%s` failed (exit %s)\033[0m\n' "${BASH_SOURCE[1]:-$0}" "${BASH_LINENO[0]:-?}" "$BASH_COMMAND" "$rc" >&2
+}
+trap on_err ERR
 T0=$(date +%s)
 
 log() { printf '\n\033[1m[%s +%ss] %s\033[0m\n' "$(date +%H:%M:%S)" "$(($(date +%s) - T0))" "$*" >&2; }
@@ -173,9 +182,13 @@ backup_alarm() { aws_ cloudwatch describe-alarms --alarm-name-prefix "$PERSISTEN
 # --- S3 backups -----------------------------------------------------------------
 # newest PREFIX GLOB: the newest key under s3://BUCKET/PREFIX whose name matches
 # GLOB (names carry a UTC timestamp, so the lexically last is the newest).
+# The newest key under prefix $1 matching $2, or nothing. An empty prefix (the
+# CLI prints "None") is not an error: nightly backups expire after 14 days.
 newest() {
-  aws_ s3api list-objects-v2 --bucket "$BUCKET" --prefix "$1" --query 'Contents[].Key' --output text |
-    tr '\t' '\n' | grep -E "$2" | sort | tail -n 1
+  local keys
+  keys=$(aws_ s3api list-objects-v2 --bucket "$BUCKET" --prefix "$1" --query 'Contents[].Key' --output text)
+  [ "$keys" = None ] && return 0
+  printf '%s\n' "$keys" | tr '\t' '\n' | { grep -E "$2" || true; } | sort | tail -n 1
 }
 
 # --- audit ------------------------------------------------------------------------

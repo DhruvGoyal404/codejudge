@@ -33,8 +33,9 @@ cf_check
   echo "note: local HEAD differs from origin/main; the site gets origin/main (built by the Deploy workflow)" >&2
 
 # The backup to restore: the newest dump, nightly or final.
-DUMP_KEY=$( (newest "$FINAL_PREFIX" '/codejudge-.*\.dump$'; newest "$NIGHTLY_PREFIX" '/codejudge-.*\.dump$') | grep . | sort -t/ -k3 | tail -n 1)
-CADDY_KEY=$( (newest "$FINAL_PREFIX" '/caddy-.*\.tar\.gz$'; newest "$NIGHTLY_PREFIX" '/caddy-.*\.tar\.gz$') | grep . | sort -t/ -k3 | tail -n 1)
+# Either prefix may be empty (nightly dumps expire): only "none at all" is fatal, below.
+DUMP_KEY=$( (newest "$FINAL_PREFIX" '/codejudge-.*\.dump$'; newest "$NIGHTLY_PREFIX" '/codejudge-.*\.dump$') | { grep . || true; } | sort -t/ -k3 | tail -n 1)
+CADDY_KEY=$( (newest "$FINAL_PREFIX" '/caddy-.*\.tar\.gz$'; newest "$NIGHTLY_PREFIX" '/caddy-.*\.tar\.gz$') | { grep . || true; } | sort -t/ -k3 | tail -n 1)
 [ -n "$DUMP_KEY" ] || die "no database backup in s3://$BUCKET: refusing to start an empty site (restore by hand)"
 echo "restoring database $DUMP_KEY, Caddy data ${CADDY_KEY:-<none: Caddy will request a new certificate>}" >&2
 COUNTS=$(aws s3 cp "s3://$BUCKET/$FINAL_PREFIX$(basename "$DUMP_KEY").counts" - 2>/dev/null | tr -d '\r' || true)
