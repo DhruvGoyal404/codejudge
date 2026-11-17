@@ -44,7 +44,14 @@ var (
 	javaExit     = regexp.MustCompile(`System\.exit|Runtime\.getRuntime\(\)\.(exit|halt)`)
 )
 
-const maxHarnessInput = 15 << 20 // under the sandbox's 16 MiB stdin cap
+const (
+	maxHarnessInput = 15 << 20 // under the sandbox's 16 MiB stdin cap
+	// In-process CPU clocks tick in 10 ms steps inside the sandbox (measured
+	// on gVisor): a few-tick curve is a staircase, not a shape. Only sizes of
+	// at least minTicks ticks are fitted, and the noise includes quantization.
+	clockTickMs = 10
+	minTicks    = 3
+)
 
 // harnessSource wraps src for the in-process harness; ok is false when the
 // program can't be called repeatedly in one process.
@@ -143,9 +150,9 @@ func analyzeInProcess(ctx context.Context, sb *sandbox.Sandbox, p *problem.Probl
 		st := Measured{N: lad.Steps[i].N, CPUMs: median(cpus[i]), RSSKB: res.MaxRSSKB, Status: sandbox.StatusOK}
 		if i == stoppedAt {
 			st.Status, rep.StoppedBy = sandbox.StatusTLE, sandbox.StatusTLE
-		} else {
+		} else if st.CPUMs >= minTicks*clockTickMs {
 			c := float64(st.CPUMs)
-			tp = append(tp, Point{st.N, c, math.Hypot(1, relCPU*c)}) // in-process: no startup jitter
+			tp = append(tp, Point{st.N, c, math.Hypot(clockTickMs/math.Sqrt(3), relCPU*c)})
 		}
 		rep.Steps = append(rep.Steps, st)
 		rep.CPUSpentMs += st.CPUMs * int64(len(cpus[i]))
@@ -157,6 +164,9 @@ func analyzeInProcess(ctx context.Context, sb *sandbox.Sandbox, p *problem.Probl
 		rep.StoppedBy = res.Status // the run's overall CPU cap ended the ladder
 	}
 	rep.Time = Select(tp)
+	if rep.StoppedBy == "" && len(tp) == 0 {
+		rep.Time = Fit{Class: Fast, Reason: fmt.Sprintf("under %d ms at every size: too little to measure growth", minTicks*clockTickMs)}
+	}
 	rep.Memory = Fit{Class: Unclear, Reason: "one process for every size: peak memory is shared"}
 	if rep.StoppedBy != "" && rep.Time.Class == Fast {
 		rep.Time.Class, rep.Time.Reason = Unclear, "the program hit a limit before its growth showed"

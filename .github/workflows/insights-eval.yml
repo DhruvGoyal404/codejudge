@@ -13,9 +13,13 @@ on:
         type: boolean
         default: false
       references:
-        description: "Instead: measure each ladder's reference (ref.cpp) and upload the ladder.json files"
+        description: "Instead: measure each ladder's reference and upload the ladder.json files"
         type: boolean
         default: false
+      slugs:
+        description: "With references: only these problems (space-separated; empty = all)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -53,7 +57,9 @@ jobs:
         run: python3 scripts/make-ladders.py --check
       - name: Measure references
         if: inputs.references
-        run: python3 scripts/make-ladders.py
+        env:
+          SLUGS: ${{ inputs.slugs }}
+        run: python3 scripts/make-ladders.py $SLUGS
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: inputs.references
         with:
