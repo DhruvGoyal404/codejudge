@@ -4,9 +4,9 @@ For each <root>/<slug> that has gen/ladder.py (lib/cjladder.py):
   1. gen/ladder.py DIR writes DIR/NN.in and DIR/ladder.json (seeded per size).
   2. gen/validate.py must accept every input; all inputs together stay under
      MAX_LADDER_BYTES (the batch container gets each input REPS times).
-  3. The ladder goes to <slug>/ladder/, then solutions/ref.cpp runs on it
-     (judge-run insights) and its measured time class is recorded in
-     ladder.json as the problem's reference.
+  3. The ladder goes to <slug>/ladder/, then solutions/ref.py (else ref.cpp)
+     runs on it (judge-run insights) and its measured time class is recorded
+     in ladder.json as the problem's reference.
 
 --check rebuilds the inputs in a temporary directory and requires the
 committed ladder/ inputs and steps to match (the reference class is a
@@ -53,15 +53,25 @@ def generate(slug, pdir, out):
 
 
 def reference(slug, judge_run, root):
-    src = os.path.join(root, slug, "solutions", "ref.cpp")
-    r = subprocess.run([judge_run, "insights", "--problem", os.path.join(REPO, "problems", slug), "--src", src],
-                       capture_output=True, text=True, env={**os.environ, "CODEJUDGE_PROBLEMS_TESTS_DIR": root})
-    if r.returncode != 0:
-        sys.exit(f"{slug}: ref.cpp on the ladder: {r.stderr.strip()}")
-    rep = json.loads(r.stdout.splitlines()[0])
-    if rep["status"] != "ok" or rep.get("stopped_by"):
-        sys.exit(f"{slug}: ref.cpp did not finish the ladder: {rep['status']} {rep.get('stopped_by', '')}")
-    return {"lang": "cpp", "class": rep["time"]["class"]}
+    """The reference's measured class: ref.py first (slower, so its growth shows
+    more often within the limits), else ref.cpp; a class beats fast/unclear."""
+    first = None
+    for lang, name in (("python", "ref.py"), ("cpp", "ref.cpp")):
+        src = os.path.join(root, slug, "solutions", name)
+        if not os.path.exists(src):
+            continue
+        r = subprocess.run([judge_run, "insights", "--problem", os.path.join(REPO, "problems", slug), "--src", src],
+                           capture_output=True, text=True, env={**os.environ, "CODEJUDGE_PROBLEMS_TESTS_DIR": root})
+        if r.returncode != 0:
+            sys.exit(f"{slug}: {name} on the ladder: {r.stderr.strip()}")
+        rep = json.loads(r.stdout.splitlines()[0])
+        if rep["status"] != "ok" or rep.get("stopped_by"):
+            sys.exit(f"{slug}: {name} did not finish the ladder: {rep['status']} {rep.get('stopped_by', '')}")
+        ref = {"lang": lang, "class": rep["time"]["class"]}
+        if ref["class"] not in ("fast", "unclear"):
+            return ref
+        first = first or ref
+    return first
 
 
 def main():
