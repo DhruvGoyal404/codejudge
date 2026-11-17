@@ -232,11 +232,11 @@ export const api = {
     return request<HistoryPage>(`/me/submissions${qs ? `?${qs}` : ""}`);
   },
   submission: (id: string) => request<Submission>(`/submissions/${encodeURIComponent(id)}`),
-  run: (problemSlug: string, language: Language, source: string, input: string) =>
+  run: (problemSlug: string, language: Language, source: string, input: string, trace = false) =>
     request<{ id: string }>("/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ problemSlug, language, source, input }),
+      body: JSON.stringify({ problemSlug, language, source, input, ...(trace ? { trace: true } : {}) }),
     }),
   getRun: (id: string) => request<RunState>(`/runs/${encodeURIComponent(id)}`),
   insight: (id: string) => request<Insight>(`/submissions/${encodeURIComponent(id)}/insights`),

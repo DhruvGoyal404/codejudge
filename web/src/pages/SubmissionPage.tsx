@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router";
 import { api, ApiError, LANGUAGES, NetworkError } from "../api.ts";
 import { ErrorBanner } from "../components/Layout.tsx";
 import { InsightsPanel } from "../components/InsightsPanel.tsx";
+import { TracerSection } from "../components/TracerSection.tsx";
 import { ResultPanel } from "../components/ResultPanel.tsx";
 import { useTitle } from "../lib/useTitle.ts";
 
@@ -56,6 +57,9 @@ export function SubmissionPage({ dark }: { dark: boolean }) {
       )}
 
       {s.mine && s.status === "done" && <InsightsPanel id={s.id} />}
+      {s.mine && s.language === "python" && s.source !== undefined && problem.data?.samples[0] && (
+        <TracerSection slug={s.problem_slug} source={s.source} sample={problem.data.samples[0]} />
+      )}
 
       <section aria-label="Submitted code">
         <h2 className="mb-2 font-semibold">Code</h2>

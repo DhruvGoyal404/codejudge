@@ -23,12 +23,12 @@ export function useRun() {
 
   useEffect(() => () => void token.current++, []);
 
-  const start = useCallback(async (slug: string, language: Language, source: string, input: string) => {
+  const start = useCallback(async (slug: string, language: Language, source: string, input: string, trace = false) => {
     const mine = ++token.current;
     setState({ phase: "starting" });
     let id: string;
     try {
-      id = (await api.run(slug, language, source, input)).id;
+      id = (await api.run(slug, language, source, input, trace)).id;
     } catch (err) {
       if (mine === token.current) setState({ phase: "error", message: runErrorMessage(err) });
       return;
