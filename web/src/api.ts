@@ -159,6 +159,16 @@ export interface InsightReport {
   cpu_spent_ms: number;
 }
 
+export interface SimilaritySide {
+  id: string;
+  login: string;
+  language: string;
+  verdict: string;
+  created_at: string;
+  source: string;
+  regions: [number, number][];
+}
+
 export interface Insight {
   eligible: boolean;
   reason: string | null;
@@ -240,6 +250,14 @@ export const api = {
       body: JSON.stringify({ problemSlug, language, source, input, ...(trace ? { trace: true } : {}) }),
     }),
   getRun: (id: string) => request<RunState>(`/runs/${encodeURIComponent(id)}`),
+  similarity: (problem: string) =>
+    request<{ problem: string; threshold: number; submitters: number; pairs: { a: string; b: string; shared: number; similarity: number }[] }>(
+      `/admin/similarity?problem=${encodeURIComponent(problem)}`,
+    ),
+  similarityPair: (a: string, b: string) =>
+    request<{ threshold: number; similarity: number; a: SimilaritySide; b: SimilaritySide }>(
+      `/admin/similarity/pair?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    ),
   insight: (id: string) => request<Insight>(`/submissions/${encodeURIComponent(id)}/insights`),
   analyze: (id: string) => request<Insight>(`/submissions/${encodeURIComponent(id)}/insights`, { method: "POST" }),
   submit: (problemSlug: string, language: Language, source: string) =>

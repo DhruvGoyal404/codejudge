@@ -6,6 +6,7 @@ import { NotFound } from "./pages/NotFound.tsx";
 import { ProblemList } from "./pages/ProblemList.tsx";
 import { ProblemPage } from "./pages/ProblemPage.tsx";
 import { ProfilePage } from "./pages/ProfilePage.tsx";
+import { SimilarityPage } from "./pages/SimilarityPage.tsx";
 import { SubmissionPage } from "./pages/SubmissionPage.tsx";
 
 export function App() {
@@ -18,6 +19,7 @@ export function App() {
         <Route path="/problems/:slug" element={<ProblemPage dark={dark} />} />
         <Route path="/submissions/:id" element={<SubmissionPage dark={dark} />} />
         <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/admin/similarity" element={<SimilarityPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Layout>
