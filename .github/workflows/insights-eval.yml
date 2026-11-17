@@ -49,6 +49,7 @@ jobs:
       - name: Build sandbox images
         run: pwsh -NoProfile -File scripts/build-images.ps1
       - name: Ladders reproduce from their seeded generators
+        if: ${{ !inputs.references }}
         run: python3 scripts/make-ladders.py --check
       - name: Measure references
         if: inputs.references
