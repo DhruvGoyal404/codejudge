@@ -322,7 +322,7 @@ function Workspace({ problem, dark }: { problem: Problem; dark: boolean }) {
             <RunPanel samples={problem.samples} input={input} onInput={setInput} run={run.state} />
           </div>
           <div id="panel-result" role="tabpanel" aria-labelledby="tab-result" hidden={tab !== "result"} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto p-3">
-            <ResultPanel state={state} samples={problem.samples} />
+            <ResultPanel state={state} samples={problem.samples} insights />
             <MySubmissions slug={problem.slug} activeId={activeId} onOpen={(id) => dispatch({ type: "SHOW", id })} />
           </div>
         </div>

@@ -1,6 +1,7 @@
 import type { Sample, Submission } from "../api.ts";
 import { stageLabel, type JudgeState } from "../lib/judgeState.ts";
 import { DiffView } from "./DiffView.tsx";
+import { InsightsTeaser } from "./InsightsPanel.tsx";
 import { ErrorBanner } from "./Layout.tsx";
 import { VerdictBadge } from "./VerdictBadge.tsx";
 
@@ -19,7 +20,8 @@ function stepIndex(s: JudgeState): number {
   }
 }
 
-export function ResultPanel({ state, samples }: { state: JudgeState; samples: Sample[] }) {
+/** insights: show the Insights entry point under the verdict (the problem page; the submission page has the full panel). */
+export function ResultPanel({ state, samples, insights = false }: { state: JudgeState; samples: Sample[]; insights?: boolean }) {
   if (state.phase === "idle") {
     return <p className="text-sm text-muted">Submit to judge your code on every test (Ctrl+Enter). The verdict appears here.</p>;
   }
@@ -67,6 +69,7 @@ export function ResultPanel({ state, samples }: { state: JudgeState; samples: Sa
       {state.phase === "running" && state.progress?.stage === "testing" && (
         <progress className="h-2 w-full" max={state.progress.total} value={state.progress.test} aria-label="Test progress" />
       )}
+      {insights && state.phase === "done" && state.submission.verdict && <InsightsTeaser id={state.submission.id} verdict={state.submission.verdict} />}
       {state.phase === "done" && <Details submission={state.submission} samples={samples} />}
     </section>
   );

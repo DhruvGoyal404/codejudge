@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Insight } from "../api.ts";
-import { bigO, InsightsPanel } from "./InsightsPanel.tsx";
+import { bigO, InsightsPanel, InsightsTeaser } from "./InsightsPanel.tsx";
 
 const quadTLE: Insight = {
   eligible: true,
@@ -81,5 +82,35 @@ describe("InsightsPanel", () => {
     show({ ...quadTLE, report: { ...quadTLE.report!, stopped_by: undefined, predicted_ms: undefined, time: { class: "fast", confidence: 0, offset: 0, scale: 0 } } });
     expect(await screen.findByTestId("insights-headline")).toHaveTextContent("too fast");
     expect(screen.queryByText(/Confidence/)).toBeNull();
+  });
+});
+
+function teaser(data: Insight, verdict = "TLE") {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(data), { status: 200 })));
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <InsightsTeaser id="00000000-0000-4000-8000-000000000000" verdict={verdict} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("InsightsTeaser (under the verdict on the problem page)", () => {
+  it("summarizes a cached result and links to the full panel", async () => {
+    teaser(quadTLE);
+    expect(await screen.findByTestId("insights-teaser")).toHaveTextContent("grows like O(n²)");
+    expect(screen.getByTestId("insights-link")).toHaveAttribute("href", "/submissions/00000000-0000-4000-8000-000000000000#insights");
+  });
+
+  it("offers the analysis when there is none yet", async () => {
+    teaser({ ...quadTLE, status: "none", report: null });
+    expect(await screen.findByRole("button", { name: "Analyze my solution" })).toBeInTheDocument();
+  });
+
+  it("stays out of the way for other verdicts", () => {
+    const { container } = teaser(quadTLE, "WA");
+    expect(container).toBeEmptyDOMElement();
   });
 });

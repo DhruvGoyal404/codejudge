@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { Link } from "react-router";
 
 import { api, ApiError, type Insight, type InsightReport, type InsightStep } from "../api.ts";
 
@@ -186,6 +188,10 @@ function Hints({ hints }: { hints: Insight["hints"] }) {
 /** Insights on the submission page: only for the submission's owner (the API enforces it). */
 export function InsightsPanel({ id }: { id: string }) {
   const qc = useQueryClient();
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (window.location.hash === "#insights") ref.current?.scrollIntoView({ block: "start" });
+  }, []);
   const q = useQuery({
     queryKey: ["insight", id],
     queryFn: () => api.insight(id),
@@ -202,7 +208,7 @@ export function InsightsPanel({ id }: { id: string }) {
       : start.error?.message;
 
   return (
-    <section aria-labelledby="insights-h" className="rounded border border-line p-4" data-testid="insights">
+    <section id="insights" ref={ref} aria-labelledby="insights-h" className="scroll-mt-4 rounded border border-line p-4" data-testid="insights">
       <h2 id="insights-h" className="font-semibold">Insights</h2>
       <p className="mb-3 text-xs text-muted">How your solution's time grows with input size: measured in the sandbox, not guessed.</p>
       {q.isPending ? (
@@ -229,3 +235,58 @@ export function InsightsPanel({ id }: { id: string }) {
     </section>
   );
 }
+
+const ANALYZABLE = new Set(["AC", "TLE", "MLE"]);
+
+/**
+ * One line under a verdict on the problem page: the cached result, an
+ * analysis in progress, or the button that starts one, and a link to the full
+ * panel on the submission page.
+ */
+export function InsightsTeaser({ id, verdict }: { id: string; verdict: string }) {
+  const qc = useQueryClient();
+  const enabled = ANALYZABLE.has(verdict);
+  const q = useQuery({
+    queryKey: ["insight", id],
+    queryFn: () => api.insight(id),
+    enabled,
+    refetchInterval: (query) => (query.state.data?.status === "queued" || query.state.data?.status === "running" ? 2000 : false),
+  });
+  const start = useMutation({ mutationFn: () => api.analyze(id), onSuccess: (data: Insight) => qc.setQueryData(["insight", id], data) });
+  const i = q.data;
+  if (!enabled || !i || !i.eligible) return null;
+  const link = (
+    <Link to={`/submissions/${id}#insights`} className="text-accent underline" data-testid="insights-link">
+      View insights
+    </Link>
+  );
+  const r = i.report;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="insights-teaser">
+      {i.status === "done" && r ? (
+        <>
+          <span>
+            <span className="text-muted">Measured: </span>
+            {r.time.class === "fast" ? "too fast to show growth" : r.time.class === "unclear" ? "growth unclear" : `grows like ${bigO(r.time.class)}`}
+          </span>
+          {link}
+        </>
+      ) : i.status === "queued" || i.status === "running" ? (
+        <>
+          <span className="text-muted" aria-live="polite">Analyzing how your solution scales…</span>
+          {link}
+        </>
+      ) : (
+        <>
+          <button type="button" onClick={() => start.mutate()} disabled={start.isPending}
+            className="rounded border border-accent px-2 py-0.5 text-sm font-medium text-accent disabled:opacity-60" data-testid="insights-teaser-start">
+            {start.isPending ? "Starting…" : "Analyze my solution"}
+          </button>
+          <span className="text-xs text-muted">See how its running time grows with input size.</span>
+          {start.error && <span role="alert" className="text-hard-fg">{start.error instanceof ApiError && start.error.status === 429 ? "Too many analyses; try again in a minute." : start.error.message}</span>}
+        </>
+      )}
+    </div>
+  );
+}
+
