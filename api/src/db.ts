@@ -72,7 +72,7 @@ export class Db {
   /** Statement + public samples only. Hidden tests are not in the database at all. */
   async getProblem(slug: string) {
     const p = await this.pool.query(
-      `SELECT id, slug, title, difficulty, tags, statement_md, time_limit_ms, memory_limit_mb, checker
+      `SELECT id, slug, title, difficulty, tags, statement_md, time_limit_ms, time_limits_ms, memory_limit_mb, checker
          FROM problems WHERE slug = $1`,
       [slug],
     );

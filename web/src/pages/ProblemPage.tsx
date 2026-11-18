@@ -18,6 +18,7 @@ import { useMediaQuery } from "../lib/useMediaQuery.ts";
 import { useRun } from "../lib/useRun.ts";
 import { useTitle } from "../lib/useTitle.ts";
 import { useSubmissionStream } from "../lib/useSubmissionStream.ts";
+import { limitsByLanguage } from "../lib/timeLimits.ts";
 
 const CodeEditor = lazy(() => import("../editor/CodeEditor.tsx"));
 
@@ -350,6 +351,11 @@ function StatementBody({ problem }: { problem: Problem }) {
         <span>Time limit: {problem.time_limit_ms / 1000} s per test</span>
         <span>At most 60 s CPU per submission in total</span>
         <span>Memory limit: {problem.memory_limit_mb} MB</span>
+        {limitsByLanguage(problem.time_limits_ms) && (
+          <span className="basis-full" data-testid="time-limits">
+            Per language (as judged): {limitsByLanguage(problem.time_limits_ms)}
+          </span>
+        )}
       </div>
     </header>
     <article className="max-w-none space-y-3 text-sm leading-relaxed [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_h2]:mt-5 [&_h2]:text-base [&_h2]:font-semibold [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-surface [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0">

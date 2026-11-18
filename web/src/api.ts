@@ -42,6 +42,8 @@ export interface Sample {
 
 export interface Problem extends ProblemSummary {
   statement_md: string;
+  /** Per-test limit the judge enforces per language (limit × language multiplier); null before the next import. */
+  time_limits_ms: Partial<Record<Language, number>> | null;
   checker: { type: string; abs_eps?: number; rel_eps?: number };
   samples: Sample[];
 }

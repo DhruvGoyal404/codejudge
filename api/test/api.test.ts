@@ -74,6 +74,8 @@ describe("health and problems", () => {
     expect(r.status).toBe(200);
     expect(r.body.statement_md).toContain("Ledger Total");
     expect(r.body).toMatchObject({ difficulty: "easy", tags: ["math", "implementation"] });
+    // The judge's effective limits (1 s x default multipliers), computed at import.
+    expect(r.body.time_limits_ms).toEqual({ c: 1000, cpp: 1000, go: 2000, python: 2000, java: 2000, javascript: 2000 });
     expect(r.body.samples.map((s: { name: string }) => s.name)).toEqual(["01", "02"]);
     expect(r.body).not.toHaveProperty("id");
     // Exactly the public samples (problems/<slug>/samples), byte for byte.

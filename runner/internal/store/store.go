@@ -63,6 +63,14 @@ func UpsertProblem(ctx context.Context, pool *pgxpool.Pool, p *problem.Problem) 
 	if err != nil {
 		return ImportResult{}, err
 	}
+	limits := map[string]int64{} // what the judge enforces per language, for the problem page
+	for l := range p.Multipliers {
+		limits[l] = p.EffectiveTimeLimit(l).Milliseconds()
+	}
+	limitsJSON, err := json.Marshal(limits)
+	if err != nil {
+		return ImportResult{}, err
+	}
 	res := ImportResult{Slug: p.ID, Hash: hash}
 	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		var old *string
@@ -72,16 +80,16 @@ func UpsertProblem(ctx context.Context, pool *pgxpool.Pool, p *problem.Problem) 
 		res.Changed = old == nil || *old != hash
 		var id int64
 		err := tx.QueryRow(ctx, `
-			INSERT INTO problems (slug, title, statement_md, time_limit_ms, memory_limit_mb, checker, content_hash, difficulty, tags)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			INSERT INTO problems (slug, title, statement_md, time_limit_ms, memory_limit_mb, checker, content_hash, difficulty, tags, time_limits_ms)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			ON CONFLICT (slug) DO UPDATE SET
 				title = EXCLUDED.title, statement_md = EXCLUDED.statement_md,
 				time_limit_ms = EXCLUDED.time_limit_ms, memory_limit_mb = EXCLUDED.memory_limit_mb,
 				checker = EXCLUDED.checker, content_hash = EXCLUDED.content_hash,
-				difficulty = EXCLUDED.difficulty, tags = EXCLUDED.tags,
+				difficulty = EXCLUDED.difficulty, tags = EXCLUDED.tags, time_limits_ms = EXCLUDED.time_limits_ms,
 				updated_at = CASE WHEN problems.content_hash = EXCLUDED.content_hash THEN problems.updated_at ELSE now() END
 			RETURNING id`,
-			p.ID, p.Title, p.Statement, p.TimeLimit.Milliseconds(), p.MemoryMB, checker, hash, p.Difficulty, p.Tags).Scan(&id)
+			p.ID, p.Title, p.Statement, p.TimeLimit.Milliseconds(), p.MemoryMB, checker, hash, p.Difficulty, p.Tags, limitsJSON).Scan(&id)
 		if err != nil {
 			return err
 		}

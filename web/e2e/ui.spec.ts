@@ -123,6 +123,8 @@ for (const theme of ["light", "dark"] as const) {
       window.localStorage.removeItem("codejudge:draft:range-ledger:cpp");
     });
     await page.reload();
+    // The judge's own per-language limits (1 s x default multipliers), from the import.
+    await expect(page.getByTestId("time-limits")).toHaveText("Per language (as judged): C/C++ 1 s · Go/Java/JS/Python 2 s");
 
     // The input starts as sample 01; a correct program matches its expected output.
     await enterCode(page, RANGE_LEDGER_OK, "prefix");
