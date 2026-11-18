@@ -78,6 +78,11 @@ describe("InsightsPanel", () => {
     expect(screen.getByTestId("insights-hints")).toHaveTextContent("not the verdict");
   });
 
+  it("says when the reference is too fast to measure", async () => {
+    show({ ...quadTLE, reference: "fast" });
+    expect(await screen.findByTestId("insights-reference")).toHaveTextContent("too fast");
+  });
+
   it("never claims a class when the program was too fast to measure", async () => {
     show({ ...quadTLE, report: { ...quadTLE.report!, stopped_by: undefined, predicted_ms: undefined, time: { class: "fast", confidence: 0, offset: 0, scale: 0 } } });
     expect(await screen.findByTestId("insights-headline")).toHaveTextContent("too fast");

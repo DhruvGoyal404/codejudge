@@ -160,6 +160,9 @@ function Result({ r, reference, label }: { r: InsightReport; reference: string |
           {claim && reference !== r.time.class ? "." : ", like yours."}
         </p>
       )}
+      {reference === "fast" && (
+        <p className="text-sm" data-testid="insights-reference">The reference solution is too fast at every allowed size for its growth to show.</p>
+      )}
       {note && <p className="text-sm" data-testid="insights-limit">{note}</p>}
       <GrowthChart r={r} />
       {r.steps && <Steps steps={r.steps} />}
