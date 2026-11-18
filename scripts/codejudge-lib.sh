@@ -21,7 +21,16 @@ REPO=DhruvGoyal404/codejudge
 COMPOSE_PROJECT=codejudge-prod # deploy/compose.prod.yaml "name:"
 FINAL_PREFIX=codejudge/final/  # never expires (infra/: only codejudge/pg/ does)
 RELEASE_KEY=codejudge/final/release.json # the release live at the last down: up redeploys it
-ECR_MAX_BYTES=$((3 * 1073741824)) # the registries keep 2 releases (~2.5 GB); more means something piles up
+# Expected ECR: 2 releases (current + previous) of the 10 codejudge/* images,
+# ~1.33 GiB each as ECR reported them on 2026-11-18 (cpp-compile 487 MiB,
+# go-compile 348, java-compile 203, java-run 97, node 78, api 65, python 45,
+# web 24, worker 13, cpp-run 1) = ~2.66 GiB, ~$0.27/month (shared layers make
+# the real bill lower). Flagged above 3.2 GiB: ~20% room for image growth,
+# while a third release (~4 GiB) still trips it.
+ECR_MAX_BYTES=$((32 * 1073741824 / 10))
+ECR_MAX_LABEL="3.2 GiB"
+ECR_PREFIX=codejudge/            # CodeJudge's repos; others in this account belong to other projects
+CDK_ASSETS_PREFIX=cdk-hnb659fds- # the CDK bootstrap's asset bucket and repo, which CodeJudge deploys through
 NIGHTLY_PREFIX=codejudge/pg/   # the only prefix the host may read and write
 KEEP_FINAL=5
 # On-demand prices, ap-south-1, from the AWS Pricing API (2026-10-30).
@@ -95,7 +104,10 @@ cdk_() {
   (
     cd "$ROOT/infra" || exit 1
     [ -d node_modules ] || npm ci --no-audit --no-fund >&2
-    npx cdk "$@" -c alarmEmail="$ALARM_EMAIL" -c budgetEmail="$BUDGET_EMAIL" --require-approval never --progress events
+    # --require-approval and --progress are deploy options; destroy warns "Unknown option(s)".
+    local extra=()
+    [ "$1" = deploy ] && extra=(--require-approval never --progress events)
+    npx cdk "$@" -c alarmEmail="$ALARM_EMAIL" -c budgetEmail="$BUDGET_EMAIL" "${extra[@]}"
   )
 }
 stack_exists() {
@@ -191,11 +203,40 @@ newest() {
   printf '%s\n' "$keys" | tr '\t' '\n' | { grep -E "$2" || true; } | sort | tail -n 1
 }
 
+# --- ECR ------------------------------------------------------------------------
+codejudge_repos() {
+  aws_ ecr describe-repositories --query "repositories[?starts_with(repositoryName, '$ECR_PREFIX')].repositoryName" --output text | tr '\t' '\n' | tr -d '\r' | grep . || true
+}
+# ecr_prune: applies the repos' lifecycle rule (keep the 2 newest images) now.
+# ECR applies it up to a day after a push, so a down right after `up --build`
+# would still store 3 releases. Never removes an image of the saved release
+# (codejudge/final/release.json), even one outside the 2 newest.
+ecr_prune() {
+  local keep repo d tags
+  keep=$(aws_ s3 cp "s3://$BUCKET/$RELEASE_KEY" - 2>/dev/null | jq -r '.images | .. | strings | select(contains("@sha256:")) | split("@")[1]' || true)
+  for repo in $(codejudge_repos); do
+    while read -r d tags; do
+      [ -n "$d" ] || continue
+      if grep -qxF "$d" <<<"$keep"; then
+        echo "kept $repo ${tags:0:12}: the saved release" >&2
+        continue
+      fi
+      aws_ ecr batch-delete-image --repository-name "$repo" --image-ids imageDigest="$d" >/dev/null
+      echo "pruned $repo ${tags:0:12} (older than the 2 newest releases)" >&2
+    done < <(aws_ ecr describe-images --repository-name "$repo" \
+      --query 'reverse(sort_by(imageDetails,&imagePushedAt))[].[imageDigest, join(`,`, imageTags || [`-`])]' --output text |
+      tr -d '\r' | tail -n +3)
+  done
+}
+
 # --- audit ------------------------------------------------------------------------
 # audit: everything that can still bill, with its idle cost. Exits non-zero
-# ("STILL BILLING") if anything beyond a few MB of S3 remains.
+# ("STILL BILLING") if anything beyond CodeJudge's expected storage remains.
+# Storage is scoped to CodeJudge (codejudge/* repos, its backup bucket, the CDK
+# bootstrap assets); other projects' repos and buckets in the account are
+# listed, never counted.
 audit() {
-  local bad=0 n v line region
+  local bad=0 n v line region other=0
   log "Audit: what can still bill"
   report() { # report BILLING? WHAT
     if [ "$1" = yes ]; then printf '  \033[31m%-6s\033[0m %s\n' BILLS "$2"; bad=1; else printf '  %-6s %s\n' ok "$2"; fi
@@ -221,20 +262,32 @@ audit() {
     [ -n "$line" ] || continue
     n=$(aws_ ecr describe-images --repository-name "$line" --query 'sum(imageDetails[].imageSizeInBytes)' --output text)
     [ "$n" = None ] && n=0
-    v=$((v + n))
-    [ "$n" = 0 ] || echo "         ECR $line: $((n / 1048576)) MiB" >&2
+    case $line in
+      "$ECR_PREFIX"* | "$CDK_ASSETS_PREFIX"*)
+        v=$((v + n))
+        [ "$n" = 0 ] || echo "         ECR $line: $((n / 1048576)) MiB" >&2 ;;
+      *)
+        other=$((other + n))
+        echo "         ECR $line: $((n / 1048576)) MiB (other project, not CodeJudge)" >&2 ;;
+    esac
   done < <(aws_ ecr describe-repositories --query 'repositories[].repositoryName' --output text | tr '\t' '\n' | tr -d '\r')
   # Expected: the current and previous release, kept so up needs no rebuild.
-  report "$([ "$v" -le "$ECR_MAX_BYTES" ] && echo no || echo yes)" "ECR image storage: $((v / 1048576)) MiB, expected (current + previous release): ~\$$(awk "BEGIN{printf \"%.2f\", $v/1073741824*0.10}")/month (\$0.10/GB-month; flagged above 3 GB)"
-  # S3: a few MB of backups are expected and cost ~nothing.
+  report "$([ "$v" -le "$ECR_MAX_BYTES" ] && echo no || echo yes)" "CodeJudge ECR: $((v / 1048576)) MiB, expected (current + previous release, ~2.7 GiB): ~\$$(awk "BEGIN{printf \"%.2f\", $v/1073741824*0.10}")/month (\$0.10/GB-month; flagged above $ECR_MAX_LABEL)"
+  # S3: CodeJudge's backups and the CDK assets: a few MB, ~nothing a month.
   v=0
   for n in $(aws_ s3api list-buckets --query 'Buckets[].Name' --output text | tr -d '\r'); do
     line=$(aws_ s3api list-objects-v2 --bucket "$n" --query 'sum(Contents[].Size)' --output text 2>/dev/null || echo 0)
     [ "$line" = None ] && line=0
-    v=$((v + line))
-    echo "         S3 $n: $((line / 1024)) KiB" >&2
+    if [ "$n" = "$BUCKET" ] || [[ "$n" == "$CDK_ASSETS_PREFIX"* ]]; then
+      v=$((v + line))
+      echo "         S3 $n: $((line / 1024)) KiB" >&2
+    else
+      other=$((other + line))
+      echo "         S3 $n: $((line / 1048576)) MiB (other project, not CodeJudge)" >&2
+    fi
   done
-  report "$([ "$v" -lt $((100 * 1048576)) ] && echo no || echo yes)" "S3 storage: $((v / 1024)) KiB in all (\$0.025/GB-month: ~\$$(awk "BEGIN{printf \"%.4f\", $v/1073741824*0.025}")/month)"
+  report "$([ "$v" -lt $((100 * 1048576)) ] && echo no || echo yes)" "CodeJudge S3: $((v / 1024)) KiB (\$0.025/GB-month: ~\$$(awk "BEGIN{printf \"%.4f\", $v/1073741824*0.025}")/month)"
+  printf '  %-6s %s\n' info "other projects (not CodeJudge): $((other / 1048576)) MiB of ECR + S3, not counted here" >&2
   n=$(aws_ secretsmanager list-secrets --query 'length(SecretList)' --output text)
   report "$([ "$n" = 0 ] && echo no || echo yes)" "Secrets Manager secrets: $n (\$0.40/month each; SSM standard parameters are free)"
   n=0
@@ -261,5 +314,5 @@ audit() {
     printf '\n\033[41;97m STILL BILLING: see the BILLS lines above \033[0m\n' >&2
     return 1
   fi
-  printf '\n\033[42;30m Audit clean: nothing bills beyond a few KB of S3 backups (~\$0/month) \033[0m\n' >&2
+  printf '\n\033[42;30m Audit clean: CodeJudge bills only its expected storage (ECR releases + S3 backups, above) \033[0m\n' >&2
 }

@@ -114,7 +114,8 @@ fi
 # also removes the host that still lived in it.
 cdk_ deploy "$PERSISTENT" --exclusively
 
-log "5/5 Audit"
+log "5/5 Prune images older than the 2 newest releases, then audit"
+ecr_prune
 if audit; then
   printf '\n\033[1mCodeJudge is DOWN.\033[0m Data: %s (%s). Bring it back: ./codejudge-up.sh\n' \
     "$(newest "$FINAL_PREFIX" '\.dump$')" "$(date -u +%FT%TZ)" >&2

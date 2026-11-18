@@ -45,8 +45,14 @@ failed run: every step checks first.
 5. Audits everything that can bill (EC2, EBS volumes and snapshots, Elastic
    IPs, public IPv4, NAT, load balancers, ECR, S3, Secrets Manager, KMS,
    CloudWatch alarms and logs, and instances/IPs/volumes in every other
-   region). ECR is listed as expected with its size and monthly cost.
-   Anything else left, or ECR above 3 GB, prints **STILL BILLING** and exits 1.
+   region). Storage is scoped to CodeJudge: the `codejudge/*` ECR repos, its
+   backup bucket and the CDK bootstrap assets. Other projects' repos and
+   buckets in the account are listed as "other projects (not CodeJudge)" and
+   never fail the audit. First, each `codejudge/*` repo is pruned to its 2
+   newest images (its lifecycle rule, which ECR applies only up to a day after
+   a push), never removing the saved release. CodeJudge storage is listed as
+   expected with its monthly cost (ECR ~2.7 GiB, ~$0.27/month). Anything else
+   left, or CodeJudge ECR above 3.2 GiB, prints **STILL BILLING** and exits 1.
 
 **What `codejudge-up.sh` does**
 1. Deploys `CodeJudgeHost` (and keeps `CodeJudgeProd` current).
