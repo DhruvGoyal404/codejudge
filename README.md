@@ -111,7 +111,7 @@ Design, threat model and evals: [docs/INSIGHTS.md](docs/INSIGHTS.md).
 - *TLEs:* the fit extrapolates to the largest allowed n, e.g. "at n = 10⁵
   the fit predicts about 9 s against a 1 s limit".
 
-| Eval: 156 labelled programs, 6 languages, ladders for all 72 problems with slow solutions; GitHub runner under gVisor | Quiet | Under CPU load |
+| Eval: 156 labelled programs, 6 languages, ladders for all 100 problems; GitHub runner under gVisor | Quiet | Under CPU load |
 |---|---|---|
 | Precision: claims that were right | **84/85 (98.8%)** | **91/91 (100%)** |
 | Measurable programs named correctly, all languages | **75/83 (90%)** | **80/87 (92%)** |

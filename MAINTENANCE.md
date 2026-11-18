@@ -158,8 +158,8 @@ Design and evals: docs/INSIGHTS.md. The parts that need a person:
 - **Known gaps:**
   - Java and JavaScript are measured in one process (10 ms clock ticks), and
     are right on about 3 in 4 measurable programs. The rest are "unclear".
-  - All 72 problems with slow solutions have ladders; the 28 without one show
-    "not available yet".
+  - All 100 problems have ladders (every one has an input size that grows). A
+    new problem needs a `gen/ladder.py` before Insights works on it.
   - Occasional IE instead of MLE for `mle.py` under runsc: the OOM kill can
     beat judge-exec's report. Seen once in CI; not yet reproduced.
 
