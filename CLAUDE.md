@@ -5,7 +5,7 @@ LeetCode-style online judge. Researcher (web Claude) writes specs; you implement
 ## Architecture
 
 Target: React+Monaco → API (Express+TS) → Postgres; API → Valkey Streams → Go worker → sandbox containers.
-Built so far (Phases 3–5): `web/` (Vite 8 + React 19 + Monaco, dev proxy /api → API) → `api/` (Express 5, TS) ↔ Postgres 18 + Valkey 9.1 (compose) ↔ `runner/cmd/judge-worker` (Go) → sandbox. `judge-admin import problems/` loads problem metadata + content_hash + samples; test files stay on disk for workers only. Hidden tests, generators and solutions live in the PRIVATE repo `codejudge-problems` (`$CODEJUDGE_PROBLEMS_TESTS_DIR/<slug>/{tests,gen,solutions}`); this repo has `problems/<slug>/{problem.yaml,statement.md,samples/}` only. See docs/PHASE3.md. Auth (GitHub OAuth, sessions), limits and history: docs/PHASE5.md; GitHub credentials in gitignored `api/.env` (see `api/.env.example`).
+Built so far (Phases 3–5): `web/` (Vite 8 + React 19 + Monaco, dev proxy /api → API) → `api/` (Express 5, TS) ↔ Postgres 18 + Valkey 9.1 (compose) ↔ `runner/cmd/judge-worker` (Go) → sandbox. `judge-admin import problems/` loads problem metadata + content_hash + samples; test files stay on disk for workers only. Hidden tests, generators and solutions live in the PRIVATE repo `codejudge-problems` (`$CODEJUDGE_PROBLEMS_TESTS_DIR/<slug>/{tests,gen,solutions}`); this repo has `problems/<slug>/{problem.yaml,statement.md,samples/}` only. See docs/PHASE3.md. Insights ladders live in the private repo too (`<slug>/gen/ladder.py`, `ladder/NN.in`, `ladder.json`; inputs never uploaded as public CI artifacts); every new problem needs one. Auth (GitHub OAuth, sessions), limits and history: docs/PHASE5.md; GitHub credentials in gitignored `api/.env` (see `api/.env.example`).
 
 Compose (project `codejudge`, credentials in gitignored `.env`):
 - `docker compose up -d --wait` · `docker compose run --rm migrate up` · `docker compose down` (volumes kept)
@@ -22,6 +22,7 @@ Compose (project `codejudge`, credentials in gitignored `.env`):
 | 4 | frontend ✅ |
 | 5 | auth/rate-limit/history ✅ |
 | 6 | deploy EC2 + gVisor (runsc) + CI ✅ (live only on demand: see Production) |
+| Insights | complexity from measured size ladders (100/100 problems), Python tracer, admin similarity, hints ✅ (docs/INSIGHTS.md; eval precision 84/85 quiet, 91/91 under load; Java/JS in-process 10/14, 11/14; host gVisor release-20261102.0) |
 | 7 | stretch: collab mode (Yjs) |
 
 ## Production (normally DOWN)

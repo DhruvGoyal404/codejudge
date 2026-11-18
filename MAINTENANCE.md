@@ -157,7 +157,12 @@ Design and evals: docs/INSIGHTS.md. The parts that need a person:
   `UPDATE users SET is_admin = true WHERE login = '<github login>';`
 - **Known gaps:**
   - Java and JavaScript are measured in one process (10 ms clock ticks), and
-    are right on about 3 in 4 measurable programs. The rest are "unclear".
+    are right on about 3 in 4 measurable programs (10/14 quiet, 11/14 under
+    load). The rest are "unclear".
+  - The panel's time limit is the judge's limit for the language (problem
+    limit × language multiplier), so it can be larger than the problem page's;
+    the panel names both. Reports cached before 2026-11-18 show only the
+    effective limit.
   - All 100 problems have ladders (every one has an input size that grows). A
     new problem needs a `gen/ladder.py` before Insights works on it.
   - Occasional IE instead of MLE for `mle.py` under runsc: the OOM kill can

@@ -109,7 +109,9 @@ Design, threat model and evals: [docs/INSIGHTS.md](docs/INSIGHTS.md).
   always reported together, because over a ladder a log factor is as large
   as measurement noise.
 - *TLEs:* the fit extrapolates to the largest allowed n, e.g. "at n = 10⁵
-  the fit predicts about 9 s against a 1 s limit".
+  the fit predicts about 9 s against a 1 s limit". The limit is the judge's
+  for that language: the problem's limit times the language multiplier
+  (×2 for Python, Java, JavaScript and Go by default), and the panel says so.
 
 | Eval: 156 labelled programs, 6 languages, ladders for all 100 problems; GitHub runner under gVisor | Quiet | Under CPU load |
 |---|---|---|
@@ -175,7 +177,8 @@ The code being run is hostile by assumption. Several independent layers
 contain it:
 
 - **gVisor (`runsc`).** The program's system calls go to gVisor's user-space
-  kernel, not the host kernel.
+  kernel, not the host kernel (release-20261102.0, which honors the seccomp
+  profile's `errnoRet`).
 - **seccomp.** An explicit, strict profile: no SysV IPC, message queues or
   `keyctl`, and no namespace creation through `clone`/`unshare`.
 - **No privileges.** Every capability is dropped, `no-new-privileges` is

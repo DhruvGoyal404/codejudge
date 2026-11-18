@@ -32,7 +32,8 @@ limits and the same batch container as judging.
 - **Baseline:** startup is subtracted, using an empty program in the same
   language measured once per worker.
 - **Stopping:** the ladder runs in ascending order and stops at the first run
-  over the per-run cap (the problem's time limit), a crash, or the analysis
+  over the per-run cap (the judge's limit for the language: the problem's
+  limit times the language multiplier, e.g. 1 s × 2 for Python), a crash, or the analysis
   budget (20 s of CPU).
 
 **Fitting.**
@@ -181,7 +182,8 @@ and clone3 with any namespace flag is now ENOSYS under runsc as well as runc.
 ## Results update (2026-11-18): every ladder, and Java/JavaScript in one process
 
 Coverage:
-- **Ladders:** 72/72 problems with slow solutions have a ladder.
+- **Ladders:** 72/72 problems with slow solutions have a ladder (since then
+  100/100; see the final state below).
 - **References:** each was measured on the CI runner, with `ref.py` first and
   `ref.cpp` as the fallback (canal-routes' `ref.py` runs out of memory on a
   deep path).
@@ -202,4 +204,25 @@ Methods:
 | Measurable, all languages | 75/83 (90%) | 80/87 (92%) |
 | C, C++, Go, Python | 65/69 | 69/73 |
 | Java, JavaScript | 10/14 | 11/14 (were 6/18 with one process per size) |
+
+## Final state (2026-11-18)
+
+- **Ladders:** 100/100 problems. Every problem has an input size that grows,
+  so there are no exceptions. The 28 problems without a slow solution got
+  ladders that feed their worst case. field-sums caps its queries at 20,000
+  per size to stay under the 20 MB ladder limit.
+- **References:** all 100 measured on the CI runner. Many easy ones are
+  "fast" (they never show growth within the statement's limits), and the panel
+  says so.
+- **Evals:** the table above (156 programs): precision 84/85 quiet and 91/91
+  under load; Java and JavaScript 10/14 and 11/14.
+- **Time limit shown:** the analysis uses the judge's per-test limit for the
+  submission's language (the problem's limit times the language multiplier).
+  The problem page shows the problem's own limit, so the panel names both,
+  e.g. "the 2.0 s limit for Python 3.12 (the problem's 1.0 s per test × 2)".
+- **Production:** live-checked on 2026-11-18 under gVisor release-20261102.0:
+  Insights (Echo Log in Python: O(n²) at confidence 1.00), the tracer and the
+  similarity page.
+- **Entry points:** the submission page's panel, and a summary or an "Analyze
+  my solution" button under AC, TLE and MLE verdicts on the problem page.
 
