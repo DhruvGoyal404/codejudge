@@ -153,6 +153,9 @@ export interface InsightReport {
   time: InsightFit;
   memory: InsightFit;
   time_limit_ms: number;
+  /** The problem's own limit; time_limit_ms is it times the language multiplier (absent in reports made before 2026-11-18). */
+  base_time_limit_ms?: number;
+  language?: Language;
   max_n: number;
   predicted_ms?: number;
   stopped_by?: string;

@@ -141,7 +141,7 @@ func analyzeInProcess(ctx context.Context, sb *sandbox.Sandbox, p *problem.Probl
 			done = true
 		}
 	}
-	rep := &Report{Status: "ok", Method: "in-process", Label: lad.Label, TimeLimitMs: perSize.Milliseconds(), MaxN: lad.MaxN, Reference: lad.Reference}
+	rep := &Report{Status: "ok", Method: "in-process", Label: lad.Label, TimeLimitMs: perSize.Milliseconds(), BaseLimitMs: p.TimeLimit.Milliseconds(), Language: l.Name, MaxN: lad.MaxN, Reference: lad.Reference}
 	var tp []Point
 	for i := 0; i < used; i++ {
 		if len(cpus[i]) == 0 {

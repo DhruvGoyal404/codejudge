@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { Link } from "react-router";
 
-import { api, ApiError, type Insight, type InsightReport, type InsightStep } from "../api.ts";
+import { api, ApiError, LANGUAGES, type Insight, type InsightReport, type InsightStep } from "../api.ts";
 
 /** "n^2" -> "n²", "2^(n/2)" -> "2^(n/2)" etc., for display as O(...). */
 export function bigO(cls: string): string {
@@ -35,18 +35,26 @@ function headline(r: InsightReport): string {
   return `Your solution's running time grows like ${bigO(t.class)}.`;
 }
 
+/** The judge's per-test limit, saying why it differs from the one on the problem page. */
+export function limitText(r: InsightReport): string {
+  const base = r.base_time_limit_ms;
+  if (!base || base === r.time_limit_ms) return `${fmtMs(r.time_limit_ms)} limit`;
+  const lang = LANGUAGES.find((l) => l.id === r.language)?.label ?? r.language ?? "this language";
+  return `${fmtMs(r.time_limit_ms)} limit for ${lang} (the problem's ${fmtMs(base)} per test × ${+(r.time_limit_ms / base).toFixed(2)}, the language multiplier the judge applies)`;
+}
+
 /** Why it hit the time limit (or would), from the fit. */
 function limitNote(r: InsightReport): string | null {
   const last = r.steps?.at(-1);
   if (r.stopped_by === "TLE" && last) {
     const pred = r.predicted_ms;
     return (
-      `It exceeded the ${fmtMs(r.time_limit_ms)} limit at n = ${fmtN(last.n)}` +
+      `It exceeded the ${limitText(r)} at n = ${fmtN(last.n)}` +
       (pred && r.max_n > last.n ? `; at the largest allowed size (n = ${fmtN(r.max_n)}) the fit predicts about ${fmtMs(pred)}.` : ".")
     );
   }
   if (r.predicted_ms && r.predicted_ms > r.time_limit_ms) {
-    return `At the largest allowed size (n = ${fmtN(r.max_n)}) the fit predicts about ${fmtMs(r.predicted_ms)}, over the ${fmtMs(r.time_limit_ms)} limit.`;
+    return `At the largest allowed size (n = ${fmtN(r.max_n)}) the fit predicts about ${fmtMs(r.predicted_ms)}, over the ${limitText(r)}.`;
   }
   return null;
 }

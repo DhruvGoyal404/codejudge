@@ -92,7 +92,9 @@ type Report struct {
 	BaselineRSSKB int64      `json:"baseline_rss_kb"`
 	Time          Fit        `json:"time"`
 	Memory        Fit        `json:"memory"`
-	TimeLimitMs   int64      `json:"time_limit_ms"`
+	TimeLimitMs   int64      `json:"time_limit_ms"`      // the judge's per-test limit for this language (base x language multiplier)
+	BaseLimitMs   int64      `json:"base_time_limit_ms"` // the problem's own limit, as its page shows it
+	Language      string     `json:"language"`
 	MaxN          float64    `json:"max_n"`
 	PredictedMs   int64      `json:"predicted_ms,omitempty"` // time fit extrapolated to MaxN, baseline included
 	Reference     *Reference `json:"reference,omitempty"`
@@ -134,7 +136,7 @@ func Analyze(ctx context.Context, sb *sandbox.Sandbox, p *problem.Problem, lad *
 		}
 	}
 	lim := sandbox.Limits{TimeLimit: p.EffectiveTimeLimit(l.Name), MemoryMB: p.MemoryMB, LowPriority: true}
-	rep := &Report{Status: "ok", Method: "per-run", Label: lad.Label, TimeLimitMs: lim.TimeLimit.Milliseconds(), MaxN: lad.MaxN, Reference: lad.Reference}
+	rep := &Report{Status: "ok", Method: "per-run", Label: lad.Label, TimeLimitMs: lim.TimeLimit.Milliseconds(), BaseLimitMs: p.TimeLimit.Milliseconds(), Language: l.Name, MaxN: lad.MaxN, Reference: lad.Reference}
 
 	yield := func(release func()) error {
 		if opt.Yield == nil {

@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Insight } from "../api.ts";
-import { bigO, InsightsPanel, InsightsTeaser } from "./InsightsPanel.tsx";
+import { bigO, InsightsPanel, InsightsTeaser, limitText } from "./InsightsPanel.tsx";
 
 const quadTLE: Insight = {
   eligible: true,
@@ -52,6 +52,19 @@ describe("bigO", () => {
     expect(bigO("n or n log n")).toBe("O(n) or O(n log n)");
     expect(bigO("2^(n/2)")).toBe("O(2ⁿᐟ²)");
     expect(bigO("2^n")).toBe("O(2ⁿ)");
+  });
+});
+
+describe("limitText", () => {
+  const r = quadTLE.report!;
+  it("explains a language multiplier", () => {
+    expect(limitText({ ...r, time_limit_ms: 2000, base_time_limit_ms: 1000, language: "python" })).toBe(
+      "2.0 s limit for Python 3.12 (the problem's 1.0 s per test × 2, the language multiplier the judge applies)",
+    );
+  });
+  it("is plain when there is no multiplier or the report predates the field", () => {
+    expect(limitText({ ...r, base_time_limit_ms: 1000, language: "cpp" })).toBe("1.0 s limit");
+    expect(limitText(r)).toBe("1.0 s limit");
   });
 });
 
